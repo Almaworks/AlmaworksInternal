@@ -47,6 +47,11 @@ export default function AdminOutreachPage() {
   const [activeSemesterName, setActiveSemesterName] = useState<string | null>(null)
   const [adminId, setAdminId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+
+  // Insights panel
+  const [showInsights, setShowInsights] = useState(false)
+  const [startupNeeds, setStartupNeeds] = useState<{ name: string; mentorship_needs: string[] }[]>([])
+  const [mentorExpertise, setMentorExpertise] = useState<string[][]>([])
   const [recentMagicLinks, setRecentMagicLinks] = useState<{ label: string; link: string }[]>([])
   const [magicLinkByRow, setMagicLinkByRow] = useState<Record<string, string>>({})
 
@@ -100,18 +105,22 @@ export default function AdminOutreachPage() {
 
   async function load() {
     setLoading(true)
-    const [{ data: userData }, { data: sem }, { data: outreach }] = await Promise.all([
+    const [{ data: userData }, { data: sem }, { data: outreach }, { data: startupsData }, { data: mentorsData }] = await Promise.all([
       supabase.auth.getUser(),
       supabase.from('semesters').select('id, name').eq('is_active', true).maybeSingle(),
       supabase.from('outreach')
         .select('id, prospect_name, prospect_email, company, linkedin_url, expertise_tags, outreach_type, notes, status, last_contacted_at, who_reached_out, converted_mentor_id, created_at, source_channel, referred_by')
         .order('created_at', { ascending: false }),
+      supabase.from('startups').select('name, mentorship_needs'),
+      supabase.from('mentors').select('expertise_tags').eq('is_active', true),
     ])
     setAdminId(userData.user?.id ?? null)
     setActiveSemesterId((sem as { id: string; name: string } | null)?.id ?? null)
     setActiveSemesterName((sem as { id: string; name: string } | null)?.name ?? null)
     const all = (outreach as unknown as OutreachRow[]) ?? []
     setRows(all)
+    setStartupNeeds((startupsData as { name: string; mentorship_needs: string[] }[] | null) ?? [])
+    setMentorExpertise(((mentorsData as { expertise_tags: string[] }[] | null) ?? []).map(m => m.expertise_tags ?? []))
     setConvertEmail(prev => {
       const next = { ...prev }
       for (const r of all) if (!(r.id in next)) next[r.id] = r.prospect_email ?? ''
@@ -125,6 +134,36 @@ export default function AdminOutreachPage() {
   const allTagSuggestions = useMemo(() =>
     [...new Set(rows.flatMap(r => r.expertise_tags ?? []))].sort()
   , [rows])
+
+  // Keywords for fuzzy-matching mentorship needs → mentor expertise
+  const NEED_KEYWORDS: Record<string, string[]> = {
+    'Fundraising & Investor Relations': ['fundrais', 'investor', 'capital rais', 'vc', 'venture'],
+    'Product Development': ['product'],
+    'Marketing & Branding': ['marketing', 'brand'],
+    'Operations': ['operations', 'ops'],
+    'GTM Strategy': ['gtm', 'go-to-market', 'go to market', 'sales'],
+    'Legal & IP': ['legal', 'intellectual property', ' ip'],
+    'Finance': ['financ', 'accounting', 'cfo'],
+    'Talent & Hiring': ['talent', 'hiring', 'recruit', 'hr'],
+    'Customer Acquisition': ['customer acquisition', 'growth', 'acquisition'],
+  }
+
+  const needStats = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const s of startupNeeds)
+      for (const n of s.mentorship_needs ?? [])
+        counts[n] = (counts[n] ?? 0) + 1
+
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([need, startupCount]) => {
+        const keywords = NEED_KEYWORDS[need] ?? [need.toLowerCase()]
+        const mentorCount = mentorExpertise.filter(tags =>
+          tags.some(tag => keywords.some(kw => tag.toLowerCase().includes(kw)))
+        ).length
+        return { need, startupCount, mentorCount }
+      })
+  }, [startupNeeds, mentorExpertise]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -338,6 +377,105 @@ export default function AdminOutreachPage() {
           Add prospect
         </button>
       </div>
+
+      {/* Insights panel */}
+      {needStats.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-xl mb-5 overflow-hidden">
+          <button
+            onClick={() => setShowInsights(v => !v)}
+            className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors"
+          >
+            <span className="text-sm font-semibold text-[#002147]">Mentorship Needs Insights</span>
+            <svg
+              className={`w-4 h-4 text-gray-400 transition-transform ${showInsights ? 'rotate-180' : ''}`}
+              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {showInsights && (() => {
+            const COLORS = ['#002147','#75AADB','#1a4a7a','#a8c8e8','#003d7a','#c8dff0','#0a2d5a','#5090c8','#e8f2fb','#2060a0']
+            const total = needStats.reduce((s, n) => s + n.startupCount, 0)
+            const cx = 80, cy = 80, r = 60, innerR = 38
+            let angle = -Math.PI / 2
+
+            function polarToCartesian(a: number, radius: number) {
+              return { x: cx + radius * Math.cos(a), y: cy + radius * Math.sin(a) }
+            }
+
+            const slices = needStats.map((n, i) => {
+              const sweep = (n.startupCount / total) * 2 * Math.PI
+              const startAngle = angle
+              const endAngle = angle + sweep
+              angle = endAngle
+              const p1 = polarToCartesian(startAngle, r)
+              const p2 = polarToCartesian(endAngle, r)
+              const i1 = polarToCartesian(startAngle, innerR)
+              const i2 = polarToCartesian(endAngle, innerR)
+              const large = sweep > Math.PI ? 1 : 0
+              return {
+                d: `M ${i1.x} ${i1.y} L ${p1.x} ${p1.y} A ${r} ${r} 0 ${large} 1 ${p2.x} ${p2.y} L ${i2.x} ${i2.y} A ${innerR} ${innerR} 0 ${large} 0 ${i1.x} ${i1.y} Z`,
+                color: COLORS[i % COLORS.length],
+                ...n,
+              }
+            })
+
+            return (
+              <div className="px-5 pb-5 border-t border-gray-100">
+                <div className="flex flex-col sm:flex-row gap-6 pt-4">
+                  {/* Donut chart */}
+                  <div className="shrink-0 flex flex-col items-center gap-2">
+                    <svg width="160" height="160" viewBox="0 0 160 160">
+                      {slices.map((s, i) => (
+                        <path key={i} d={s.d} fill={s.color} />
+                      ))}
+                      <text x={cx} y={cy - 6} textAnchor="middle" className="text-[10px]" fill="#002147" fontSize="11" fontWeight="700">{total}</text>
+                      <text x={cx} y={cy + 10} textAnchor="middle" fill="#6b7280" fontSize="9">responses</text>
+                    </svg>
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 max-w-[160px]">
+                      {slices.map((s, i) => (
+                        <div key={i} className="flex items-center gap-1">
+                          <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: s.color }} />
+                          <span className="text-[10px] text-gray-600 truncate max-w-[100px]">{s.need.split(' ')[0]}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Stats table */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Startups vs Mentors</p>
+                    <div className="space-y-2">
+                      {slices.map((s, i) => {
+                        const ratio = s.mentorCount > 0 ? (s.mentorCount / s.startupCount).toFixed(2) : '0'
+                        const pct = Math.round((s.startupCount / total) * 100)
+                        const barW = Math.min(100, Math.round((s.mentorCount / s.startupCount) * 100))
+                        return (
+                          <div key={i}>
+                            <div className="flex items-center justify-between mb-0.5">
+                              <span className="text-xs text-gray-700 font-medium truncate flex-1 mr-2">{s.need}</span>
+                              <span className="text-xs font-semibold text-[#002147] shrink-0">
+                                {s.startupCount} startup{s.startupCount !== 1 ? 's' : ''} / {s.mentorCount} mentor{s.mentorCount !== 1 ? 's' : ''}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                <div className="h-full rounded-full" style={{ width: `${barW}%`, background: s.color }} />
+                              </div>
+                              <span className="text-[10px] text-gray-400 w-16 text-right shrink-0">{pct}% · {ratio} m/s</span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+        </div>
+      )}
 
       {/* Recent magic links */}
       {recentMagicLinks.length > 0 && (
