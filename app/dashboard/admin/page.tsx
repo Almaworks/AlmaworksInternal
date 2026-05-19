@@ -4,6 +4,7 @@ import { createClient } from '@/utils/supabase/client'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import TagInput from '@/components/TagInput'
+import StartupModal from '@/components/StartupModal'
 
 type PendingUser = {
   id: string
@@ -56,12 +57,15 @@ type Startup = {
   slug: string | null
   description: string | null
   preferred_tags: string[]
+  mentorship_needs: string[]
   semester_id: string | null
   semester_name: string | null
 }
 
 type Session = {
   id: string
+  mentor_id: string
+  startup_id: string | null
   status: string
   topic: string | null
   time_slot: string | null
@@ -120,6 +124,8 @@ export default function AdminDashboard() {
   const [editLoading, setEditLoading] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
 
+  const [selectedStartupId, setSelectedStartupId] = useState<string | null>(null)
+
   // Assign / remove / move founders
   const [founderTargetStartup, setFounderTargetStartup] = useState<Record<string, string>>({})
   const [assigningFounder, setAssigningFounder] = useState<string | null>(null)
@@ -138,6 +144,53 @@ export default function AdminDashboard() {
   const [csError, setCsError] = useState<string | null>(null)
   const [csSuccess, setCsSuccess] = useState<string | null>(null)
 
+  // Edit startup lightbox
+  const [editingStartup, setEditingStartup] = useState<Startup | null>(null)
+  const [esName, setEsName] = useState('')
+  const [esSlug, setEsSlug] = useState('')
+  const [esIndustry, setEsIndustry] = useState('')
+  const [esStage, setEsStage] = useState('')
+  const [esDescription, setEsDescription] = useState('')
+  const [esTagsArr, setEsTagsArr] = useState<string[]>([])
+  const [esMentorshipNeeds, setEsMentorshipNeeds] = useState<string[]>([])
+  const [esSaving, setEsSaving] = useState(false)
+  const [esError, setEsError] = useState<string | null>(null)
+
+  function openEditStartup(s: Startup) {
+    setEditingStartup(s)
+    setEsName(s.name)
+    setEsSlug(s.slug ?? '')
+    setEsIndustry(s.industry ?? '')
+    setEsStage(s.stage ?? '')
+    setEsDescription(s.description ?? '')
+    setEsTagsArr(s.preferred_tags ?? [])
+    setEsMentorshipNeeds(s.mentorship_needs ?? [])
+    setEsError(null)
+  }
+
+  async function saveEditStartup(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editingStartup) return
+    setEsSaving(true)
+    setEsError(null)
+    const { error } = await supabase
+      .from('startups')
+      .update({
+        name: esName.trim(),
+        slug: esSlug.trim() || null,
+        industry: esIndustry.trim() || null,
+        stage: esStage || null,
+        description: esDescription.trim() || null,
+        preferred_tags: esTagsArr,
+        mentorship_needs: esMentorshipNeeds,
+      })
+      .eq('id', editingStartup.id)
+    setEsSaving(false)
+    if (error) { setEsError(error.message); return }
+    setEditingStartup(null)
+    await loadAll()
+  }
+
   // Schedule add session popup
   const [showAddSession, setShowAddSession] = useState(false)
 
@@ -147,6 +200,7 @@ export default function AdminDashboard() {
   const [sessions, setSessions] = useState<Session[]>([])
   const [sessionDates, setSessionDates] = useState<SessionDate[]>([])
   const [activeSemesterId, setActiveSemesterId] = useState<string | null>(null)
+  const [activeSemesterName, setActiveSemesterName] = useState<string | null>(null)
   const [selectedSessionDateId, setSelectedSessionDateId] = useState<string | null>(null)
   const [assignMentorId, setAssignMentorId] = useState<string>('')
   const [assignStartupId, setAssignStartupId] = useState<string>('')
@@ -157,14 +211,62 @@ export default function AdminDashboard() {
   const [assignSubstituteName, setAssignSubstituteName] = useState<string>('')
   const [assigning, setAssigning] = useState<boolean>(false)
 
+  // Session date wizard
+  const [showDateWizard, setShowDateWizard] = useState(false)
+  const [wizardStartDate, setWizardStartDate] = useState('')
+  const [wizardWeeks, setWizardWeeks] = useState(10)
+  const [wizardSaving, setWizardSaving] = useState(false)
+  const [wizardDone, setWizardDone] = useState(false)
+
+  function wizardPreviewDates(): { date: string; label: string }[] {
+    if (!wizardStartDate) return []
+    const out: { date: string; label: string }[] = []
+    const base = new Date(wizardStartDate + 'T00:00:00')
+    for (let i = 0; i < wizardWeeks; i++) {
+      const d = new Date(base)
+      d.setDate(base.getDate() + i * 7)
+      const iso = d.toISOString().slice(0, 10)
+      const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      out.push({ date: iso, label })
+    }
+    return out
+  }
+
+  async function createWizardDates() {
+    if (!activeSemesterId || !wizardStartDate) return
+    setWizardSaving(true)
+    const rows = wizardPreviewDates().map(({ date, label }) => ({
+      semester_id: activeSemesterId,
+      date,
+      label,
+    }))
+    await supabase.from('session_dates').upsert(rows, { onConflict: 'semester_id,date', ignoreDuplicates: true })
+    setWizardSaving(false)
+    setWizardDone(true)
+    setTimeout(() => { setWizardDone(false); setShowDateWizard(false) }, 1500)
+    await loadAll()
+  }
+
+  // Edit session
+  const [editingSession, setEditingSession] = useState<Session | null>(null)
+  const [editMentorId, setEditMentorId] = useState<string>('')
+  const [editStartupId, setEditStartupId] = useState<string>('')
+  const [editTimeSlot, setEditTimeSlot] = useState<string>('3:30-4:15')
+  const [editFormat, setEditFormat] = useState<string>('online')
+  const [editTopic, setEditTopic] = useState<string>('')
+  const [editIsConfirmed, setEditIsConfirmed] = useState<boolean>(true)
+  const [editStartupAbsent, setEditStartupAbsent] = useState<boolean>(false)
+  const [editSubstituteName, setEditSubstituteName] = useState<string>('')
+  const [editSaving, setEditSaving] = useState<boolean>(false)
+
   async function loadAll() {
     const [usersRes, membersRes, mentorsRes, startupsRes, sessionsRes, semesterRes] = await Promise.all([
       supabase.from('profiles').select('id, email, full_name, created_at').eq('status', 'pending').order('created_at'),
       supabase.from('profiles').select('id, email, full_name, role, is_active, created_at').eq('status', 'approved').order('full_name'),
       supabase.from('mentors').select('id, full_name, company, role_title, linkedin_url, bio, expertise_tags, is_active, slug, email, general_availability, preferred_format, per_week_availability, opening_talk, semester_id, semesters(name)').order('full_name'),
-      supabase.from('startups').select('id, name, industry, stage, founder_name, founders, slug, description, preferred_tags, semester_id, semesters(name)').order('name'),
-      supabase.from('sessions').select('id, status, topic, time_slot, format, startup_absent, substitute_name, is_confirmed, session_dates(date, label), mentors(full_name, slug), startups(name, slug)').order('time_slot'),
-      supabase.from('semesters').select('id').eq('is_active', true).maybeSingle(),
+      supabase.from('startups').select('id, name, industry, stage, founder_name, founders, slug, description, preferred_tags, mentorship_needs, semester_id, semesters(name)').order('name'),
+      supabase.from('sessions').select('id, mentor_id, startup_id, status, topic, time_slot, format, startup_absent, substitute_name, is_confirmed, session_dates(date, label), mentors(full_name, slug), startups(name, slug)').order('time_slot'),
+      supabase.from('semesters').select('id, name').eq('is_active', true).maybeSingle(),
     ])
     setPendingUsers((usersRes.data as PendingUser[]) ?? [])
     setMembers((membersRes.data as Member[]) ?? [])
@@ -180,8 +282,10 @@ export default function AdminDashboard() {
     })))
     setSessions((sessionsRes.data as unknown as Session[]) ?? [])
 
-    const semId = (semesterRes.data as { id: string } | null)?.id ?? null
+    const semData = semesterRes.data as { id: string; name: string } | null
+    const semId = semData?.id ?? null
     setActiveSemesterId(semId)
+    setActiveSemesterName(semData?.name ?? null)
     if (semId) {
       const { data: dateRows } = await supabase
         .from('session_dates')
@@ -526,7 +630,7 @@ export default function AdminDashboard() {
 
       const { data: sessionRows } = await supabase
         .from('sessions')
-        .select('id, status, topic, time_slot, format, startup_absent, substitute_name, is_confirmed, session_dates(date, label), mentors(full_name, slug), startups(name, slug)')
+        .select('id, mentor_id, startup_id, status, topic, time_slot, format, startup_absent, substitute_name, is_confirmed, session_dates(date, label), mentors(full_name, slug), startups(name, slug)')
         .order('time_slot')
       setSessions((sessionRows as unknown as Session[]) ?? [])
       setAssignTopic('')
@@ -540,6 +644,62 @@ export default function AdminDashboard() {
       alert(`Assignment failed: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setAssigning(false)
+    }
+  }
+
+  function openEditSession(s: Session) {
+    setEditingSession(s)
+    setEditMentorId(s.mentor_id)
+    setEditStartupId(s.startup_id ?? '')
+    setEditTimeSlot(s.time_slot ?? '3:30-4:15')
+    setEditFormat(s.format ?? 'online')
+    setEditTopic(s.topic ?? '')
+    setEditIsConfirmed(s.is_confirmed)
+    setEditStartupAbsent(s.startup_absent)
+    setEditSubstituteName(s.substitute_name ?? '')
+  }
+
+  async function updateSession() {
+    if (!editingSession) return
+    setEditSaving(true)
+    try {
+      const { error } = await supabase.from('sessions').update({
+        mentor_id: editMentorId,
+        startup_id: editStartupAbsent ? null : (editStartupId || null),
+        time_slot: editTimeSlot,
+        format: editFormat,
+        topic: editTopic.trim() || null,
+        is_confirmed: editIsConfirmed,
+        startup_absent: editStartupAbsent,
+        substitute_name: editStartupAbsent && editSubstituteName.trim() ? editSubstituteName.trim() : null,
+      } as never).eq('id', editingSession.id)
+      if (error) throw error
+      const { data: sessionRows } = await supabase
+        .from('sessions')
+        .select('id, mentor_id, startup_id, status, topic, time_slot, format, startup_absent, substitute_name, is_confirmed, session_dates(date, label), mentors(full_name, slug), startups(name, slug)')
+        .order('time_slot')
+      setSessions((sessionRows as unknown as Session[]) ?? [])
+      setEditingSession(null)
+    } catch (e) {
+      alert(`Update failed: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
+  async function deleteSession() {
+    if (!editingSession) return
+    if (!confirm('Delete this session?')) return
+    setEditSaving(true)
+    try {
+      const { error } = await supabase.from('sessions').delete().eq('id', editingSession.id)
+      if (error) throw error
+      setSessions(prev => prev.filter(s => s.id !== editingSession.id))
+      setEditingSession(null)
+    } catch (e) {
+      alert(`Delete failed: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setEditSaving(false)
     }
   }
 
@@ -728,72 +888,6 @@ export default function AdminDashboard() {
             </form>
           )}
 
-          {/* Edit user form */}
-          {editingMember && (
-            <form
-              onSubmit={saveEdit}
-              className="bg-white border border-[#75AADB]/40 rounded-xl p-5 mb-4 space-y-4"
-            >
-              <p className="text-sm font-semibold text-[#002147]">
-                Editing <span className="font-normal text-gray-500">{editingMember.email}</span>
-              </p>
-              <div className="grid sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Full name</label>
-                  <input
-                    type="text"
-                    required
-                    value={editName}
-                    onChange={e => setEditName(e.target.value)}
-                    className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
-                  <input
-                    type="email"
-                    required
-                    value={editEmail}
-                    onChange={e => setEditEmail(e.target.value)}
-                    className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Role</label>
-                  <select
-                    required
-                    value={editRole}
-                    onChange={e => setEditRole(e.target.value as typeof editRole)}
-                    className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
-                  >
-                    <option value="mentor">Mentor</option>
-                    <option value="startup">Startup</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                </div>
-              </div>
-
-              {editError && <p className="text-xs text-red-500">{editError}</p>}
-
-              <div className="flex items-center gap-2 pt-1">
-                <button
-                  type="submit"
-                  disabled={editLoading}
-                  className="px-4 py-2 bg-[#002147] text-white text-sm font-medium rounded-lg hover:bg-[#002147]/90 disabled:opacity-60 transition-colors"
-                >
-                  {editLoading ? 'Saving…' : 'Save changes'}
-                </button>
-                <button
-                  type="button"
-                  onClick={cancelEdit}
-                  className="px-4 py-2 text-sm font-medium text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          )}
-
           {/* Controls */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
             <div className="relative flex-1">
@@ -856,58 +950,167 @@ export default function AdminDashboard() {
                       >
                         Status <SortIcon field="is_active" />
                       </th>
+                      <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                        Sessions
+                      </th>
                       <th className="px-5 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
                         Action
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {filteredMembers.map(m => (
-                      <tr key={m.id} className="hover:bg-gray-50/60 transition-colors">
-                        <td className="px-5 py-3.5 font-medium text-[#002147] whitespace-nowrap">
-                          {m.full_name ?? <span className="text-gray-400 font-normal">—</span>}
-                        </td>
-                        <td className="px-5 py-3.5 text-gray-500 whitespace-nowrap">{m.email}</td>
-                        <td className="px-5 py-3.5 whitespace-nowrap">
-                          <span className={`inline-block text-xs font-semibold px-2.5 py-1 rounded-full capitalize ${roleColors[m.role] ?? 'bg-gray-100 text-gray-600'}`}>
-                            {m.role}
-                          </span>
-                        </td>
-                        <td className="px-5 py-3.5 whitespace-nowrap">
-                          <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${
-                            m.is_active ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'
-                          }`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${m.is_active ? 'bg-green-500' : 'bg-red-400'}`} />
-                            {m.is_active ? 'Active' : 'Inactive'}
-                          </span>
-                        </td>
-                        <td className="px-5 py-3.5 text-right whitespace-nowrap">
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => openEdit(m)}
-                              className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
-                                editingMember?.id === m.id
-                                  ? 'bg-[#002147] text-white border-[#002147]'
-                                  : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-                              }`}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => toggleMemberActive(m.id, m.is_active)}
-                              disabled={togglingActive === m.id}
-                              className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors disabled:opacity-50 ${
-                                m.is_active
-                                  ? 'border-red-200 text-red-600 hover:bg-red-50'
-                                  : 'border-green-200 text-green-700 hover:bg-green-50'
-                              }`}
-                            >
-                              {togglingActive === m.id ? '…' : m.is_active ? 'Deactivate' : 'Activate'}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                  <tbody>
+                    {(() => {
+                      const mentorByEmail = new Map(mentors.filter(m => m.email).map(m => [m.email!.toLowerCase(), m]))
+                      const startupByFounderEmail = new Map<string, typeof startups[0]>()
+                      for (const s of startups) for (const f of s.founders ?? []) if (f.email) startupByFounderEmail.set(f.email.toLowerCase(), s)
+
+                      function getMemberSessions(member: Member) {
+                        if (member.role === 'mentor') {
+                          const mentor = mentorByEmail.get(member.email.toLowerCase())
+                          return mentor ? sessions.filter(s => s.mentor_id === mentor.id) : []
+                        }
+                        if (member.role === 'startup') {
+                          const startup = startupByFounderEmail.get(member.email.toLowerCase())
+                          return startup ? sessions.filter(s => s.startup_id === startup.id) : []
+                        }
+                        return []
+                      }
+
+                      return filteredMembers.flatMap(m => {
+                        const memberSessions = getMemberSessions(m)
+                        const isEditing = editingMember?.id === m.id
+                        const rows = [
+                          <tr key={m.id} className={`transition-colors ${isEditing ? 'bg-[#002147]/3' : 'hover:bg-gray-50/60 border-b border-gray-50'}`}>
+                            <td className="px-5 py-3.5 font-medium text-[#002147] whitespace-nowrap">
+                              {m.full_name ?? <span className="text-gray-400 font-normal">—</span>}
+                            </td>
+                            <td className="px-5 py-3.5 text-gray-500 whitespace-nowrap">{m.email}</td>
+                            <td className="px-5 py-3.5 whitespace-nowrap">
+                              <span className={`inline-block text-xs font-semibold px-2.5 py-1 rounded-full capitalize ${roleColors[m.role] ?? 'bg-gray-100 text-gray-600'}`}>
+                                {m.role}
+                              </span>
+                            </td>
+                            <td className="px-5 py-3.5 whitespace-nowrap">
+                              <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${
+                                m.is_active ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'
+                              }`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${m.is_active ? 'bg-green-500' : 'bg-red-400'}`} />
+                                {m.is_active ? 'Active' : 'Inactive'}
+                              </span>
+                            </td>
+                            <td className="px-5 py-3.5">
+                              {memberSessions.length > 0 ? (
+                                <div className="flex flex-col gap-0.5">
+                                  {memberSessions.slice(0, 2).map(s => (
+                                    <button key={s.id} onClick={() => openEditSession(s)}
+                                      className="text-left text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#002147]/8 text-[#002147] hover:bg-[#002147]/15 transition-colors whitespace-nowrap w-fit">
+                                      {s.startups?.name ?? s.substitute_name ?? '—'}
+                                      {s.session_dates?.date ? ` · ${new Date(s.session_dates.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
+                                    </button>
+                                  ))}
+                                  {memberSessions.length > 2 && (
+                                    <span className="text-[10px] text-gray-400 px-2">+{memberSessions.length - 2} more</span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-xs text-gray-300">—</span>
+                              )}
+                            </td>
+                            <td className="px-5 py-3.5 text-right whitespace-nowrap">
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  onClick={() => isEditing ? cancelEdit() : openEdit(m)}
+                                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                                    isEditing
+                                      ? 'bg-[#002147] text-white border-[#002147]'
+                                      : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                                  }`}
+                                >
+                                  {isEditing ? 'Cancel' : 'Edit'}
+                                </button>
+                                <button
+                                  onClick={() => toggleMemberActive(m.id, m.is_active)}
+                                  disabled={togglingActive === m.id}
+                                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors disabled:opacity-50 ${
+                                    m.is_active
+                                      ? 'border-red-200 text-red-600 hover:bg-red-50'
+                                      : 'border-green-200 text-green-700 hover:bg-green-50'
+                                  }`}
+                                >
+                                  {togglingActive === m.id ? '…' : m.is_active ? 'Deactivate' : 'Activate'}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>,
+                        ]
+                        if (isEditing) {
+                          rows.push(
+                            <tr key={`${m.id}-edit`} className="bg-gray-50/80 border-b border-gray-100">
+                              <td colSpan={6} className="px-5 py-4">
+                                <div className="space-y-4">
+                                  <form onSubmit={saveEdit} className="grid sm:grid-cols-3 gap-3">
+                                    <div>
+                                      <label className="block text-xs font-medium text-gray-600 mb-1">Full name</label>
+                                      <input type="text" required value={editName} onChange={e => setEditName(e.target.value)}
+                                        className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40" />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
+                                      <input type="email" required value={editEmail} onChange={e => setEditEmail(e.target.value)}
+                                        className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40" />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs font-medium text-gray-600 mb-1">Role</label>
+                                      <select required value={editRole} onChange={e => setEditRole(e.target.value as typeof editRole)}
+                                        className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
+                                        <option value="mentor">Mentor</option>
+                                        <option value="startup">Startup</option>
+                                        <option value="admin">Admin</option>
+                                      </select>
+                                    </div>
+                                    {editError && <p className="text-xs text-red-500 sm:col-span-3">{editError}</p>}
+                                    <div className="sm:col-span-3 flex items-center gap-2 pt-1">
+                                      <button type="submit" disabled={editLoading}
+                                        className="px-4 py-2 bg-[#002147] text-white text-sm font-medium rounded-lg hover:bg-[#002147]/90 disabled:opacity-60 transition-colors">
+                                        {editLoading ? 'Saving…' : 'Save changes'}
+                                      </button>
+                                      <button type="button" onClick={cancelEdit}
+                                        className="px-4 py-2 text-sm font-medium text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </form>
+                                  {memberSessions.length > 0 && (
+                                    <div className="border-t border-gray-100 pt-3">
+                                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Sessions</p>
+                                      <div className="space-y-1.5">
+                                        {memberSessions.map(s => (
+                                          <div key={s.id} className="flex items-center justify-between gap-2 px-3 py-2 bg-white rounded-lg border border-gray-100">
+                                            <div>
+                                              <p className="text-xs font-medium text-[#002147]">{s.startups?.name ?? s.substitute_name ?? '—'}</p>
+                                              <p className="text-[10px] text-gray-400">
+                                                {s.session_dates?.label ?? ''}{s.session_dates?.date ? ` · ${s.session_dates.date}` : ''}
+                                                {s.time_slot ? ` · ${s.time_slot}` : ''}
+                                                {s.format ? ` · ${s.format}` : ''}
+                                              </p>
+                                            </div>
+                                            <button onClick={() => openEditSession(s)}
+                                              className="px-2.5 py-1 text-[10px] font-medium border border-gray-200 text-gray-500 hover:text-[#002147] hover:border-[#002147]/30 rounded-lg transition-colors shrink-0">
+                                              Edit session
+                                            </button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        }
+                        return rows
+                      })
+                    })()}
                   </tbody>
                 </table>
               </div>
@@ -961,102 +1164,124 @@ export default function AdminDashboard() {
           <div className="space-y-4">
             {/* Header row */}
             <div className="flex items-center justify-between gap-3">
-              <p className="text-sm text-gray-500">
-                Session grid — dates &amp; times on rows, companies on columns.
-              </p>
-              <button
-                onClick={() => { setShowAddSession(v => !v) }}
-                className="flex items-center gap-1.5 px-4 py-2 bg-[#002147] text-white text-sm font-medium rounded-xl hover:bg-[#002147]/90 transition-colors shrink-0"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                </svg>
-                Add session
-              </button>
+              <div className="flex items-center gap-3 flex-wrap">
+                <p className="text-sm text-gray-500">Session grid — click any cell to edit.</p>
+                <div className="flex items-center gap-2 text-[10px] font-medium">
+                  <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">Online</span>
+                  <span className="px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">In-person</span>
+                  <span className="px-2 py-0.5 rounded-full border border-gray-200 text-gray-500"
+                    style={{ backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(0,0,0,0.06) 4px, rgba(0,0,0,0.06) 8px)' }}>
+                    Unconfirmed
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => { setShowDateWizard(v => !v); setWizardDone(false) }}
+                  className="flex items-center gap-1.5 px-4 py-2 border border-[#002147] text-[#002147] text-sm font-medium rounded-xl hover:bg-[#002147]/5 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  Setup dates
+                </button>
+                <button
+                  onClick={() => { setShowAddSession(v => !v) }}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-[#002147] text-white text-sm font-medium rounded-xl hover:bg-[#002147]/90 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                  </svg>
+                  Add session
+                </button>
+              </div>
             </div>
 
-            {/* Add session form */}
-            {showAddSession && (
-              <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
-                <p className="text-sm font-semibold text-[#002147]">New session</p>
+            {/* Session dates wizard */}
+            {showDateWizard && (
+              <div className="bg-white border border-[#002147]/20 rounded-xl p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-[#002147]">Session Date Wizard</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Generate weekly session dates for <span className="font-medium">{activeSemesterId ? 'the active semester' : 'no active semester'}</span>.
+                    </p>
+                  </div>
+                  <button onClick={() => setShowDateWizard(false)} className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
                 <div className="grid sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Session date</label>
-                    <select value={selectedSessionDateId ?? ''} onChange={e => setSelectedSessionDateId(e.target.value)}
-                      className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
-                      <option value="">Select date…</option>
-                      {sessionDates.map(d => (
-                        <option key={d.id} value={d.id}>{d.label ?? d.date} · {d.date}</option>
-                      ))}
-                    </select>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Start date</label>
+                    <input
+                      type="date"
+                      value={wizardStartDate}
+                      onChange={e => setWizardStartDate(e.target.value)}
+                      className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
+                    />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Time slot</label>
-                    <select value={assignTimeSlot} onChange={e => setAssignTimeSlot(e.target.value)}
-                      className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
-                      <option value="3:30-4:15">3:30 – 4:15 PM</option>
-                      <option value="4:15-5:00">4:15 – 5:00 PM</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Format</label>
-                    <select value={assignFormat} onChange={e => setAssignFormat(e.target.value)}
-                      className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
-                      <option value="online">Online</option>
-                      <option value="in-person">In-person</option>
-                      <option value="hybrid">Hybrid</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Mentor <span className="text-red-400">*</span></label>
-                    <select value={assignMentorId} onChange={e => setAssignMentorId(e.target.value)}
-                      className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
-                      <option value="">Select mentor…</option>
-                      {mentors.filter(m => m.is_active).map(m => (
-                        <option key={m.id} value={m.id}>{m.full_name}{m.company ? ` · ${m.company}` : ''}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Startup</label>
-                    <select value={assignStartupId} onChange={e => setAssignStartupId(e.target.value)}
-                      disabled={assignStartupAbsent}
-                      className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40 disabled:opacity-40">
-                      <option value="">Select startup…</option>
-                      {startups.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Topic</label>
-                    <input value={assignTopic} onChange={e => setAssignTopic(e.target.value)}
-                      placeholder="Optional"
-                      className="w-full text-sm text-gray-800 placeholder:text-gray-400 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40" />
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <label className="flex items-center gap-2 cursor-pointer select-none mt-5">
-                      <input type="checkbox" checked={assignStartupAbsent}
-                        onChange={e => { setAssignStartupAbsent(e.target.checked); if (!e.target.checked) setAssignSubstituteName('') }}
-                        className="w-4 h-4 rounded accent-[#002147]" />
-                      <span className="text-sm text-gray-700">Startup absent</span>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Number of weekly sessions: <span className="text-[#002147] font-semibold">{wizardWeeks}</span>
                     </label>
-                    {assignStartupAbsent && (
-                      <input value={assignSubstituteName} onChange={e => setAssignSubstituteName(e.target.value)}
-                        placeholder="Substitute name…"
-                        className="w-full text-sm text-gray-800 placeholder:text-gray-400 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40" />
-                    )}
+                    <input
+                      type="range"
+                      min={1} max={20}
+                      value={wizardWeeks}
+                      onChange={e => setWizardWeeks(Number(e.target.value))}
+                      className="w-full accent-[#002147]"
+                    />
+                    <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
+                      <span>1</span><span>20</span>
+                    </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 pt-1">
-                  <button onClick={assignForWeek} disabled={assigning || !assignMentorId}
-                    className="px-4 py-2 bg-[#002147] text-white text-sm font-medium rounded-lg hover:bg-[#002147]/90 disabled:opacity-50 transition-colors">
-                    {assigning ? 'Adding…' : 'Add session'}
+
+                {wizardStartDate && (() => {
+                  const preview = wizardPreviewDates()
+                  return (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                        Preview — {preview.length} dates
+                      </p>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-1.5 max-h-48 overflow-y-auto pr-1">
+                        {preview.map(({ date, label }) => {
+                          const existing = sessionDates.some(d => d.date === date)
+                          return (
+                            <div
+                              key={date}
+                              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs ${
+                                existing
+                                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                  : 'bg-gray-50 text-gray-700 border border-gray-200'
+                              }`}
+                            >
+                              <span className="font-semibold">{label}</span>
+                              {existing && <span className="text-[9px] text-amber-500">exists</span>}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })()}
+
+                {!activeSemesterId && (
+                  <p className="text-xs text-red-500">No active semester found. Set one before creating dates.</p>
+                )}
+
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={createWizardDates}
+                    disabled={wizardSaving || !wizardStartDate || !activeSemesterId}
+                    className="px-4 py-2 bg-[#002147] text-white text-sm font-medium rounded-lg hover:bg-[#002147]/90 disabled:opacity-60 transition-colors"
+                  >
+                    {wizardSaving ? 'Creating…' : `Create ${wizardWeeks} session date${wizardWeeks !== 1 ? 's' : ''}`}
                   </button>
-                  <button onClick={() => setShowAddSession(false)}
-                    className="px-4 py-2 text-sm font-medium text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">
-                    Cancel
-                  </button>
+                  {wizardDone && <p className="text-sm text-green-600">Done! Dates created.</p>}
                 </div>
               </div>
             )}
@@ -1100,17 +1325,43 @@ export default function AdminDashboard() {
                           {colStartups.map(st => {
                             const cellKey = `${row.date}__${row.slot}__${st.name}`
                             const cell = cellMap.get(cellKey)
+                            const formatBg =
+                              cell?.format === 'in-person' ? 'bg-green-50 text-green-800 border border-green-200 hover:bg-green-100' :
+                              cell?.format === 'online' ? 'bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100' :
+                              'bg-gray-50 text-gray-700 border border-gray-200 hover:bg-gray-100'
                             return (
-                              <td key={st.id} className="px-3 py-2.5 text-center border-r border-gray-100 align-top">
+                              <td key={st.id} className="px-2 py-2 text-center border-r border-gray-100 align-top">
                                 {cell ? (
-                                  <span className={`inline-block px-2 py-1 rounded-lg text-[11px] font-medium ${
-                                    cell.is_confirmed ? 'bg-[#002147]/8 text-[#002147]' : 'bg-amber-50 text-amber-700'
-                                  }`}>
+                                  <button
+                                    onClick={() => openEditSession(cell)}
+                                    className={`w-full px-2 py-1.5 rounded-lg text-[11px] font-medium text-left transition-colors ${formatBg}`}
+                                    style={!cell.is_confirmed ? {
+                                      backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(0,0,0,0.05) 5px, rgba(0,0,0,0.05) 10px)',
+                                    } : undefined}
+                                  >
                                     {cell.mentors?.full_name ?? '—'}
-                                    {!cell.is_confirmed && <span className="block text-[9px] font-normal opacity-70">unconfirmed</span>}
-                                  </span>
+                                    {cell.format && (
+                                      <span className="block text-[9px] font-normal opacity-60 capitalize">{cell.format}</span>
+                                    )}
+                                    {!cell.is_confirmed && (
+                                      <span className="block text-[9px] font-normal opacity-70">unconfirmed</span>
+                                    )}
+                                  </button>
                                 ) : (
-                                  <span className="text-gray-200">—</span>
+                                  <button
+                                    onClick={() => {
+                                      const dateObj = sessionDates.find(d => d.date === row.date)
+                                      if (dateObj) setSelectedSessionDateId(dateObj.id)
+                                      setAssignStartupId(st.id)
+                                      setAssignMentorId('')
+                                      setAssignTopic('')
+                                      setShowAddSession(true)
+                                    }}
+                                    className="w-full h-8 rounded-lg border border-dashed border-gray-200 text-gray-300 hover:border-[#75AADB]/50 hover:text-[#75AADB]/70 hover:bg-blue-50/30 transition-colors text-[10px] font-medium"
+                                    title={`Add session: ${st.name} on ${row.label ?? row.date}`}
+                                  >
+                                    +
+                                  </button>
                                 )}
                               </td>
                             )
@@ -1310,16 +1561,18 @@ export default function AdminDashboard() {
                     <div className="flex items-start justify-between gap-4 mb-1">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          {s.slug ? (
-                            <Link
-                              href={`/dashboard/admin/${s.slug}`}
-                              className="text-sm font-semibold text-[#002147] hover:underline"
-                            >
-                              {s.name}
-                            </Link>
-                          ) : (
-                            <p className="text-sm font-semibold text-[#002147]">{s.name}</p>
-                          )}
+                          <button
+                            onClick={() => setSelectedStartupId(s.id)}
+                            className="text-sm font-semibold text-[#002147] hover:underline text-left"
+                          >
+                            {s.name}
+                          </button>
+                          <button
+                            onClick={() => openEditStartup(s)}
+                            className="text-[10px] font-medium text-gray-400 hover:text-[#002147] border border-gray-200 hover:border-[#002147]/30 px-2 py-0.5 rounded-full transition-colors"
+                          >
+                            Edit
+                          </button>
                           {s.semester_name && (
                             <span className="text-[10px] font-semibold bg-[#75AADB]/20 text-[#002147] px-1.5 py-0.5 rounded-full">{s.semester_name}</span>
                           )}
@@ -1330,6 +1583,16 @@ export default function AdminDashboard() {
                             {s.preferred_tags.map(t => (
                               <span key={t} className="text-[10px] bg-[#002147]/8 text-[#002147] px-2 py-0.5 rounded-full font-medium">{t}</span>
                             ))}
+                          </div>
+                        )}
+                        {s.mentorship_needs && s.mentorship_needs.length > 0 && (
+                          <div className="mt-1.5">
+                            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mr-1">Mentorship Needs:</span>
+                            <span className="inline-flex flex-wrap gap-1">
+                              {s.mentorship_needs.map(t => (
+                                <span key={t} className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium">{t}</span>
+                              ))}
+                            </span>
                           </div>
                         )}
                         {s.description && (
@@ -1385,6 +1648,275 @@ export default function AdminDashboard() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      <StartupModal startupId={selectedStartupId} onClose={() => setSelectedStartupId(null)} />
+
+      {/* ── Add Session Lightbox ── */}
+      {showAddSession && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowAddSession(false)} />
+          <div className="relative bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-[#002147]">Add Session</h3>
+              <button onClick={() => setShowAddSession(false)} className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-700">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Session date</label>
+                <select value={selectedSessionDateId ?? ''} onChange={e => setSelectedSessionDateId(e.target.value)}
+                  className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
+                  <option value="">Select date…</option>
+                  {sessionDates.map(d => (
+                    <option key={d.id} value={d.id}>{d.label ?? d.date} · {d.date}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Time slot</label>
+                <select value={assignTimeSlot} onChange={e => setAssignTimeSlot(e.target.value)}
+                  className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
+                  <option value="3:30-4:15">3:30 – 4:15 PM</option>
+                  <option value="4:15-5:00">4:15 – 5:00 PM</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Format</label>
+                <select value={assignFormat} onChange={e => setAssignFormat(e.target.value)}
+                  className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
+                  <option value="online">Online</option>
+                  <option value="in-person">In-person</option>
+                  <option value="hybrid">Hybrid</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Mentor <span className="text-red-400">*</span></label>
+                <select value={assignMentorId} onChange={e => setAssignMentorId(e.target.value)}
+                  className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
+                  <option value="">Select mentor…</option>
+                  {mentors.filter(m => m.is_active).map(m => (
+                    <option key={m.id} value={m.id}>{m.full_name}{m.company ? ` · ${m.company}` : ''}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Startup</label>
+                <select value={assignStartupId} onChange={e => setAssignStartupId(e.target.value)}
+                  disabled={assignStartupAbsent}
+                  className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40 disabled:opacity-40">
+                  <option value="">Select startup…</option>
+                  {startups.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Topic</label>
+                <input value={assignTopic} onChange={e => setAssignTopic(e.target.value)} placeholder="Optional"
+                  className="w-full text-sm text-gray-800 placeholder:text-gray-400 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40" />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-2 cursor-pointer select-none mt-5">
+                  <input type="checkbox" checked={assignStartupAbsent}
+                    onChange={e => { setAssignStartupAbsent(e.target.checked); if (!e.target.checked) setAssignSubstituteName('') }}
+                    className="w-4 h-4 rounded accent-[#002147]" />
+                  <span className="text-sm text-gray-700">Startup absent</span>
+                </label>
+                {assignStartupAbsent && (
+                  <input value={assignSubstituteName} onChange={e => setAssignSubstituteName(e.target.value)}
+                    placeholder="Substitute name…"
+                    className="w-full text-sm text-gray-800 placeholder:text-gray-400 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40" />
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <button onClick={assignForWeek} disabled={assigning || !assignMentorId}
+                className="px-4 py-2 bg-[#002147] text-white text-sm font-medium rounded-lg hover:bg-[#002147]/90 disabled:opacity-50 transition-colors">
+                {assigning ? 'Adding…' : 'Add session'}
+              </button>
+              <button onClick={() => setShowAddSession(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Startup Lightbox ── */}
+      {editingStartup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setEditingStartup(null)} />
+          <div className="relative bg-gray-50 rounded-2xl w-full max-w-xl shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="h-2 bg-[#002147] rounded-t-2xl" />
+            <div className="p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-bold text-[#002147]">Edit Startup</h3>
+                <button onClick={() => setEditingStartup(null)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white/80 text-gray-400 hover:text-gray-700 hover:bg-white shadow-sm transition-colors">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <form onSubmit={saveEditStartup} className="space-y-4">
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Name <span className="text-red-400">*</span></label>
+                    <input required value={esName} onChange={e => setEsName(e.target.value)} placeholder="Acme Inc."
+                      className="w-full text-sm text-gray-800 placeholder:text-gray-400 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Slug</label>
+                    <input value={esSlug} onChange={e => setEsSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))} placeholder="acme-inc"
+                      className="w-full text-sm text-gray-800 placeholder:text-gray-400 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Industry</label>
+                    <input value={esIndustry} onChange={e => setEsIndustry(e.target.value)} placeholder="FinTech"
+                      className="w-full text-sm text-gray-800 placeholder:text-gray-400 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Stage</label>
+                    <select value={esStage} onChange={e => setEsStage(e.target.value)}
+                      className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
+                      <option value="">Select stage…</option>
+                      <option value="idea">Idea</option>
+                      <option value="mvp">MVP</option>
+                      <option value="seed">Seed</option>
+                      <option value="series_a">Series A</option>
+                      <option value="growth">Growth</option>
+                    </select>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Expertise tags</label>
+                    <TagInput value={esTagsArr} onChange={setEsTagsArr} suggestions={allTags} placeholder="Search or create tags…" />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Mentorship needs</label>
+                    <TagInput value={esMentorshipNeeds} onChange={setEsMentorshipNeeds}
+                      suggestions={['Fundraising & Investor Relations','Product Development','Marketing & Branding','Operations','GTM Strategy','Legal & IP','Finance','Talent & Hiring','Customer Acquisition']}
+                      placeholder="Add mentorship need…" />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
+                    <textarea rows={3} value={esDescription} onChange={e => setEsDescription(e.target.value)} placeholder="What does this startup do?"
+                      className="w-full text-sm text-gray-800 placeholder:text-gray-400 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40 resize-none" />
+                  </div>
+                </div>
+                {esError && <p className="text-xs text-red-500">{esError}</p>}
+                <div className="flex items-center gap-2 pt-1">
+                  <button type="submit" disabled={esSaving}
+                    className="px-4 py-2 bg-[#002147] text-white text-sm font-medium rounded-lg hover:bg-[#002147]/90 disabled:opacity-60 transition-colors">
+                    {esSaving ? 'Saving…' : 'Save changes'}
+                  </button>
+                  <button type="button" onClick={() => setEditingStartup(null)}
+                    className="px-4 py-2 text-sm font-medium text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Session Modal ── */}
+      {editingSession && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setEditingSession(null)} />
+          <div className="relative bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-[#002147]">Edit Session</h3>
+              <button onClick={() => setEditingSession(null)} className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-700">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Mentor</label>
+                <select value={editMentorId} onChange={e => setEditMentorId(e.target.value)}
+                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
+                  <option value="">Select mentor…</option>
+                  {mentors.map(m => (
+                    <option key={m.id} value={m.id}>{m.full_name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Startup</label>
+                <select value={editStartupId} onChange={e => setEditStartupId(e.target.value)}
+                  disabled={editStartupAbsent}
+                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40 disabled:opacity-40">
+                  <option value="">None</option>
+                  {startups.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Time slot</label>
+                <select value={editTimeSlot} onChange={e => setEditTimeSlot(e.target.value)}
+                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
+                  <option value="3:30-4:15">3:30 – 4:15 PM</option>
+                  <option value="4:15-5:00">4:15 – 5:00 PM</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Format</label>
+                <select value={editFormat} onChange={e => setEditFormat(e.target.value)}
+                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
+                  <option value="online">Online</option>
+                  <option value="in-person">In-person</option>
+                  <option value="hybrid">Hybrid</option>
+                </select>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Topic</label>
+                <input value={editTopic} onChange={e => setEditTopic(e.target.value)} placeholder="Optional"
+                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40" />
+              </div>
+              <div className="flex flex-col gap-2 sm:col-span-2">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input type="checkbox" checked={editIsConfirmed} onChange={e => setEditIsConfirmed(e.target.checked)}
+                    className="w-4 h-4 rounded accent-[#002147]" />
+                  <span className="text-sm text-gray-700">Confirmed</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input type="checkbox" checked={editStartupAbsent} onChange={e => setEditStartupAbsent(e.target.checked)}
+                    className="w-4 h-4 rounded accent-[#002147]" />
+                  <span className="text-sm text-gray-700">Startup absent / may cancel</span>
+                </label>
+                {editStartupAbsent && (
+                  <input value={editSubstituteName} onChange={e => setEditSubstituteName(e.target.value)}
+                    placeholder="Substitute name…"
+                    className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40" />
+                )}
+              </div>
+            </div>
+            <div className="flex items-center justify-between pt-1">
+              <button onClick={deleteSession} disabled={editSaving}
+                className="px-3 py-2 text-xs font-medium text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50">
+                Delete
+              </button>
+              <div className="flex gap-2">
+                <button onClick={() => setEditingSession(null)}
+                  className="px-4 py-2 text-sm font-medium text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">
+                  Cancel
+                </button>
+                <button onClick={updateSession} disabled={editSaving || !editMentorId}
+                  className="px-4 py-2 bg-[#002147] text-white text-sm font-medium rounded-lg hover:bg-[#002147]/90 disabled:opacity-50 transition-colors">
+                  {editSaving ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

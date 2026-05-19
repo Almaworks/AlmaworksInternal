@@ -11,10 +11,25 @@ export default function PendingPage() {
   const [email, setEmail] = useState<string | null>(null)
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setEmail(user?.email ?? null)
-    })
-  }, [supabase])
+    async function checkStatus() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      setEmail(user.email ?? null)
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role, status, is_active')
+        .eq('id', user.id)
+        .single()
+      if (!profile || profile.status !== 'approved') return
+      if ((profile as typeof profile & { is_active?: boolean }).is_active === false) return
+      const dest =
+        profile.role === 'admin' ? '/dashboard/admin' :
+        profile.role === 'mentor' ? '/dashboard/mentor' :
+        '/dashboard/startup'
+      router.replace(dest)
+    }
+    checkStatus()
+  }, [supabase, router])
 
   async function signOut() {
     await supabase.auth.signOut()

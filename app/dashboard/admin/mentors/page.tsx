@@ -1,9 +1,9 @@
 'use client'
 
 import { createClient } from '@/utils/supabase/client'
-import Link from 'next/link'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import TagInput from '@/components/TagInput'
+import MentorModal from '@/components/MentorModal'
 
 type SortDir = 'asc' | 'desc'
 
@@ -61,6 +61,8 @@ export default function AdminMentorsPage() {
   const [savingId, setSavingId] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [togglingId, setTogglingId] = useState<string | null>(null)
+
+  const [selectedMentorId, setSelectedMentorId] = useState<string | null>(null)
 
   // Clipboard copy feedback
   const [copiedId, setCopiedId] = useState<string | null>(null)
@@ -377,14 +379,12 @@ export default function AdminMentorsPage() {
                 <Fragment key={m.id}>
                   <tr className="hover:bg-gray-50/50 transition-colors">
                     <td className="px-4 py-3">
-                      {m.slug ? (
-                        <Link href={`/dashboard/admin/mentors/${m.slug}`}
-                          className="text-sm font-medium text-[#002147] hover:underline block truncate">
-                          {m.full_name}
-                        </Link>
-                      ) : (
-                        <p className="text-sm font-medium text-[#002147] truncate">{m.full_name}</p>
-                      )}
+                      <button
+                        onClick={() => setSelectedMentorId(m.id)}
+                        className="text-sm font-medium text-[#002147] hover:underline block truncate text-left w-full"
+                      >
+                        {m.full_name}
+                      </button>
                       {m.role_title && <p className="text-xs text-gray-400 truncate">{m.role_title}</p>}
                     </td>
                     <td className="px-4 py-3">
@@ -527,6 +527,8 @@ export default function AdminMentorsPage() {
           </table>
         </div>
       )}
+
+      <MentorModal mentorId={selectedMentorId} onClose={() => setSelectedMentorId(null)} />
     </div>
   )
 }

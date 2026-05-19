@@ -2,6 +2,7 @@
 
 import { createClient } from '@/utils/supabase/client'
 import { useEffect, useState } from 'react'
+import SessionCalendar, { type CalSession } from '@/components/SessionCalendar'
 
 type Mentor = {
   id: string
@@ -31,6 +32,8 @@ type Session = {
   id: string
   status: string
   topic: string | null
+  time_slot: string | null
+  format: string | null
   session_dates: { date: string; label: string | null } | null
   mentors: { full_name: string; company: string | null } | null
 }
@@ -40,7 +43,14 @@ type StartupProfile = {
   name: string
   mentor_preferences: string | null
   preferred_tags: string[]
+  mentorship_needs: string[]
   semester_goals: string[]
+}
+
+type Semester = {
+  id: string
+  name: string
+  is_active: boolean
 }
 
 export default function StartupDashboard() {
@@ -50,6 +60,10 @@ export default function StartupDashboard() {
   const [startup, setStartup] = useState<StartupProfile | null>(null)
   const [search, setSearch] = useState('')
 
+  const [semesters, setSemesters] = useState<Semester[]>([])
+  const [selectedSemesterId, setSelectedSemesterId] = useState<string | null>(null)
+  const [loadingSessions, setLoadingSessions] = useState(false)
+
   // Preference form state
   const [prefNotes, setPrefNotes] = useState('')
   const [prefTags, setPrefTags] = useState('')
@@ -57,10 +71,26 @@ export default function StartupDashboard() {
   const [savingPrefs, setSavingPrefs] = useState(false)
   const [savedPrefs, setSavedPrefs] = useState(false)
 
+  // Initial load: directory, profile, semesters
   useEffect(() => {
-    async function load() {
+    async function loadInit() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
+
+      // All semesters via session_dates join (avoids direct semesters RLS)
+      const { data: sdRows } = await supabase
+        .from('session_dates')
+        .select('semester_id, semesters(id, name, is_active)')
+      const semMap = new Map<string, Semester>()
+      for (const row of (sdRows ?? []) as unknown as { semester_id: string; semesters: Semester | null }[]) {
+        if (row.semester_id && row.semesters && !semMap.has(row.semester_id)) {
+          semMap.set(row.semester_id, row.semesters)
+        }
+      }
+      const allSems = [...semMap.values()].sort((a, b) => b.name.localeCompare(a.name))
+      setSemesters(allSems)
+      const activeSem = allSems.find(s => s.is_active)
+      setSelectedSemesterId(activeSem?.id ?? allSems[0]?.id ?? null)
 
       // Mentors directory
       const { data: mentorRows } = await supabase
@@ -69,7 +99,7 @@ export default function StartupDashboard() {
         .eq('is_active', true)
         .order('full_name')
 
-      // Outreach “possible mentors” (onboarded/responded prospects)
+      // Outreach “possible mentors”
       const { data: outreachRows } = await supabase
         .from('outreach')
         .select('id, prospect_name, company, linkedin_url, expertise_tags, notes, status')
@@ -104,7 +134,7 @@ export default function StartupDashboard() {
       // This startup's profile
       const { data: startupRow } = await supabase
         .from('startups')
-        .select('id, name, mentor_preferences, preferred_tags, semester_goals')
+        .select('id, name, mentor_preferences, preferred_tags, mentorship_needs, semester_goals')
         .eq('user_id', user.id)
         .single()
 
@@ -114,19 +144,25 @@ export default function StartupDashboard() {
         setPrefTags((startupRow.preferred_tags ?? []).join(', '))
         setGoals((startupRow.semester_goals ?? []).join(', '))
       }
-
-      // Sessions
-      if (startupRow) {
-        const { data: sessionRows } = await supabase
-          .from('sessions')
-          .select('id, status, topic, session_dates(date, label), mentors(full_name, company)')
-          .eq('startup_id', startupRow.id)
-          .order('date', { referencedTable: 'session_dates' })
-        setSessions((sessionRows as Session[]) ?? [])
-      }
     }
-    load()
-  }, [supabase])
+    loadInit()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-fetch sessions when startup profile or selected semester changes
+  useEffect(() => {
+    if (!startup || !selectedSemesterId) return
+    setLoadingSessions(true)
+    supabase
+      .from('sessions')
+      .select('id, status, topic, time_slot, format, session_dates!inner(date, label, semester_id), mentors(full_name, company)')
+      .eq('startup_id', startup.id)
+      .eq('session_dates.semester_id', selectedSemesterId)
+      .order('date', { referencedTable: 'session_dates' })
+      .then(({ data }) => {
+        setSessions((data as unknown as Session[]) ?? [])
+        setLoadingSessions(false)
+      })
+  }, [startup?.id, selectedSemesterId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function savePreferences() {
     if (!startup) return
@@ -164,38 +200,93 @@ export default function StartupDashboard() {
       </div>
 
       {/* Sessions */}
-      <section>
-        <h2 className="text-base font-semibold text-[#002147] mb-3">My Sessions</h2>
-        {sessions.length === 0 ? (
-          <p className="text-sm text-gray-400">No sessions scheduled yet.</p>
-        ) : (
-          <div className="space-y-2">
-            {sessions.map(s => (
-              <div key={s.id} className="flex items-center justify-between px-4 py-3 bg-white rounded-xl border border-gray-100">
-                <div>
-                  <p className="text-sm font-medium text-[#002147]">
-                    {s.mentors?.full_name ?? '—'}
-                    {s.mentors?.company ? <span className="text-gray-400 font-normal"> · {s.mentors.company}</span> : ''}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {s.session_dates?.label ?? ''} · {s.session_dates?.date ?? ''}
-                    {s.topic ? ` · ${s.topic}` : ''}
-                  </p>
-                </div>
-                <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                  s.status === 'confirmed'
-                    ? 'text-green-600 bg-green-50'
-                    : s.status === 'declined'
-                    ? 'text-red-500 bg-red-50'
-                    : 'text-yellow-600 bg-yellow-50'
-                }`}>
-                  {s.status.charAt(0).toUpperCase() + s.status.slice(1)}
-                </span>
+      {(() => {
+        const activeSemesterName = semesters.find(s => s.id === selectedSemesterId)?.name ?? null
+        return (
+          <section>
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-base font-semibold text-[#002147]">My Sessions</h2>
+                {activeSemesterName && (
+                  <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-[#002147]/8 text-[#002147]">
+                    {activeSemesterName}
+                  </span>
+                )}
               </div>
-            ))}
-          </div>
-        )}
-      </section>
+              {semesters.length > 1 && (
+                <select
+                  value={selectedSemesterId ?? ''}
+                  onChange={e => setSelectedSemesterId(e.target.value)}
+                  className="text-xs text-gray-700 border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
+                >
+                  {semesters.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}{s.is_active ? ' (active)' : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {loadingSessions ? (
+              <div className="flex items-center gap-2 py-4">
+                <div className="w-4 h-4 border-2 border-[#002147] border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm text-gray-400">Loading…</span>
+              </div>
+            ) : sessions.length === 0 ? (
+              <p className="text-sm text-gray-400">No sessions scheduled yet.</p>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  {sessions.map(s => (
+                    <div key={s.id} className="flex items-center justify-between px-4 py-3 bg-white rounded-xl border border-gray-100">
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-medium text-[#002147]">
+                            {s.mentors?.full_name ?? '—'}
+                            {s.mentors?.company ? <span className="text-gray-400 font-normal"> · {s.mentors.company}</span> : ''}
+                          </p>
+                          {activeSemesterName && (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#002147]/8 text-[#002147]">
+                              {activeSemesterName}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {s.session_dates?.label ?? ''}{s.session_dates?.date ? ` · ${s.session_dates.date}` : ''}
+                          {s.time_slot ? ` · ${s.time_slot}` : ''}
+                          {s.topic ? ` · ${s.topic}` : ''}
+                        </p>
+                      </div>
+                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full shrink-0 ${
+                        s.status === 'confirmed'
+                          ? 'text-green-600 bg-green-50'
+                          : s.status === 'declined'
+                          ? 'text-red-500 bg-red-50'
+                          : 'text-yellow-600 bg-yellow-50'
+                      }`}>
+                        {s.status.charAt(0).toUpperCase() + s.status.slice(1)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Calendar view</p>
+                  <SessionCalendar sessions={sessions.map((s): CalSession => ({
+                    id: s.id,
+                    date: s.session_dates?.date ?? '',
+                    partnerName: s.mentors?.full_name ?? null,
+                    timeSlot: s.time_slot,
+                    format: s.format,
+                    status: s.status,
+                    topic: s.topic,
+                  }))} />
+                </div>
+              </>
+            )}
+          </section>
+        )
+      })()}
 
       {/* Mentor preferences */}
       <section>
@@ -204,6 +295,20 @@ export default function StartupDashboard() {
           Let us know what you&apos;re looking for so we can match you with the right mentors.
         </p>
         <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-4">
+          {startup?.mentorship_needs && startup.mentorship_needs.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                Mentorship Needs:
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {startup.mentorship_needs.map(tag => (
+                  <span key={tag} className="text-xs font-semibold px-3 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
               What do you need help with?
