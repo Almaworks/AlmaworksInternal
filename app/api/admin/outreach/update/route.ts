@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import type { Database } from '@/src/db/types'
+import type { Database, Json } from '@/src/db/types'
 
 type UpdatePayload = {
   outreachId: string
@@ -106,7 +106,7 @@ export async function PATCH(req: Request) {
       semester_id: string
       admin_id: string
       action_type: string
-      detail: Record<string, unknown>
+      detail: Json
     }[] = []
 
     const currentRow = current as Record<string, unknown>

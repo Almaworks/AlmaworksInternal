@@ -1,0 +1,8 @@
+{
+  "alwaysUpdateLinks": true,
+  "attachmentFolderPath": "assets",
+  "newFileLocation": "folder",
+  "newFileFolderPath": "notes",
+  "showUnsupportedFiles": true,
+  "useMarkdownLinks": true
+}

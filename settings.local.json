@@ -19,5 +19,7 @@
       "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\(JSON.stringify\\({...p.dependencies,...p.devDependencies},null,2\\)\\)\")",
       "Skill(superpowers:finishing-a-development-branch)"
     ]
-  }
+  },
+  "autoApprove": ["file_write", "file_read", "bash:npm test", "bash:npx supabase"],
+  "dangerouslySkipPermissions": false
 }

@@ -29,17 +29,16 @@ type Props = {
 export default function StartupModal({ startupId, onClose }: Props) {
   const supabase = createClient()
   const [startup, setStartup] = useState<Startup | null>(null)
-  const [loading, setLoading] = useState(false)
+  const loading = startupId !== null && startup?.id !== startupId
 
   useEffect(() => {
-    if (!startupId) { setStartup(null); return }
-    setLoading(true)
+    if (!startupId) return
     supabase
       .from('startups')
       .select('id, name, description, industry, stage, logo_url, website, preferred_tags, mentorship_needs, founders')
       .eq('id', startupId)
       .single()
-      .then(({ data }) => { setStartup(data as Startup | null); setLoading(false) })
+      .then(({ data }) => { setStartup(data as Startup | null) })
   }, [startupId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {

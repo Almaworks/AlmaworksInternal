@@ -4,6 +4,9 @@ import { createClient } from '@/utils/supabase/client'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import TagInput from '@/components/TagInput'
 import MentorModal from '@/components/MentorModal'
+import { CohortScreenControls, useCohortScreen } from '@/components/CohortScreenControls'
+import type { CohortRecordReference } from '@/src/lifecycle/cohort-screen'
+import { membershipsForRecord } from '@/src/lifecycle/cohort-screen'
 
 type SortDir = 'asc' | 'desc'
 
@@ -96,10 +99,21 @@ export default function AdminMentorsPage() {
     [...new Set(rows.flatMap(r => r.expertise_tags ?? []))].sort()
   , [rows])
 
+  const mentorReferences = useMemo<CohortRecordReference[]>(() => rows.map(row => ({
+    recordId: row.id, email: row.email, semesterId: row.semester_id,
+  })), [rows])
+  const cohort = useCohortScreen(mentorReferences, 'mentor')
+  const scopedMentorIds = useMemo(() => new Set(cohort.scopedRecords.map(record => record.recordId)), [cohort.scopedRecords])
+  const membershipStatusByMentor = useMemo(() => new Map(mentorReferences.map(reference => [
+    reference.recordId,
+    membershipsForRecord(reference, cohort.members, { semesterId: cohort.semesterId, role: 'mentor' })[0]?.status ?? null,
+  ])), [cohort.members, cohort.semesterId, mentorReferences])
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return rows
-      .filter(r => activeFilter === 'all' ? true : activeFilter === 'active' ? r.is_active : !r.is_active)
+      .filter(r => scopedMentorIds.has(r.id))
+      .filter(r => activeFilter === 'all' ? true : activeFilter === 'active' ? membershipStatusByMentor.get(r.id) === 'active' : membershipStatusByMentor.get(r.id) !== 'active')
       .filter(r => {
         if (!q) return true
         return [r.full_name, r.company ?? '', r.email ?? '', ...(r.expertise_tags ?? [])].join(' ').toLowerCase().includes(q)
@@ -109,7 +123,7 @@ export default function AdminMentorsPage() {
         const bv = String(b[sortKey] ?? '').toLowerCase()
         return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
       })
-  }, [rows, search, activeFilter, sortKey, sortDir])
+  }, [rows, search, activeFilter, membershipStatusByMentor, scopedMentorIds, sortKey, sortDir])
 
   function handleSort(key: typeof sortKey) {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -199,10 +213,8 @@ export default function AdminMentorsPage() {
 
   async function toggleActive(id: string, current: boolean) {
     setTogglingId(id)
-    const err = await callUpdateApi(id, { is_active: !current })
-    if (!err) {
-      setRows(prev => prev.map(r => r.id === id ? { ...r, is_active: !current } : r))
-    }
+    const error = await callUpdateApi(id, { is_active: !current })
+    if (!error) setRows(previous => previous.map(row => row.id === id ? { ...row, is_active: !current } : row))
     setTogglingId(null)
   }
 
@@ -319,6 +331,8 @@ export default function AdminMentorsPage() {
         </form>
       )}
 
+      <CohortScreenControls controller={cohort} visibleRecords={filtered.map(row => ({ recordId: row.id, email: row.email, semesterId: row.semester_id }))} />
+
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
         <input type="search" placeholder="Search name, email, company, tags…"
@@ -391,7 +405,7 @@ export default function AdminMentorsPage() {
                       <p className="text-sm text-gray-700 truncate">{m.company ?? '—'}</p>
                     </td>
                     <td className="px-4 py-3">
-                      <button onClick={() => toggleActive(m.id, m.is_active)} disabled={togglingId === m.id}
+                      <button onClick={() => toggleActive(m.id, m.is_active)} disabled={togglingId === m.id || cohort.scope === 'all'}
                         className={`text-xs font-semibold px-2.5 py-1 rounded-full transition-colors disabled:opacity-50 ${m.is_active ? 'text-green-600 bg-green-50 hover:bg-green-100' : 'text-gray-400 bg-gray-100 hover:bg-gray-200'}`}>
                         {togglingId === m.id ? '…' : m.is_active ? 'Active' : 'Inactive'}
                       </button>

@@ -44,7 +44,11 @@ export default function MentorDashboard() {
 
   const [semesters, setSemesters] = useState<Semester[]>([])
   const [selectedSemesterId, setSelectedSemesterId] = useState<string | null>(null)
-  const [loadingSessions, setLoadingSessions] = useState(false)
+  const [loadedSessionsFor, setLoadedSessionsFor] = useState<string | null>(null)
+  const sessionQueryKey = mentorId && selectedSemesterId
+    ? `${mentorId}:${selectedSemesterId}`
+    : null
+  const loadingSessions = sessionQueryKey !== null && loadedSessionsFor !== sessionQueryKey
 
   // Load initial data (user identity, semesters, availability dates)
   useEffect(() => {
@@ -104,7 +108,7 @@ export default function MentorDashboard() {
   // Re-fetch sessions whenever mentor or selected semester changes
   useEffect(() => {
     if (!mentorId || !selectedSemesterId) return
-    setLoadingSessions(true)
+    const queryKey = `${mentorId}:${selectedSemesterId}`
     supabase
       .from('sessions')
       .select('id, status, topic, time_slot, format, session_dates!inner(date, label, semester_id), startups(name)')
@@ -113,7 +117,7 @@ export default function MentorDashboard() {
       .order('date', { referencedTable: 'session_dates' })
       .then(({ data }) => {
         setSessions((data as unknown as Session[]) ?? [])
-        setLoadingSessions(false)
+        setLoadedSessionsFor(queryKey)
       })
   }, [mentorId, selectedSemesterId]) // eslint-disable-line react-hooks/exhaustive-deps
 

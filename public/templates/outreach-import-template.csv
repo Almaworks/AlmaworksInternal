@@ -1,0 +1,3 @@
+name,email,linkedin_url,company,description,status,created_time,outreach_type,ocl,confirmed_for,contact_info
+Jordan Lee,jordan.lee@example.com,https://www.linkedin.com/in/jordan-lee,Northstar Labs,"AI infrastructure; developer tools",prospect,2026-08-01,mentor outreach,No,,jordan.lee@example.com
+Casey Morgan,casey.morgan@example.com,https://www.linkedin.com/in/casey-morgan,Harbor Health,"Healthcare operations; partnerships",contacted,2026-08-05,founder outreach,Yes,2026-09-15,casey.morgan@example.com

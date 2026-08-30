@@ -61,17 +61,16 @@ type Props = {
 export default function MentorModal({ mentorId, onClose }: Props) {
   const supabase = createClient()
   const [mentor, setMentor] = useState<Mentor | null>(null)
-  const [loading, setLoading] = useState(false)
+  const loading = mentorId !== null && mentor?.id !== mentorId
 
   useEffect(() => {
-    if (!mentorId) { setMentor(null); return }
-    setLoading(true)
+    if (!mentorId) return
     supabase
       .from('mentors')
       .select('id, full_name, email, company, role_title, linkedin_url, bio, expertise_tags, is_active, general_availability, preferred_format, per_week_availability, opening_talk')
       .eq('id', mentorId)
       .single()
-      .then(({ data }) => { setMentor(data as Mentor | null); setLoading(false) })
+      .then(({ data }) => { setMentor(data as Mentor | null) })
   }, [mentorId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {

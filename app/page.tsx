@@ -4,9 +4,17 @@ import { createClient } from '@/utils/supabase/client'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 
 export default function SignInPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#002147]" />}>
+      <SignInContent />
+    </Suspense>
+  )
+}
+
+function SignInContent() {
   const supabase = createClient()
   const searchParams = useSearchParams()
 

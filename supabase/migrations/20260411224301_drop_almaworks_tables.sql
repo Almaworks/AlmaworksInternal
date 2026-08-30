@@ -1,0 +1,8 @@
+DROP TABLE IF EXISTS public.availability CASCADE;
+DROP TABLE IF EXISTS public.mentors CASCADE;
+DROP TABLE IF EXISTS public.outreach CASCADE;
+DROP TABLE IF EXISTS public.profiles CASCADE;
+DROP TABLE IF EXISTS public.semesters CASCADE;
+DROP TABLE IF EXISTS public.session_dates CASCADE;
+DROP TABLE IF EXISTS public.sessions CASCADE;
+DROP TABLE IF EXISTS public.startups CASCADE;;

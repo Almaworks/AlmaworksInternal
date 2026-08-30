@@ -2,9 +2,11 @@
 
 import { createClient } from '@/utils/supabase/client'
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import TagInput from '@/components/TagInput'
 import StartupModal from '@/components/StartupModal'
+import { CohortScreenControls, useCohortScreen } from '@/components/CohortScreenControls'
+import type { CohortRecordReference } from '@/src/lifecycle/cohort-screen'
 
 type PendingUser = {
   id: string
@@ -73,7 +75,7 @@ type Session = {
   startup_absent: boolean
   substitute_name: string | null
   is_confirmed: boolean
-  session_dates: { date: string; label: string | null } | null
+  session_dates: { date: string; label: string | null; semester_id?: string | null; semester_name?: string | null; semesters?: { name: string } | { name: string }[] | null } | null
   mentors: { full_name: string; slug: string | null } | null
   startups: { name: string; slug: string | null } | null
 }
@@ -265,7 +267,7 @@ export default function AdminDashboard() {
       supabase.from('profiles').select('id, email, full_name, role, is_active, created_at').eq('status', 'approved').order('full_name'),
       supabase.from('mentors').select('id, full_name, company, role_title, linkedin_url, bio, expertise_tags, is_active, slug, email, general_availability, preferred_format, per_week_availability, opening_talk, semester_id, semesters(name)').order('full_name'),
       supabase.from('startups').select('id, name, industry, stage, founder_name, founders, slug, description, preferred_tags, mentorship_needs, semester_id, semesters(name)').order('name'),
-      supabase.from('sessions').select('id, mentor_id, startup_id, status, topic, time_slot, format, startup_absent, substitute_name, is_confirmed, session_dates(date, label), mentors(full_name, slug), startups(name, slug)').order('time_slot'),
+      supabase.from('sessions').select('id, mentor_id, startup_id, status, topic, time_slot, format, startup_absent, substitute_name, is_confirmed, session_dates(date, label, semester_id, semesters(name)), mentors(full_name, slug), startups(name, slug)').order('time_slot'),
       supabase.from('semesters').select('id, name').eq('is_active', true).maybeSingle(),
     ])
     setPendingUsers((usersRes.data as PendingUser[]) ?? [])
@@ -559,10 +561,13 @@ export default function AdminDashboard() {
     setFounderActionKey(null)
   }
 
-  // ── Outreach ─────────────────────────────────────────────────────────────────
+  // ── Startups filter state ────────────────────────────────────────────────────
+  const [startupSearch, setStartupSearch] = useState('')
+  const [startupSemesterFilter, setStartupSemesterFilter] = useState('')
 
   // ── Startup-role members not yet linked to any startup (email not in any founders array)
   const allTags = [...new Set(startups.flatMap(s => s.preferred_tags ?? []))].sort()
+  const allStartupSemesters = [...new Set(startups.map(s => s.semester_name).filter((n): n is string => Boolean(n)))].sort()
 
   const linkedFounderEmails = new Set(
     startups.flatMap(s => (s.founders ?? []).map(f => f.email).filter((e): e is string => Boolean(e)))
@@ -580,8 +585,16 @@ export default function AdminDashboard() {
     }
   }
 
+  const memberReferences = useMemo<CohortRecordReference[]>(() => members.map(member => ({
+    recordId: member.id, profileId: member.id, email: member.email,
+  })), [members])
+  const cohort = useCohortScreen(memberReferences, 'all')
+  const scopedMemberIds = new Set(cohort.scopedRecords.map(record => record.recordId))
+  const activeMembershipProfiles = new Set(cohort.members.filter(member => member.status === 'active').map(member => member.profileId))
+
   const filteredMembers = members
-    .filter(m => memberShowAll || m.is_active)
+    .filter(m => scopedMemberIds.has(m.id))
+    .filter(m => memberShowAll || activeMembershipProfiles.has(m.id))
     .filter(m => {
       if (!memberSearch.trim()) return true
       const q = memberSearch.toLowerCase()
@@ -595,6 +608,13 @@ export default function AdminDashboard() {
       const bVal = String(b[memberSortKey] ?? '').toLowerCase()
       return memberSortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
     })
+
+  function sessionSemesterLabel(session: Session): string {
+    const dates = session.session_dates
+    const relatedSemester = dates?.semesters
+    const relatedName = Array.isArray(relatedSemester) ? relatedSemester[0]?.name : relatedSemester?.name
+    return dates?.semester_name ?? relatedName ?? 'Spring 2026'
+  }
 
   // ── Schedule ───────────────────────────────────────────────────────────────
 
@@ -630,7 +650,7 @@ export default function AdminDashboard() {
 
       const { data: sessionRows } = await supabase
         .from('sessions')
-        .select('id, mentor_id, startup_id, status, topic, time_slot, format, startup_absent, substitute_name, is_confirmed, session_dates(date, label), mentors(full_name, slug), startups(name, slug)')
+        .select('id, mentor_id, startup_id, status, topic, time_slot, format, startup_absent, substitute_name, is_confirmed, session_dates(date, label, semester_id, semesters(name)), mentors(full_name, slug), startups(name, slug)')
         .order('time_slot')
       setSessions((sessionRows as unknown as Session[]) ?? [])
       setAssignTopic('')
@@ -676,7 +696,7 @@ export default function AdminDashboard() {
       if (error) throw error
       const { data: sessionRows } = await supabase
         .from('sessions')
-        .select('id, mentor_id, startup_id, status, topic, time_slot, format, startup_absent, substitute_name, is_confirmed, session_dates(date, label), mentors(full_name, slug), startups(name, slug)')
+        .select('id, mentor_id, startup_id, status, topic, time_slot, format, startup_absent, substitute_name, is_confirmed, session_dates(date, label, semester_id, semesters(name)), mentors(full_name, slug), startups(name, slug)')
         .order('time_slot')
       setSessions((sessionRows as unknown as Session[]) ?? [])
       setEditingSession(null)
@@ -725,9 +745,69 @@ export default function AdminDashboard() {
 
   return (
     <div className="max-w-5xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-[#002147]">Admin Dashboard</h1>
-        <p className="text-sm text-gray-500 mt-1">Manage users, review schedules, and oversee the program.</p>
+      <div className="rounded-2xl bg-[#002147] text-white p-6 md:p-7 mb-6 shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.2em] text-[#9ac7e2] font-semibold">Program operations</p>
+            <div className="flex items-center gap-3 mt-2">
+              <h1 className="text-2xl md:text-3xl font-semibold">{activeSemesterName ?? 'Almaworks program'}</h1>
+              <span className="rounded-full border border-white/20 px-2.5 py-1 text-[10px] uppercase tracking-wider text-white/70">Active semester</span>
+            </div>
+            <p className="text-sm text-white/65 mt-2">One operating view for roster health, scheduling, and follow-up.</p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setTab('schedule')} className="rounded-lg border border-white/25 px-3 py-2 text-xs font-medium text-white/85 hover:bg-white/10">Review schedule</button>
+            <button onClick={() => setTab('users')} className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-[#002147] hover:bg-[#e7f2f9]">Review requests{pendingUsers.length > 0 ? ` (${pendingUsers.length})` : ''}</button>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-6">
+          {[
+            { label: 'People', value: filteredMembers.length, note: `${cohort.scope === 'all' ? 'All cohorts' : cohort.cohorts.all.find(item => item.id === cohort.semesterId)?.name ?? 'Selected cohort'}` },
+            { label: 'Ready', value: filteredMembers.length ? `${Math.round((filteredMembers.filter(member => activeMembershipProfiles.has(member.id)).length / filteredMembers.length) * 100)}%` : '—', note: 'Active memberships' },
+            { label: 'Sessions', value: sessions.length, note: `${sessions.filter(session => session.is_confirmed).length} confirmed` },
+            { label: 'Needs attention', value: pendingUsers.length, note: 'Pending approvals' },
+          ].map(metric => (
+            <div key={metric.label} className="rounded-xl border border-white/10 bg-white/[0.08] px-4 py-3">
+              <p className="text-[11px] uppercase tracking-wider text-white/55">{metric.label}</p>
+              <strong className="block text-2xl mt-1">{metric.value}</strong>
+              <span className="text-[11px] text-white/55">{metric.note}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <CohortScreenControls controller={cohort} visibleRecords={filteredMembers.map(member => ({ recordId: member.id, profileId: member.id, email: member.email }))} />
+
+      <div className="grid lg:grid-cols-[1.3fr_1fr] gap-4 mb-6">
+        <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <div><p className="text-[10px] uppercase tracking-[0.18em] text-[#75AADB] font-semibold">Launch sequence</p><h2 className="text-base font-semibold text-[#002147] mt-1">Keep the semester moving</h2></div>
+            <span className="text-xs text-gray-400">{[activeSemesterName, members.length > 0, sessionDates.length > 0, pendingUsers.length === 0].filter(Boolean).length}/4 complete</span>
+          </div>
+          <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden mb-4"><span className="block h-full bg-[#75AADB]" style={{ width: `${([activeSemesterName, members.length > 0, sessionDates.length > 0, pendingUsers.length === 0].filter(Boolean).length / 4) * 100}%` }} /></div>
+          <div className="space-y-2 text-sm">
+            {[{ label: 'Active semester configured', done: Boolean(activeSemesterName), tab: 'schedule' as Tab }, { label: 'Roster reviewed', done: members.length > 0, tab: 'members' as Tab }, { label: 'Session dates generated', done: sessionDates.length > 0, tab: 'schedule' as Tab }, { label: 'Pending access requests resolved', done: pendingUsers.length === 0, tab: 'users' as Tab }].map(item => (
+              <button key={item.label} onClick={() => setTab(item.tab)} className="w-full flex items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-gray-50">
+                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] ${item.done ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-400'}`}>{item.done ? '✓' : '·'}</span>
+                <span className={item.done ? 'text-gray-500' : 'font-medium text-[#002147]'}>{item.label}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+        <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-[#75AADB] font-semibold">Quick actions</p>
+          <h2 className="text-base font-semibold text-[#002147] mt-1 mb-4">What needs your attention</h2>
+          <div className="space-y-2">
+            <button onClick={() => setTab('users')} className="w-full flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2.5 text-left hover:border-[#75AADB]/50"><span><strong className="block text-sm text-[#002147]">Approve registrations</strong><small className="text-xs text-gray-400">{pendingUsers.length} waiting for a role</small></span><span className="text-[#75AADB]">→</span></button>
+            <button onClick={() => setTab('schedule')} className="w-full flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2.5 text-left hover:border-[#75AADB]/50"><span><strong className="block text-sm text-[#002147]">Check session coverage</strong><small className="text-xs text-gray-400">{sessions.length} sessions in the active semester</small></span><span className="text-[#75AADB]">→</span></button>
+            <Link href="/dashboard/admin/outreach" className="w-full flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2.5 text-left hover:border-[#75AADB]/50"><span><strong className="block text-sm text-[#002147]">Open outreach queue</strong><small className="text-xs text-gray-400">Follow up with prospective members</small></span><span className="text-[#75AADB]">→</span></Link>
+          </div>
+        </section>
+      </div>
+
+      <div className="mb-4">
+        <h2 className="text-lg font-semibold text-[#002147]">Admin workspace</h2>
+        <p className="text-sm text-gray-500 mt-1">Open a focused workflow without leaving the operating view.</p>
       </div>
 
       {/* Tabs */}
@@ -1004,8 +1084,7 @@ export default function AdminDashboard() {
                                   {memberSessions.slice(0, 2).map(s => (
                                     <button key={s.id} onClick={() => openEditSession(s)}
                                       className="text-left text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#002147]/8 text-[#002147] hover:bg-[#002147]/15 transition-colors whitespace-nowrap w-fit">
-                                      {s.startups?.name ?? s.substitute_name ?? '—'}
-                                      {s.session_dates?.date ? ` · ${new Date(s.session_dates.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
+                                      {sessionSemesterLabel(s)}
                                     </button>
                                   ))}
                                   {memberSessions.length > 2 && (
@@ -1030,7 +1109,7 @@ export default function AdminDashboard() {
                                 </button>
                                 <button
                                   onClick={() => toggleMemberActive(m.id, m.is_active)}
-                                  disabled={togglingActive === m.id}
+                                  disabled={togglingActive === m.id || cohort.scope === 'all'}
                                   className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors disabled:opacity-50 ${
                                     m.is_active
                                       ? 'border-red-200 text-red-600 hover:bg-red-50'
@@ -1087,12 +1166,7 @@ export default function AdminDashboard() {
                                         {memberSessions.map(s => (
                                           <div key={s.id} className="flex items-center justify-between gap-2 px-3 py-2 bg-white rounded-lg border border-gray-100">
                                             <div>
-                                              <p className="text-xs font-medium text-[#002147]">{s.startups?.name ?? s.substitute_name ?? '—'}</p>
-                                              <p className="text-[10px] text-gray-400">
-                                                {s.session_dates?.label ?? ''}{s.session_dates?.date ? ` · ${s.session_dates.date}` : ''}
-                                                {s.time_slot ? ` · ${s.time_slot}` : ''}
-                                                {s.format ? ` · ${s.format}` : ''}
-                                              </p>
+                                              <p className="text-xs font-medium text-[#002147]">{sessionSemesterLabel(s)}</p>
                                             </div>
                                             <button onClick={() => openEditSession(s)}
                                               className="px-2.5 py-1 text-[10px] font-medium border border-gray-200 text-gray-500 hover:text-[#002147] hover:border-[#002147]/30 rounded-lg transition-colors shrink-0">
@@ -1552,11 +1626,41 @@ export default function AdminDashboard() {
               </form>
             )}
 
-            {startups.length === 0 ? (
-              <p className="text-sm text-gray-400">No startups yet.</p>
+            {/* Search + semester filter */}
+            {startups.length > 0 && (
+              <div className="flex flex-col sm:flex-row gap-3 mb-4">
+                <input
+                  type="search"
+                  placeholder="Search startups…"
+                  value={startupSearch}
+                  onChange={e => setStartupSearch(e.target.value)}
+                  className="flex-1 text-sm text-gray-800 placeholder:text-gray-400 border border-gray-300 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
+                />
+                {allStartupSemesters.length > 0 && (
+                  <select
+                    value={startupSemesterFilter}
+                    onChange={e => setStartupSemesterFilter(e.target.value)}
+                    className="text-xs text-gray-600 border border-gray-300 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40 shrink-0"
+                  >
+                    <option value="">All semesters</option>
+                    {allStartupSemesters.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                )}
+              </div>
+            )}
+
+            {(() => {
+              const q = startupSearch.trim().toLowerCase()
+              const filteredStartups = startups.filter(s => {
+                if (startupSemesterFilter && s.semester_name !== startupSemesterFilter) return false
+                if (!q) return true
+                return [s.name, s.industry ?? '', s.stage ?? '', s.description ?? ''].join(' ').toLowerCase().includes(q)
+              })
+              return filteredStartups.length === 0 ? (
+              <p className="text-sm text-gray-400">{startups.length === 0 ? 'No startups yet.' : 'No startups match the current filters.'}</p>
             ) : (
               <div className="space-y-3">
-                {startups.map(s => (
+                {filteredStartups.map(s => (
                   <div key={s.id} className="px-5 py-4 bg-white rounded-xl border border-gray-100">
                     <div className="flex items-start justify-between gap-4 mb-1">
                       <div className="flex-1 min-w-0">
@@ -1647,7 +1751,8 @@ export default function AdminDashboard() {
                   </div>
                 ))}
               </div>
-            )}
+            )
+            })()}
           </div>
         </div>
       )}

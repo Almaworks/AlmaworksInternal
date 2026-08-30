@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import type { Database } from '@/src/db/types'
+import type { Database, Json } from '@/src/db/types'
 
 type ActivityRow = {
   id: string
@@ -8,7 +8,7 @@ type ActivityRow = {
   semester_id: string
   admin_id: string
   action_type: string
-  detail: Record<string, unknown>
+  detail: Json
   created_at: string
 }
 
@@ -97,7 +97,7 @@ export async function POST(req: Request) {
       outreachId: string
       semesterId: string
       actionType: string
-      detail: Record<string, unknown>
+      detail: Json
     }
 
     if (!outreachId || !semesterId || !actionType) {

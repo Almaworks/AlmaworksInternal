@@ -1,5 +1,7 @@
 # Architecture overview — Almaworks platform
 
+> This page describes the current system. The approved v2 identity and semester-membership model is defined in [[architecture/identity-membership]].
+
 ## System layers
 
 ### 1. Users

@@ -3,6 +3,7 @@
 import { createClient } from '@/utils/supabase/client'
 import { useEffect, useState } from 'react'
 import SessionCalendar, { type CalSession } from '@/components/SessionCalendar'
+import MentorNeedsForm from '@/components/mentor-needs/MentorNeedsForm'
 
 type Mentor = {
   id: string
@@ -43,7 +44,6 @@ type StartupProfile = {
   name: string
   mentor_preferences: string | null
   preferred_tags: string[]
-  mentorship_needs: string[]
   semester_goals: string[]
 }
 
@@ -62,7 +62,11 @@ export default function StartupDashboard() {
 
   const [semesters, setSemesters] = useState<Semester[]>([])
   const [selectedSemesterId, setSelectedSemesterId] = useState<string | null>(null)
-  const [loadingSessions, setLoadingSessions] = useState(false)
+  const [loadedSessionsFor, setLoadedSessionsFor] = useState<string | null>(null)
+  const sessionQueryKey = startup && selectedSemesterId
+    ? `${startup.id}:${selectedSemesterId}`
+    : null
+  const loadingSessions = sessionQueryKey !== null && loadedSessionsFor !== sessionQueryKey
 
   // Preference form state
   const [prefNotes, setPrefNotes] = useState('')
@@ -134,7 +138,7 @@ export default function StartupDashboard() {
       // This startup's profile
       const { data: startupRow } = await supabase
         .from('startups')
-        .select('id, name, mentor_preferences, preferred_tags, mentorship_needs, semester_goals')
+        .select('id, name, mentor_preferences, preferred_tags, semester_goals')
         .eq('user_id', user.id)
         .single()
 
@@ -151,7 +155,7 @@ export default function StartupDashboard() {
   // Re-fetch sessions when startup profile or selected semester changes
   useEffect(() => {
     if (!startup || !selectedSemesterId) return
-    setLoadingSessions(true)
+    const queryKey = `${startup.id}:${selectedSemesterId}`
     supabase
       .from('sessions')
       .select('id, status, topic, time_slot, format, session_dates!inner(date, label, semester_id), mentors(full_name, company)')
@@ -160,7 +164,7 @@ export default function StartupDashboard() {
       .order('date', { referencedTable: 'session_dates' })
       .then(({ data }) => {
         setSessions((data as unknown as Session[]) ?? [])
-        setLoadingSessions(false)
+        setLoadedSessionsFor(queryKey)
       })
   }, [startup?.id, selectedSemesterId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -288,6 +292,11 @@ export default function StartupDashboard() {
         )
       })()}
 
+      <MentorNeedsForm
+        semesterId={selectedSemesterId}
+        semesterName={semesters.find(s => s.id === selectedSemesterId)?.name ?? null}
+      />
+
       {/* Mentor preferences */}
       <section>
         <h2 className="text-base font-semibold text-[#002147] mb-1">Mentorship Preferences</h2>
@@ -295,20 +304,6 @@ export default function StartupDashboard() {
           Let us know what you&apos;re looking for so we can match you with the right mentors.
         </p>
         <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-4">
-          {startup?.mentorship_needs && startup.mentorship_needs.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                Mentorship Needs:
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {startup.mentorship_needs.map(tag => (
-                  <span key={tag} className="text-xs font-semibold px-3 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
               What do you need help with?
