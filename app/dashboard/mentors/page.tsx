@@ -1,7 +1,10 @@
 'use client'
 
 import { createClient } from '@/utils/supabase/client'
+import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
+import { mentorDirectoryScheduleEntry } from '@/src/assignments/schedule-navigation'
+import { authenticatedFetch } from '@/src/auth/authenticated-fetch'
 
 type MentorCard = {
   id: string
@@ -26,6 +29,7 @@ export default function MentorDirectoryPage() {
 
   // For request-a-mentor flow
   const [userRole, setUserRole] = useState<string | null>(null)
+  const [canManageAdmin, setCanManageAdmin] = useState(false)
   const [startupId, setStartupId] = useState<string | null>(null)
   const [activeSemesterId, setActiveSemesterId] = useState<string | null>(null)
   const [sessionDates, setSessionDates] = useState<SessionDate[]>([])
@@ -50,6 +54,22 @@ export default function MentorDirectoryPage() {
         .eq('id', user.id)
         .single()
       setUserRole(profile?.role ?? null)
+      try {
+        const capabilityResponse = await authenticatedFetch('/api/auth/capabilities')
+        const capabilityPayload: unknown = await capabilityResponse.json().catch(() => null)
+        setCanManageAdmin(
+          capabilityResponse.ok
+          && typeof capabilityPayload === 'object'
+          && capabilityPayload !== null
+          && 'data' in capabilityPayload
+          && typeof capabilityPayload.data === 'object'
+          && capabilityPayload.data !== null
+          && 'canManageAdmin' in capabilityPayload.data
+          && capabilityPayload.data.canManageAdmin === true,
+        )
+      } catch {
+        setCanManageAdmin(false)
+      }
 
       // Fetch mentors
       const { data: mentorData } = await supabase
@@ -94,7 +114,7 @@ export default function MentorDirectoryPage() {
       }
     }
     void init()
-  }, [supabase]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [supabase])
 
   const allTags = useMemo(() =>
     [...new Set(mentors.flatMap(m => m.expertise_tags ?? []))].sort()
@@ -108,6 +128,8 @@ export default function MentorDirectoryPage() {
       return [m.full_name, m.company ?? '', m.role_title ?? '', ...(m.expertise_tags ?? [])].join(' ').toLowerCase().includes(q)
     })
   }, [mentors, search, tagFilter])
+
+  const scheduleEntry = mentorDirectoryScheduleEntry(canManageAdmin)
 
   async function submitRequest() {
     if (!requestMentor || !startupId || !activeSemesterId || !requestDateId) return
@@ -141,9 +163,19 @@ export default function MentorDirectoryPage() {
 
   return (
     <div className="max-w-4xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-[#002147]">Mentor Directory</h1>
-        <p className="text-sm text-gray-500 mt-1">Browse mentors and their areas of expertise.</p>
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-[#002147]">Mentor Directory</h1>
+          <p className="text-sm text-gray-500 mt-1">Browse mentors and their areas of expertise.</p>
+        </div>
+        {scheduleEntry && (
+          <Link
+            href={scheduleEntry.href}
+            className="inline-flex w-fit items-center justify-center rounded-xl bg-[#002147] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#12365f] focus:outline-none focus:ring-2 focus:ring-[#75AADB] focus:ring-offset-2"
+          >
+            {scheduleEntry.label}
+          </Link>
+        )}
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3 mb-5">

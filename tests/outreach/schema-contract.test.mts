@@ -73,7 +73,7 @@ test("outreach command RPCs are security definer functions with fixed search pat
   ];
 
   for (const functionName of functions) {
-    const functionStart = sql.indexOf(`function public.${functionName}`);
+    const functionStart = sql.indexOf(`create or replace function public.${functionName}`);
     assert.notEqual(functionStart, -1, `${functionName} must be declared`);
     const declaration = sql.slice(functionStart, functionStart + 4500);
     assert.match(declaration, /security definer/);
