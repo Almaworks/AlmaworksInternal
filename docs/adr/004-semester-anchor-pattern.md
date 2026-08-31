@@ -20,7 +20,12 @@ The `semesters` table has an `is_active boolean` column — exactly one semester
 - Do NOT delete old data — historical records are valuable for the mentor directory and AI gap analysis
 
 ## Tables with semester_id
-users, mentors, startups, availability, session_dates, sessions, outreach
+
+Semester-scoped program tables are `semester_memberships`, `invitations`, `mentor_semesters`,
+`startup_semesters`, `startup_team_memberships`, `meetings`, `meeting_availability`, `sessions`,
+`program_audit_events`, `outreach_opportunities`, `outreach_activities`, and `outreach_imports`.
+Global identity and durable-record exceptions are documented in
+`docs/architecture/identity-membership.md`.
 
 ## Consequences
 - Mentor directory can show mentors from previous semesters — startups can discover anyone

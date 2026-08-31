@@ -93,10 +93,10 @@ test("semester transition commands are atomic, audited, and restricted", () => {
   const sql = readFileSync(schemaPath, "utf8").toLowerCase();
   const createStart = sql.indexOf("function public.create_semester_draft");
   const activateStart = sql.indexOf("function public.activate_semester_transition");
-  const sessionDatesStart = sql.indexOf("function public.replace_draft_session_dates");
+  const meetingsStart = sql.indexOf("function public.replace_draft_meetings");
   assert.notEqual(createStart, -1, "draft creation function must be declared");
   assert.notEqual(activateStart, -1, "semester activation function must be declared");
-  assert.notEqual(sessionDatesStart, -1, "session date replacement function must be declared");
+  assert.notEqual(meetingsStart, -1, "meeting replacement function must be declared");
 
   const createDraft = sql.slice(createStart, createStart + 5000);
   assert.match(createDraft, /public\.can_manage_semester\(p_source_semester_id/);
@@ -112,14 +112,14 @@ test("semester transition commands are atomic, audited, and restricted", () => {
   assert.match(activate, /update public\.semester_memberships[\s\S]*?status = 'alumni'/);
   assert.match(activate, /insert into public\.lifecycle_audit_events/);
 
-  const sessionDates = sql.slice(sessionDatesStart, sessionDatesStart + 5000);
-  assert.match(sessionDates, /public\.can_manage_semester\(p_semester_id/);
-  assert.match(sessionDates, /lifecycle_status[\s\S]*?= 'draft'/);
-  assert.match(sessionDates, /delete from public\.session_dates/);
-  assert.match(sessionDates, /insert into public\.session_dates/);
-  assert.match(sessionDates, /insert into public\.lifecycle_audit_events/);
+  const meetings = sql.slice(meetingsStart, meetingsStart + 5000);
+  assert.match(meetings, /public\.can_manage_semester\(p_semester_id/);
+  assert.match(meetings, /lifecycle_status[\s\S]*?= 'draft'/);
+  assert.match(meetings, /delete from public\.meetings/);
+  assert.match(meetings, /insert into public\.meetings/);
+  assert.match(meetings, /insert into public\.lifecycle_audit_events/);
 
   assert.match(sql, /revoke execute on function public\.create_semester_draft\(uuid, text, date, date, jsonb\) from public, anon/);
   assert.match(sql, /revoke execute on function public\.activate_semester_transition\(uuid, uuid\) from public, anon/);
-  assert.match(sql, /revoke execute on function public\.replace_draft_session_dates\(uuid, jsonb\) from public, anon/);
+  assert.match(sql, /revoke execute on function public\.replace_draft_meetings\(uuid, jsonb\) from public, anon/);
 });

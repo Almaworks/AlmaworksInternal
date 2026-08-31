@@ -670,9 +670,9 @@ begin
 end;
 $$;
 
-create or replace function public.replace_draft_session_dates(
+create or replace function public.replace_draft_meetings(
   p_semester_id uuid,
-  p_dates jsonb
+  p_meetings jsonb
 )
 returns integer
 language plpgsql
@@ -682,7 +682,7 @@ as $$
 declare
   v_semester_start date;
   v_semester_end date;
-  v_date_count integer;
+  v_meeting_count integer;
   v_inserted_count integer;
 begin
   if auth.uid() is null or not public.can_manage_semester(p_semester_id, auth.uid()) then
@@ -694,37 +694,38 @@ begin
   where id = p_semester_id and lifecycle_status = 'draft'
   for update;
   if v_semester_start is null then
-    raise exception 'Session dates can only be changed for a draft semester' using errcode = '22023';
+    raise exception 'Meetings can only be changed for a draft semester' using errcode = '22023';
   end if;
-  if jsonb_typeof(p_dates) is distinct from 'array' then
-    raise exception 'Session dates must be a JSON array' using errcode = '22023';
+  if jsonb_typeof(p_meetings) is distinct from 'array' then
+    raise exception 'Meetings must be a JSON array' using errcode = '22023';
   end if;
 
-  v_date_count := jsonb_array_length(p_dates);
-  if v_date_count < 1 or v_date_count > 30 then
-    raise exception 'Between 1 and 30 session dates are required' using errcode = '22023';
+  v_meeting_count := jsonb_array_length(p_meetings);
+  if v_meeting_count < 1 or v_meeting_count > 30 then
+    raise exception 'Between 1 and 30 meetings are required' using errcode = '22023';
   end if;
   if exists (
     select 1
-    from jsonb_to_recordset(p_dates) as proposed(date date, label text)
+    from jsonb_to_recordset(p_meetings) as proposed(date date, label text)
     where proposed.date is null
       or proposed.date < v_semester_start
       or proposed.date > v_semester_end
+      or extract(isodow from proposed.date) <> 5
       or nullif(trim(proposed.label), '') is null
   ) then
-    raise exception 'Every session date must be labeled and inside the semester' using errcode = '22023';
+    raise exception 'Every meeting must be a labeled Friday inside the semester' using errcode = '22023';
   end if;
   if (
     select count(distinct proposed.date)
-    from jsonb_to_recordset(p_dates) as proposed(date date, label text)
-  ) <> v_date_count then
-    raise exception 'Session dates must be unique' using errcode = '22023';
+    from jsonb_to_recordset(p_meetings) as proposed(date date, label text)
+  ) <> v_meeting_count then
+    raise exception 'Meeting dates must be unique' using errcode = '22023';
   end if;
 
-  delete from public.session_dates where semester_id = p_semester_id;
-  insert into public.session_dates (semester_id, date, label)
+  delete from public.meetings where semester_id = p_semester_id;
+  insert into public.meetings (semester_id, meeting_date, label)
   select p_semester_id, proposed.date, trim(proposed.label)
-  from jsonb_to_recordset(p_dates) as proposed(date date, label text);
+  from jsonb_to_recordset(p_meetings) as proposed(date date, label text);
   get diagnostics v_inserted_count = row_count;
 
   insert into public.lifecycle_audit_events (
@@ -732,10 +733,10 @@ begin
   ) values (
     p_semester_id,
     auth.uid(),
-    'semester.session_dates_replaced',
+    'semester.meetings_replaced',
     'semester',
     p_semester_id,
-    jsonb_build_object('session_date_count', v_inserted_count)
+    jsonb_build_object('meeting_count', v_inserted_count)
   );
 
   return v_inserted_count;
@@ -928,7 +929,7 @@ revoke execute on function public.bulk_set_membership_activity(uuid, uuid[], boo
 revoke execute on function public.import_prior_semester_memberships(uuid, uuid, uuid[]) from public, anon;
 revoke execute on function public.create_semester_draft(uuid, text, date, date, jsonb) from public, anon;
 revoke execute on function public.activate_semester_transition(uuid, uuid) from public, anon;
-revoke execute on function public.replace_draft_session_dates(uuid, jsonb) from public, anon;
+revoke execute on function public.replace_draft_meetings(uuid, jsonb) from public, anon;
 
 grant execute on function public.is_super_admin(uuid) to authenticated;
 grant execute on function public.has_semester_role(uuid, public.user_role[], uuid) to authenticated;
@@ -937,6 +938,6 @@ grant execute on function public.bulk_set_membership_activity(uuid, uuid[], bool
 grant execute on function public.import_prior_semester_memberships(uuid, uuid, uuid[]) to authenticated;
 grant execute on function public.create_semester_draft(uuid, text, date, date, jsonb) to authenticated;
 grant execute on function public.activate_semester_transition(uuid, uuid) to authenticated;
-grant execute on function public.replace_draft_session_dates(uuid, jsonb) to authenticated;
+grant execute on function public.replace_draft_meetings(uuid, jsonb) to authenticated;
 
 grant all on all tables in schema public to service_role;

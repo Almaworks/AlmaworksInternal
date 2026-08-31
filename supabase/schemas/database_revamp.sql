@@ -197,6 +197,7 @@ create table public.sessions (
   format text,
   startup_absent boolean not null default false,
   substitute_name text,
+  idempotency_key text,
   requested_at timestamptz not null default now(),
   confirmed_at timestamptz,
   created_at timestamptz not null default now(),
@@ -313,6 +314,7 @@ create index startup_semesters_organization_idx on public.startup_semesters (sta
 create index meeting_availability_member_idx on public.meeting_availability (semester_membership_id, meeting_id);
 create index sessions_mentor_idx on public.sessions (mentor_semester_id, meeting_id);
 create index sessions_startup_idx on public.sessions (startup_semester_id, meeting_id);
+create unique index sessions_semester_idempotency_key on public.sessions (semester_id, idempotency_key) where idempotency_key is not null;
 create index outreach_opportunities_owner_idx on public.outreach_opportunities (semester_id, owner_profile_id);
 create index outreach_activities_timeline_idx on public.outreach_activities (opportunity_id, occurred_at desc);
 

@@ -3,9 +3,26 @@ import type { Database, Json } from "../db/types.ts";
 import { rankMentorCandidates, type MeetingFormat } from "./ranking.ts";
 
 type Client = SupabaseClient<Database>;
-export class AssignmentHttpError extends Error { constructor(readonly status: 400 | 409, readonly code: string, message: string, readonly field?: string) { super(message); } }
+export class AssignmentHttpError extends Error {
+  readonly status: 400 | 409;
+  readonly code: string;
+  readonly field: string | undefined;
+
+  constructor(status: 400 | 409, code: string, message: string, field?: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+    this.field = field;
+  }
+}
 const uuid = (value: string | null, field: string) => { if (!value || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(value)) throw new AssignmentHttpError(400, "validation_error", `${field} must be a UUID.`, field); return value; };
 const slot = (value: string | null) => { if (value !== "3:30-4:15" && value !== "4:15-5:00") throw new AssignmentHttpError(400, "validation_error", "timeSlot is invalid.", "timeSlot"); return value; };
+const canonicalSlot = (value: unknown) => {
+  if (value !== 1 && value !== 2) {
+    throw new AssignmentHttpError(400, "validation_error", "slot must be 1 or 2.", "slot");
+  }
+  return value;
+};
 
 export function parseCandidateQuery(url: URL) { return { semesterId: uuid(url.searchParams.get("semesterId"), "semesterId"), startupSemesterId: uuid(url.searchParams.get("startupSemesterId"), "startupSemesterId"), sessionDateId: uuid(url.searchParams.get("sessionDateId"), "sessionDateId"), timeSlot: slot(url.searchParams.get("timeSlot")) }; }
 export function parseCommitBody(value: unknown, headers: Headers) {
@@ -14,7 +31,7 @@ export function parseCommitBody(value: unknown, headers: Headers) {
   const idempotencyKey = headers.get("idempotency-key")?.trim();
   if (!idempotencyKey) throw new AssignmentHttpError(400, "validation_error", "Idempotency-Key header is required.", "Idempotency-Key");
   const format = text("format"); if (!format) throw new AssignmentHttpError(400, "validation_error", "format is required.", "format");
-  return { semesterId: uuid(text("semesterId"), "semesterId"), startupSemesterId: uuid(text("startupSemesterId"), "startupSemesterId"), sessionDateId: uuid(text("sessionDateId"), "sessionDateId"), timeSlot: slot(text("timeSlot")), mentorProfileId: uuid(text("mentorProfileId"), "mentorProfileId"), idempotencyKey, format, topic: text("topic"), overrideTypes: Array.isArray(body.overrideTypes) && body.overrideTypes.every((x) => typeof x === "string") ? body.overrideTypes : [], overrideReason: text("overrideReason"), rankingContext: body.rankingContext && typeof body.rankingContext === "object" && !Array.isArray(body.rankingContext) ? body.rankingContext as Json : {} };
+  return { semesterId: uuid(text("semesterId"), "semesterId"), startupSemesterId: uuid(text("startupSemesterId"), "startupSemesterId"), meetingId: uuid(text("meetingId"), "meetingId"), slot: canonicalSlot(body.slot), mentorSemesterId: uuid(text("mentorSemesterId"), "mentorSemesterId"), idempotencyKey, format, topic: text("topic"), overrideTypes: Array.isArray(body.overrideTypes) && body.overrideTypes.every((x) => typeof x === "string") ? body.overrideTypes : [], overrideReason: text("overrideReason"), rankingContext: body.rankingContext && typeof body.rankingContext === "object" && !Array.isArray(body.rankingContext) ? body.rankingContext as Json : {} };
 }
 export async function loadAssignmentCandidates(client: Client, input: ReturnType<typeof parseCandidateQuery>) {
   const [{ data: meeting }, { data: startup }, { data: mentorTerms }, { data: availability }, { data: sessions }] = await Promise.all([
@@ -52,4 +69,34 @@ export async function loadAssignmentCandidates(client: Client, input: ReturnType
   const needs = startup.mentorship_needs;
   return { slot: assignmentSlot, candidates: rankMentorCandidates({ primaryNeed: needs[0] ?? undefined, secondaryNeed: needs[1] ?? undefined, slot: assignmentSlot, excludeMentorIds: input.timeSlot === "4:15-5:00" ? assignedFirst : [], mentors: candidates }) };
 }
-export async function commitAssignment(client: Client, input: ReturnType<typeof parseCommitBody>) { const { data, error } = await client.rpc("commit_mentor_assignment", { p_semester_id: input.semesterId, p_session_date_id: input.sessionDateId, p_time_slot: input.timeSlot, p_startup_semester_id: input.startupSemesterId, p_mentor_profile_id: input.mentorProfileId, p_idempotency_key: input.idempotencyKey, p_format: input.format, p_topic: input.topic ?? undefined, p_override_types: input.overrideTypes, p_override_reason: input.overrideReason ?? undefined, p_ranking_context: input.rankingContext }); if (error) { if (["23505", "40001", "23514"].includes(error.code ?? "")) throw new AssignmentHttpError(409, "assignment_conflict", error.message); throw new AssignmentHttpError(400, "validation_error", error.message); } return data; }
+interface AssignmentCommitClient {
+  rpc(name: string, args: Record<string, unknown>): PromiseLike<{
+    data: unknown;
+    error: { code?: string; message: string } | null;
+  }>;
+}
+
+export async function commitAssignment(client: Client | AssignmentCommitClient, input: ReturnType<typeof parseCommitBody>) {
+  type AssignmentCommitRpc = AssignmentCommitClient["rpc"];
+  const rpc = client.rpc.bind(client) as unknown as AssignmentCommitRpc;
+  const { data, error } = await rpc("commit_mentor_assignment", {
+    p_semester_id: input.semesterId,
+    p_meeting_id: input.meetingId,
+    p_slot: input.slot,
+    p_startup_semester_id: input.startupSemesterId,
+    p_mentor_semester_id: input.mentorSemesterId,
+    p_idempotency_key: input.idempotencyKey,
+    p_format: input.format,
+    p_topic: input.topic ?? undefined,
+    p_override_types: input.overrideTypes,
+    p_override_reason: input.overrideReason ?? undefined,
+    p_ranking_context: input.rankingContext,
+  });
+  if (error) {
+    if (["23505", "40001", "23514"].includes(error.code ?? "")) {
+      throw new AssignmentHttpError(409, "assignment_conflict", error.message);
+    }
+    throw new AssignmentHttpError(400, "validation_error", error.message);
+  }
+  return data;
+}

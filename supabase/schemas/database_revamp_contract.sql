@@ -31,6 +31,7 @@ alter table public.sessions drop constraint if exists sessions_session_date_id_f
 alter table public.sessions drop column if exists mentor_id;
 alter table public.sessions drop column if exists startup_id;
 alter table public.sessions drop column if exists session_date_id;
+alter table public.sessions drop column if exists session_date;
 alter table public.sessions drop column if exists time_slot;
 alter table public.sessions drop column if exists is_confirmed;
 alter table public.sessions rename column status to legacy_status;
@@ -214,90 +215,5 @@ revoke execute on function public.carry_forward_outreach_contacts(uuid, uuid, uu
 grant execute on function public.carry_forward_outreach_contacts(uuid, uuid, uuid[]) to authenticated;
 revoke execute on function public.reset_outreach_opportunities(uuid, uuid[]) from public, anon;
 grant execute on function public.reset_outreach_opportunities(uuid, uuid[]) to authenticated;
-
--- Read-only compatibility views keep the currently deployed UI available during its cutover.
-create view public.mentors with (security_invoker = true) as
-select
-  mentor_term.id,
-  membership.profile_id as user_id,
-  mentor_term.semester_id,
-  coalesce(profile.full_name, profile.email) as full_name,
-  mentor.company,
-  mentor.title as role_title,
-  mentor.biography as bio,
-  mentor.linkedin_url,
-  mentor.website_url,
-  mentor.photo_url,
-  mentor.expertise_tags,
-  mentor_term.mentorship_goals,
-  membership.status = 'active' as is_active,
-  mentor_term.created_at,
-  mentor_term.updated_at,
-  lower(regexp_replace(coalesce(profile.full_name, profile.email), '[^a-zA-Z0-9]+', '-', 'g')) || '-' || left(mentor_term.id::text, 8) as slug,
-  profile.email,
-  mentor_term.general_availability,
-  mentor_term.preferred_format,
-  mentor_term.per_week_availability,
-  mentor_term.opening_talk
-from public.mentor_semesters mentor_term
-join public.semester_memberships membership on membership.id = mentor_term.semester_membership_id
-join public.profiles profile on profile.id = membership.profile_id
-join public.mentor_profiles mentor on mentor.profile_id = membership.profile_id;
-
-create view public.startups with (security_invoker = true) as
-select
-  startup_term.id,
-  primary_member.profile_id as user_id,
-  startup_term.semester_id,
-  organization.name,
-  organization.description,
-  organization.industry,
-  startup_term.stage,
-  organization.logo_url,
-  organization.website_url as website,
-  organization.durable_contact_data ->> 'founder_name' as founder_name,
-  null::text as mentor_preferences,
-  startup_term.preferred_expertise_tags as preferred_tags,
-  startup_term.goals as semester_goals,
-  startup_term.readiness_status = 'ready' as is_active,
-  startup_term.created_at,
-  startup_term.updated_at,
-  organization.slug,
-  coalesce(organization.durable_contact_data -> 'founders', '[]'::jsonb) as founders,
-  startup_term.mentorship_needs
-from public.startup_semesters startup_term
-join public.startup_organizations organization on organization.id = startup_term.startup_organization_id
-left join lateral (
-  select membership.profile_id
-  from public.startup_team_memberships team
-  join public.semester_memberships membership on membership.id = team.semester_membership_id
-  where team.startup_semester_id = startup_term.id
-  order by team.is_primary_contact desc, team.created_at
-  limit 1
-) primary_member on true;
-
-create view public.session_dates with (security_invoker = true) as
-select id, semester_id, meeting_date as date, label, created_at from public.meetings;
-
-create view public.availability with (security_invoker = true) as
-select availability.id, membership.profile_id as user_id, availability.meeting_id as session_date_id,
-  availability.is_available, availability.created_at
-from public.meeting_availability availability
-join public.semester_memberships membership on membership.id = availability.semester_membership_id;
-
-create or replace function public.mentors(public.sessions)
-returns setof public.mentors rows 1
-language sql stable security invoker set search_path = ''
-as $$ select * from public.mentors where id = $1.mentor_semester_id $$;
-
-create or replace function public.startups(public.sessions)
-returns setof public.startups rows 1
-language sql stable security invoker set search_path = ''
-as $$ select * from public.startups where id = $1.startup_semester_id $$;
-
-create or replace function public.session_dates(public.sessions)
-returns setof public.session_dates rows 1
-language sql stable security invoker set search_path = ''
-as $$ select * from public.session_dates where id = $1.meeting_id $$;
 
 drop function public.run_database_revamp_backfill();

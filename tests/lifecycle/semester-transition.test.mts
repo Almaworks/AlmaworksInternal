@@ -5,11 +5,11 @@ import {
   SemesterTransitionError,
   buildWeeklySessionDates,
   createActivateSemesterCommand,
-  createReplaceSessionDatesCommand,
+  createReplaceMeetingsCommand,
   createSemesterDraftCommand,
   parseActivateSemesterRequest,
   parseCreateSemesterDraftRequest,
-  parseReplaceSessionDatesRequest,
+  parseReplaceMeetingsRequest,
 } from "../../src/lifecycle/semester-transition.ts";
 
 test("draft input is normalized into a private semester configuration", () => {
@@ -109,8 +109,8 @@ test("weekly session-date preview makes every proposed week independently review
   );
 });
 
-test("session-date input removes excluded breaks before persistence", () => {
-  assert.deepEqual(parseReplaceSessionDatesRequest({
+test("meeting input removes excluded breaks before persistence", () => {
+  assert.deepEqual(parseReplaceMeetingsRequest({
     semesterId: "fall-2026",
     dates: [
       { date: "2026-11-20", label: "Nov 20", included: true },
@@ -126,12 +126,12 @@ test("session-date input removes excluded breaks before persistence", () => {
   });
 });
 
-test("session-date replacement authorizes the draft and persists only reviewed meetings", async () => {
+test("meeting replacement authorizes the draft and persists only reviewed meetings", async () => {
   const observed: unknown[] = [];
-  const command = createReplaceSessionDatesCommand(async (_request, semesterId) => {
+  const command = createReplaceMeetingsCommand(async (_request, semesterId) => {
     observed.push({ authorizedSemesterId: semesterId });
     return {
-      replaceSessionDates: async (args) => {
+      replaceMeetings: async (args) => {
         observed.push(args);
         return { data: 2, error: null };
       },
@@ -151,7 +151,7 @@ test("session-date replacement authorizes the draft and persists only reviewed m
   assert.deepEqual(observed, [
     { authorizedSemesterId: "fall-2026" },
     {
-      p_dates: [
+      p_meetings: [
         { date: "2026-11-20", label: "Nov 20" },
         { date: "2026-12-04", label: "Dec 4" },
       ],

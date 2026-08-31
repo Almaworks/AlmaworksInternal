@@ -83,7 +83,7 @@ export default function SemesterOperations() {
   async function saveDates() {
     if (!draft) return; setWorking(true); setError(null);
     try {
-      await requestJson("/api/admin/lifecycle/semesters/session-dates", { method: "POST", body: JSON.stringify({ semesterId: draft.id, dates }) });
+      await requestJson("/api/admin/lifecycle/semesters/meetings", { method: "POST", body: JSON.stringify({ semesterId: draft.id, dates }) });
       setNotice(`${activeDates.length} meeting dates saved; ${skippedDates} break ${skippedDates === 1 ? "week" : "weeks"} excluded.`); setStep("people");
       if (source && members.length === 0) {
         const response = await requestJson<CohortResponse>(`/api/admin/lifecycle/cohorts?semesterId=${encodeURIComponent(source.id)}&scope=semester`);

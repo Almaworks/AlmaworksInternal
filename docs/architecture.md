@@ -27,7 +27,7 @@ Key pages:
 - `/admin/outreach` — reach out tracker (prospect pipeline)
 
 ### 4. Backend (Supabase)
-- **Auth:** Supabase Auth with JWT, magic link, role stored in `users.role`
+- **Auth:** Supabase Auth with JWT and magic links; durable identity is stored in `profiles`, while semester roles come from `semester_memberships`
 - **Database:** Postgres with RLS — see `docs/adr/002-rls-for-role-access.md`
 - **Storage:** Supabase Storage for profile photos and startup logos
 - **Edge Functions:** AI matching engine and gap analysis (see `src/ai/`)
@@ -48,11 +48,12 @@ See `src/db/types.ts` for full generated types.
 
 | Table | Purpose |
 |---|---|
-| `semesters` | Anchor for all data — every record ties to a semester |
-| `users` | Supabase Auth users + role + semester_id |
-| `mentors` | Mentor profiles, expertise_tags[], linkedin_url, photo |
-| `startups` | Startup profiles, preferred_tags[], mentor_preferences |
-| `availability` | Junction: user × session_date × is_available |
-| `session_dates` | All scheduled mentorship dates for a semester |
-| `sessions` | Confirmed/pending sessions linking mentor + startup + date |
-| `outreach` | Admin reach out tracker — prospects through to onboarded |
+| `semesters` | Cohort boundaries and current lifecycle state |
+| `profiles` | Durable authenticated identities for admins, mentors, and startup members |
+| `semester_memberships` | Per-semester role, participation history, and onboarding state |
+| `mentor_profiles` / `mentor_semesters` | Durable mentor details plus semester-specific participation |
+| `startup_organizations` / `startup_semesters` | Durable startup details plus semester-specific cohort participation |
+| `meetings` | Almaworks Friday meeting dates; each exposes two mentorship slots |
+| `meeting_availability` | A semester member's availability for a meeting and slot |
+| `sessions` | One startup-mentor mentorship session in a meeting slot |
+| `outreach_contacts` / `outreach_opportunities` | Durable outreach contacts plus a fresh pipeline record per semester |
