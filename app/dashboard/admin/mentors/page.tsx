@@ -7,6 +7,7 @@ import MentorModal from '@/components/MentorModal'
 import { CohortScreenControls, useCohortScreen } from '@/components/CohortScreenControls'
 import type { CohortRecordReference } from '@/src/lifecycle/cohort-screen'
 import { membershipsForRecord } from '@/src/lifecycle/cohort-screen'
+import { loadMentorDirectory } from '@/src/program/canonical-repository'
 
 type SortDir = 'asc' | 'desc'
 
@@ -81,15 +82,7 @@ export default function AdminMentorsPage() {
     const { data: sem } = await supabase.from('semesters').select('id, name').eq('is_active', true).maybeSingle()
     setActiveSemesterId((sem as { id: string; name: string } | null)?.id ?? null)
     setActiveSemesterName((sem as { id: string; name: string } | null)?.name ?? null)
-    const { data } = await supabase
-      .from('mentors')
-      .select('id, full_name, company, role_title, linkedin_url, expertise_tags, bio, is_active, slug, email, general_availability, preferred_format, opening_talk, semester_id, semesters(name)')
-      .order('full_name')
-    type RawRow = Omit<MentorRow, 'semester_name'> & { semesters: { name: string } | { name: string }[] | null }
-    setRows(((data ?? []) as unknown as RawRow[]).map(m => ({
-      ...m,
-      semester_name: Array.isArray(m.semesters) ? (m.semesters[0]?.name ?? null) : (m.semesters?.name ?? null),
-    })))
+    setRows(await loadMentorDirectory(supabase))
     setLoading(false)
   }
 

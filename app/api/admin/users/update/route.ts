@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createMentorRecords } from '@/src/program/server/canonical-admin'
 
 type UpdateUserPayload = {
   userId: string
@@ -63,54 +64,35 @@ export async function PATCH(req: Request) {
     // Update profile
     const { error: profileErr } = await adminClient
       .from('profiles')
-      .update({ full_name: fullName, email, role })
+      .update({ full_name: fullName, email })
       .eq('id', userId)
     if (profileErr) {
       return NextResponse.json({ error: profileErr.message }, { status: 400 })
     }
 
-    if (role === 'mentor') {
-      // Promoted to mentor — ensure a mentors row exists in the active semester
-      const { data: activeSem } = await adminClient
-        .from('semesters')
-        .select('id')
-        .eq('is_active', true)
-        .maybeSingle()
-
-      if (activeSem?.id) {
-        const { data: existingMentor } = await adminClient
-          .from('mentors')
-          .select('id')
-          .eq('user_id', userId)
-          .eq('semester_id', activeSem.id)
-          .maybeSingle()
-
-        if (!existingMentor) {
-          await adminClient.from('mentors').insert({
-            user_id: userId,
-            semester_id: activeSem.id,
-            full_name: fullName,
-            email,
-            is_active: true,
-            expertise_tags: [],
-          })
-        } else {
-          // Keep name/email in sync and re-activate if they were previously deactivated
-          await adminClient
-            .from('mentors')
-            .update({ full_name: fullName, email, is_active: true })
-            .eq('id', existingMentor.id)
-        }
+    const { data: activeSem } = await adminClient.from('semesters').select('id').eq('is_active', true).maybeSingle()
+    if (activeSem?.id) {
+      if (role === 'mentor') {
+        await createMentorRecords(adminClient, {
+          biography: null,
+          company: null,
+          expertiseTags: [],
+          isActive: true,
+          linkedinUrl: null,
+          preferredFormat: null,
+          profileId: userId,
+          semesterId: activeSem.id,
+          title: null,
+        })
+      } else {
+        const membership = await adminClient.from('semester_memberships').upsert({
+          profile_id: userId,
+          role,
+          semester_id: activeSem.id,
+          status: 'active',
+        }, { onConflict: 'semester_id,profile_id' })
+        if (membership.error) return NextResponse.json({ error: membership.error.message }, { status: 400 })
       }
-    } else {
-      // Unassigned from mentor — deactivate any mentor rows for this user so they
-      // no longer appear in the scheduling dropdown or active mentor list.
-      // We do not delete because sessions.mentor_id is ON DELETE CASCADE and would
-      // destroy session history.
-      await adminClient
-        .from('mentors')
-        .update({ is_active: false })
-        .eq('user_id', userId)
     }
 
     return NextResponse.json({ ok: true })

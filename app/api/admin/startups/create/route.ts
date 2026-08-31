@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { AuthorizationError, requireSemesterAdmin } from '@/src/auth/server'
+import { createStartupRecords } from '@/src/program/server/canonical-admin'
 
 type CreateStartupPayload = {
   name: string
@@ -13,33 +14,6 @@ type CreateStartupPayload = {
 
 export async function POST(req: Request) {
   try {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    if (!url || !anonKey || !serviceRoleKey) {
-      return NextResponse.json({ error: 'Missing Supabase environment variables.' }, { status: 500 })
-    }
-
-    // Verify caller is an authenticated admin
-    const authHeader = req.headers.get('authorization') ?? ''
-    const accessToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
-    if (!accessToken) {
-      return NextResponse.json({ error: 'Missing bearer token.' }, { status: 401 })
-    }
-
-    const userClient = createClient(url, anonKey, {
-      global: { headers: { Authorization: `Bearer ${accessToken}` } },
-      auth: { persistSession: false, autoRefreshToken: false },
-    })
-    const { data: authData, error: authErr } = await userClient.auth.getUser()
-    if (authErr || !authData.user) {
-      return NextResponse.json({ error: 'Invalid auth token.' }, { status: 401 })
-    }
-    const adminCheck = await userClient.from('profiles').select('role').eq('id', authData.user.id).single()
-    if (adminCheck.error || adminCheck.data?.role !== 'admin') {
-      return NextResponse.json({ error: 'Admin access required.' }, { status: 403 })
-    }
-
     const payload = (await req.json()) as CreateStartupPayload
     const name = (payload.name ?? '').trim()
     const slug = (payload.slug ?? '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '-')
@@ -56,28 +30,22 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'No active semester. Create a semester first.' }, { status: 400 })
     }
 
-    const adminClient = createClient(url, serviceRoleKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    })
-
-    const { error: insertErr } = await adminClient.from('startups').insert({
-      name,
-      slug,
-      industry: industry || null,
-      stage: stage || null,
+    const { adminClient } = await requireSemesterAdmin(req, semesterId)
+    const created = await createStartupRecords(adminClient, {
       description: description || null,
-      preferred_tags: tags,
-      semester_id: semesterId,
-      is_active: true,
-      founders: [],
+      industry: industry || null,
+      name,
+      preferredTags: tags,
+      semesterId,
+      slug,
+      stage: stage || null,
     })
 
-    if (insertErr) {
-      return NextResponse.json({ error: insertErr.message }, { status: 400 })
-    }
-
-    return NextResponse.json({ ok: true, slug })
+    return NextResponse.json({ ok: true, slug, startupId: created.startupSemesterId })
   } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return NextResponse.json({ error: err.message }, { status: err.status })
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Unexpected server error.' },
       { status: 500 },

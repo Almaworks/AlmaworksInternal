@@ -3,6 +3,7 @@
 import { createClient } from '@/utils/supabase/client'
 import { useEffect, useState } from 'react'
 import SessionCalendar, { type CalSession } from '@/components/SessionCalendar'
+import { loadMentorAvailability } from '@/src/program/canonical-repository'
 
 type SessionDate = {
   id: string
@@ -11,7 +12,7 @@ type SessionDate = {
 }
 
 type Availability = {
-  session_date_id: string
+  meeting_id: string
   is_available: boolean
 }
 
@@ -19,10 +20,10 @@ type Session = {
   id: string
   status: string
   topic: string | null
-  time_slot: string | null
+  slot: number
   format: string | null
-  session_dates: { date: string; label: string | null } | null
-  startups: { name: string } | null
+  meeting: { meeting_date: string; label: string | null } | null
+  startup: { organization: { name: string } | null } | null
 }
 
 type Semester = {
@@ -39,12 +40,13 @@ export default function MentorDashboard() {
   const [sessions, setSessions] = useState<Session[]>([])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [userId, setUserId] = useState<string | null>(null)
-  const [mentorId, setMentorId] = useState<string | null>(null)
+  const [membershipId, setMembershipId] = useState<string | null>(null)
+  const [mentorTerms, setMentorTerms] = useState<Record<string, string>>({})
 
   const [semesters, setSemesters] = useState<Semester[]>([])
   const [selectedSemesterId, setSelectedSemesterId] = useState<string | null>(null)
   const [loadedSessionsFor, setLoadedSessionsFor] = useState<string | null>(null)
+  const mentorId = selectedSemesterId ? mentorTerms[selectedSemesterId] ?? null : null
   const sessionQueryKey = mentorId && selectedSemesterId
     ? `${mentorId}:${selectedSemesterId}`
     : null
@@ -55,16 +57,16 @@ export default function MentorDashboard() {
     async function loadInit() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-      setUserId(user.id)
 
-      // All semesters via session_dates join (avoids direct semesters RLS)
-      const { data: sdRows } = await supabase
-        .from('session_dates')
-        .select('semester_id, semesters(id, name, is_active)')
+      const { data: membershipRows } = await supabase
+        .from('semester_memberships')
+        .select('id, semester_id, semester:semesters!inner(id, name, is_active)')
+        .eq('profile_id', user.id)
+        .eq('role', 'mentor')
       const semMap = new Map<string, Semester>()
-      for (const row of (sdRows ?? []) as unknown as { semester_id: string; semesters: Semester | null }[]) {
-        if (row.semester_id && row.semesters && !semMap.has(row.semester_id)) {
-          semMap.set(row.semester_id, row.semesters)
+      for (const row of (membershipRows ?? []) as unknown as { id: string; semester_id: string; semester: Semester | null }[]) {
+        if (row.semester_id && row.semester && !semMap.has(row.semester_id)) {
+          semMap.set(row.semester_id, row.semester)
         }
       }
       const allSems = [...semMap.values()].sort((a, b) => b.name.localeCompare(a.name))
@@ -76,31 +78,28 @@ export default function MentorDashboard() {
       // Active semester's session dates (for availability checkboxes)
       if (activeSem) {
         const { data: dates } = await supabase
-          .from('session_dates')
-          .select('id, date, label')
+          .from('meetings')
+          .select('id, meeting_date, label')
           .eq('semester_id', activeSem.id)
-          .order('date')
-        setSessionDates((dates as SessionDate[]) ?? [])
+          .order('meeting_date')
+        setSessionDates((dates ?? []).map((row) => ({ id: row.id, date: row.meeting_date, label: row.label })))
       }
 
-      // Availability
-      const { data: avail } = await supabase
-        .from('availability')
-        .select('session_date_id, is_available')
-        .eq('user_id', user.id)
+      const avail = activeSem ? await loadMentorAvailability(supabase, user.id, activeSem.id) : []
       const map: Record<string, boolean> = {}
       for (const row of (avail as Availability[]) ?? []) {
-        map[row.session_date_id] = row.is_available
+        map[row.meeting_id] = (map[row.meeting_id] ?? false) || row.is_available
       }
       setAvailability(map)
 
-      // Mentor row
-      const { data: mentorRow } = await supabase
-        .from('mentors')
-        .select('id')
-        .eq('user_id', user.id)
-        .single()
-      if (mentorRow) setMentorId(mentorRow.id)
+      const { data: mentorRows } = await supabase
+        .from('mentor_semesters')
+        .select('id, semester_id, membership:semester_memberships!inner(profile_id)')
+        .eq('semester_memberships.profile_id', user.id)
+      const terms = Object.fromEntries((mentorRows ?? []).map((row) => [row.semester_id, row.id]))
+      setMentorTerms(terms)
+      const activeMembership = (membershipRows ?? []).find((row) => row.semester_id === activeSem?.id)
+      setMembershipId(activeMembership?.id ?? null)
     }
     loadInit()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -111,10 +110,10 @@ export default function MentorDashboard() {
     const queryKey = `${mentorId}:${selectedSemesterId}`
     supabase
       .from('sessions')
-      .select('id, status, topic, time_slot, format, session_dates!inner(date, label, semester_id), startups(name)')
-      .eq('mentor_id', mentorId)
-      .eq('session_dates.semester_id', selectedSemesterId)
-      .order('date', { referencedTable: 'session_dates' })
+      .select('id, status, topic, slot, format, meeting:meetings!inner(meeting_date, label, semester_id), startup:startup_semesters!inner(organization:startup_organizations!inner(name))')
+      .eq('mentor_semester_id', mentorId)
+      .eq('meetings.semester_id', selectedSemesterId)
+      .order('meeting_date', { referencedTable: 'meetings' })
       .then(({ data }) => {
         setSessions((data as unknown as Session[]) ?? [])
         setLoadedSessionsFor(queryKey)
@@ -126,16 +125,17 @@ export default function MentorDashboard() {
   }
 
   async function saveAvailability() {
-    if (!userId) return
+    if (!membershipId || !selectedSemesterId) return
     setSaving(true)
-    const rows = sessionDates.map(d => ({
-      user_id: userId,
-      session_date_id: d.id,
+    const rows = sessionDates.flatMap(d => ([1, 2] as const).map((slot) => ({
+      semester_id: selectedSemesterId,
+      semester_membership_id: membershipId,
+      meeting_id: d.id,
+      slot,
       is_available: availability[d.id] ?? false,
-    }))
-    await supabase
-      .from('availability')
-      .upsert(rows, { onConflict: 'user_id,session_date_id' })
+      source: 'user',
+    })))
+    await supabase.from('meeting_availability').upsert(rows, { onConflict: 'meeting_id,semester_membership_id,slot' })
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2500)
@@ -190,7 +190,7 @@ export default function MentorDashboard() {
                 <div key={s.id} className="flex items-center justify-between px-4 py-3 bg-white rounded-xl border border-gray-100">
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-medium text-[#002147]">{s.startups?.name ?? '—'}</p>
+                      <p className="text-sm font-medium text-[#002147]">{s.startup?.organization?.name ?? '—'}</p>
                       {activeSemesterName && (
                         <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#002147]/8 text-[#002147]">
                           {activeSemesterName}
@@ -198,8 +198,8 @@ export default function MentorDashboard() {
                       )}
                     </div>
                     <p className="text-xs text-gray-500 mt-0.5">
-                      {s.session_dates?.label ?? ''}{s.session_dates?.date ? ` · ${s.session_dates.date}` : ''}
-                      {s.time_slot ? ` · ${s.time_slot}` : ''}
+                      {s.meeting?.label ?? ''}{s.meeting?.meeting_date ? ` · ${s.meeting.meeting_date}` : ''}
+                      {` · Slot ${s.slot}`}
                       {s.topic ? ` · ${s.topic}` : ''}
                     </p>
                   </div>
@@ -217,9 +217,9 @@ export default function MentorDashboard() {
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Calendar view</p>
               <SessionCalendar sessions={sessions.map((s): CalSession => ({
                 id: s.id,
-                date: s.session_dates?.date ?? '',
-                partnerName: s.startups?.name ?? null,
-                timeSlot: s.time_slot,
+                date: s.meeting?.meeting_date ?? '',
+                partnerName: s.startup?.organization?.name ?? null,
+                timeSlot: s.slot === 1 ? '3:30-4:15' : '4:15-5:00',
                 format: s.format,
                 status: s.status,
                 topic: s.topic,

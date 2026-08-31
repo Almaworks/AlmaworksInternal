@@ -4,6 +4,7 @@ import { createClient } from '@/utils/supabase/client'
 import { useEffect, useState } from 'react'
 import SessionCalendar, { type CalSession } from '@/components/SessionCalendar'
 import MentorNeedsForm from '@/components/mentor-needs/MentorNeedsForm'
+import { loadMentorDirectory, loadStartupProfile } from '@/src/program/canonical-repository'
 
 type Mentor = {
   id: string
@@ -17,34 +18,30 @@ type Mentor = {
 
 type OutreachProspect = {
   id: string
-  prospect_name: string
-  company: string | null
-  linkedin_url: string | null
-  expertise_tags: string[]
-  notes: string | null
-  status: 'prospect' | 'contacted' | 'responded' | 'onboarded'
+  contact: { full_name: string; linkedin_url: string | null; expertise_tags: string[]; background_notes: string | null } | { full_name: string; linkedin_url: string | null; expertise_tags: string[]; background_notes: string | null }[] | null
+  stage: 'replied' | 'ready'
 }
 
 type DirectoryEntry =
   | { kind: 'mentor'; id: string; full_name: string; company: string | null; role_title: string | null; bio: string | null; linkedin_url: string | null; expertise_tags: string[] }
-  | { kind: 'prospect'; id: string; full_name: string; company: string | null; role_title: null; bio: string | null; linkedin_url: string | null; expertise_tags: string[]; status: OutreachProspect['status'] }
+  | { kind: 'prospect'; id: string; full_name: string; company: string | null; role_title: null; bio: string | null; linkedin_url: string | null; expertise_tags: string[]; status: OutreachProspect['stage'] }
 
 type Session = {
   id: string
   status: string
   topic: string | null
-  time_slot: string | null
+  slot: number
   format: string | null
-  session_dates: { date: string; label: string | null } | null
-  mentors: { full_name: string; company: string | null } | null
+  meeting: { meeting_date: string; label: string | null } | null
+  mentor: { membership: { profile: { full_name: string | null; mentor_profile: { company: string | null } | null } | null } | null } | null
 }
 
 type StartupProfile = {
   id: string
   name: string
-  mentor_preferences: string | null
+  mentor_need_context: string | null
   preferred_tags: string[]
-  semester_goals: string[]
+  goals: string[]
 }
 
 type Semester = {
@@ -81,14 +78,15 @@ export default function StartupDashboard() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // All semesters via session_dates join (avoids direct semesters RLS)
-      const { data: sdRows } = await supabase
-        .from('session_dates')
-        .select('semester_id, semesters(id, name, is_active)')
+      const { data: membershipRows } = await supabase
+        .from('semester_memberships')
+        .select('id, semester_id, semester:semesters!inner(id, name, is_active)')
+        .eq('profile_id', user.id)
+        .eq('role', 'startup')
       const semMap = new Map<string, Semester>()
-      for (const row of (sdRows ?? []) as unknown as { semester_id: string; semesters: Semester | null }[]) {
-        if (row.semester_id && row.semesters && !semMap.has(row.semester_id)) {
-          semMap.set(row.semester_id, row.semesters)
+      for (const row of (membershipRows ?? []) as unknown as { id: string; semester_id: string; semester: Semester | null }[]) {
+        if (row.semester_id && row.semester && !semMap.has(row.semester_id)) {
+          semMap.set(row.semester_id, row.semester)
         }
       }
       const allSems = [...semMap.values()].sort((a, b) => b.name.localeCompare(a.name))
@@ -97,20 +95,16 @@ export default function StartupDashboard() {
       setSelectedSemesterId(activeSem?.id ?? allSems[0]?.id ?? null)
 
       // Mentors directory
-      const { data: mentorRows } = await supabase
-        .from('mentors')
-        .select('id, full_name, company, role_title, bio, linkedin_url, expertise_tags')
-        .eq('is_active', true)
-        .order('full_name')
+      const mentorRows = (await loadMentorDirectory(supabase)).filter((mentor) => mentor.is_active)
 
       // Outreach “possible mentors”
       const { data: outreachRows } = await supabase
-        .from('outreach')
-        .select('id, prospect_name, company, linkedin_url, expertise_tags, notes, status')
-        .in('status', ['responded', 'onboarded'])
-        .order('prospect_name')
+        .from('outreach_opportunities')
+        .select('id, stage, contact:outreach_contacts!inner(full_name, linkedin_url, expertise_tags, background_notes)')
+        .in('stage', ['replied', 'ready'])
+        .order('full_name', { referencedTable: 'outreach_contacts' })
 
-      const mentorEntries: DirectoryEntry[] = ((mentorRows as Mentor[]) ?? []).map(m => ({
+      const mentorEntries: DirectoryEntry[] = (mentorRows as Mentor[]).map(m => ({
         kind: 'mentor',
         id: m.id,
         full_name: m.full_name,
@@ -121,32 +115,48 @@ export default function StartupDashboard() {
         expertise_tags: m.expertise_tags ?? [],
       }))
 
-      const prospectEntries: DirectoryEntry[] = ((outreachRows as OutreachProspect[]) ?? []).map(o => ({
+      const prospectEntries: DirectoryEntry[] = (((outreachRows as unknown as OutreachProspect[]) ?? [])).map(o => {
+        const contact = Array.isArray(o.contact) ? o.contact[0] ?? null : o.contact
+        return {
         kind: 'prospect',
         id: o.id,
-        full_name: o.prospect_name,
-        company: o.company,
+        full_name: contact?.full_name ?? 'Unnamed prospect',
+        company: null,
         role_title: null,
-        bio: o.notes,
-        linkedin_url: o.linkedin_url,
-        expertise_tags: o.expertise_tags ?? [],
-        status: o.status,
-      }))
+        bio: contact?.background_notes ?? null,
+        linkedin_url: contact?.linkedin_url ?? null,
+        expertise_tags: contact?.expertise_tags ?? [],
+        status: o.stage,
+      }})
 
       setDirectory([...mentorEntries, ...prospectEntries])
 
       // This startup's profile
-      const { data: startupRow } = await supabase
-        .from('startups')
-        .select('id, name, mentor_preferences, preferred_tags, semester_goals')
-        .eq('user_id', user.id)
-        .single()
+      const activeMembership = membershipRows?.find((membership) => membership.semester_id === activeSem?.id) ?? membershipRows?.[0]
+      const { data: team } = activeMembership ? await supabase
+        .from('startup_team_memberships')
+        .select('startup_semester_id')
+        .eq('semester_membership_id', activeMembership.id)
+        .maybeSingle() : { data: null }
+      const canonicalStartup = team ? await loadStartupProfile(supabase, team.startup_semester_id) : null
+      const { data: startupTerm } = team ? await supabase
+        .from('startup_semesters')
+        .select('mentor_need_context, preferred_expertise_tags, goals')
+        .eq('id', team.startup_semester_id)
+        .maybeSingle() : { data: null }
+      const startupRow = canonicalStartup && startupTerm ? {
+        id: canonicalStartup.id,
+        name: canonicalStartup.name,
+        mentor_need_context: startupTerm.mentor_need_context,
+        preferred_tags: startupTerm.preferred_expertise_tags,
+        goals: startupTerm.goals,
+      } : null
 
       if (startupRow) {
         setStartup(startupRow as StartupProfile)
-        setPrefNotes(startupRow.mentor_preferences ?? '')
+        setPrefNotes(startupRow.mentor_need_context ?? '')
         setPrefTags((startupRow.preferred_tags ?? []).join(', '))
-        setGoals((startupRow.semester_goals ?? []).join(', '))
+        setGoals((startupRow.goals ?? []).join(', '))
       }
     }
     loadInit()
@@ -158,10 +168,10 @@ export default function StartupDashboard() {
     const queryKey = `${startup.id}:${selectedSemesterId}`
     supabase
       .from('sessions')
-      .select('id, status, topic, time_slot, format, session_dates!inner(date, label, semester_id), mentors(full_name, company)')
-      .eq('startup_id', startup.id)
-      .eq('session_dates.semester_id', selectedSemesterId)
-      .order('date', { referencedTable: 'session_dates' })
+      .select('id, status, topic, slot, format, meeting:meetings!inner(meeting_date, label, semester_id), mentor:mentor_semesters!inner(membership:semester_memberships!inner(profile:profiles!inner(full_name, mentor_profile:mentor_profiles(company))))')
+      .eq('startup_semester_id', startup.id)
+      .eq('meetings.semester_id', selectedSemesterId)
+      .order('meeting_date', { referencedTable: 'meetings' })
       .then(({ data }) => {
         setSessions((data as unknown as Session[]) ?? [])
         setLoadedSessionsFor(queryKey)
@@ -172,11 +182,11 @@ export default function StartupDashboard() {
     if (!startup) return
     setSavingPrefs(true)
     await supabase
-      .from('startups')
+      .from('startup_semesters')
       .update({
-        mentor_preferences: prefNotes,
-        preferred_tags: prefTags.split(',').map(t => t.trim()).filter(Boolean),
-        semester_goals: goals.split(',').map(g => g.trim()).filter(Boolean),
+        mentor_need_context: prefNotes,
+        preferred_expertise_tags: prefTags.split(',').map(t => t.trim()).filter(Boolean),
+        goals: goals.split(',').map(g => g.trim()).filter(Boolean),
       })
       .eq('id', startup.id)
     setSavingPrefs(false)
@@ -247,8 +257,8 @@ export default function StartupDashboard() {
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">
                           <p className="text-sm font-medium text-[#002147]">
-                            {s.mentors?.full_name ?? '—'}
-                            {s.mentors?.company ? <span className="text-gray-400 font-normal"> · {s.mentors.company}</span> : ''}
+                            {s.mentor?.membership?.profile?.full_name ?? '—'}
+                            {s.mentor?.membership?.profile?.mentor_profile?.company ? <span className="text-gray-400 font-normal"> · {s.mentor.membership.profile.mentor_profile.company}</span> : ''}
                           </p>
                           {activeSemesterName && (
                             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#002147]/8 text-[#002147]">
@@ -257,8 +267,8 @@ export default function StartupDashboard() {
                           )}
                         </div>
                         <p className="text-xs text-gray-500 mt-0.5">
-                          {s.session_dates?.label ?? ''}{s.session_dates?.date ? ` · ${s.session_dates.date}` : ''}
-                          {s.time_slot ? ` · ${s.time_slot}` : ''}
+                          {s.meeting?.label ?? ''}{s.meeting?.meeting_date ? ` · ${s.meeting.meeting_date}` : ''}
+                          {` · Slot ${s.slot}`}
                           {s.topic ? ` · ${s.topic}` : ''}
                         </p>
                       </div>
@@ -278,9 +288,9 @@ export default function StartupDashboard() {
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Calendar view</p>
                   <SessionCalendar sessions={sessions.map((s): CalSession => ({
                     id: s.id,
-                    date: s.session_dates?.date ?? '',
-                    partnerName: s.mentors?.full_name ?? null,
-                    timeSlot: s.time_slot,
+                    date: s.meeting?.meeting_date ?? '',
+                    partnerName: s.mentor?.membership?.profile?.full_name ?? null,
+                    timeSlot: s.slot === 1 ? '3:30-4:15' : '4:15-5:00',
                     format: s.format,
                     status: s.status,
                     topic: s.topic,
@@ -358,7 +368,7 @@ export default function StartupDashboard() {
       <section>
         <h2 className="text-base font-semibold text-[#002147] mb-1">Mentor Directory</h2>
         <p className="text-sm text-gray-500 mb-3">
-          Includes active mentors plus onboarded/responded outreach prospects.
+          Includes active mentors plus ready or replied outreach prospects.
         </p>
         <input
           type="search"
@@ -382,7 +392,7 @@ export default function StartupDashboard() {
                     {m.kind === 'prospect' && (
                       <div className="mt-1">
                         <span className={`inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                          m.status === 'onboarded'
+                          m.status === 'ready'
                             ? 'bg-green-50 text-green-700'
                             : 'bg-blue-50 text-blue-700'
                         }`}>

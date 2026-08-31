@@ -1,16 +1,17 @@
 'use client'
 
 import { createClient } from '@/utils/supabase/client'
+import { loadMentorInbox } from '@/src/program/canonical-repository'
 import { useEffect, useMemo, useState } from 'react'
 
 type PendingSession = {
   id: string
   status: string
   topic: string | null
-  time_slot: string | null
+  slot: number
   format: string | null
-  session_dates: { date: string; label: string | null } | null
-  startups: { name: string } | null
+  meeting: { meeting_date: string; label: string | null } | null
+  startup: { organization: { name: string } | null } | null
 }
 
 export default function MentorInboxPage() {
@@ -23,19 +24,8 @@ export default function MentorInboxPage() {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { setLoading(false); return }
-      const { data: mentorRow } = await supabase
-        .from('mentors')
-        .select('id')
-        .eq('user_id', user.id)
-        .maybeSingle()
-      if (!mentorRow) { setLoading(false); return }
-      const { data } = await supabase
-        .from('sessions')
-        .select('id, status, topic, time_slot, format, session_dates(date, label), startups(name)')
-        .eq('mentor_id', mentorRow.id)
-        .eq('status', 'requested')
-        .order('date', { referencedTable: 'session_dates' })
-      setSessions((data as unknown as PendingSession[]) ?? [])
+      const data = await loadMentorInbox(supabase, user.id)
+      setSessions(data as unknown as PendingSession[])
       setLoading(false)
     }
     void load()
@@ -76,10 +66,10 @@ export default function MentorInboxPage() {
             <div key={s.id} className="bg-white rounded-2xl border border-gray-100 px-5 py-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-sm font-semibold text-[#002147]">{s.startups?.name ?? 'Session request'}</p>
+                  <p className="text-sm font-semibold text-[#002147]">{s.startup?.organization?.name ?? 'Session request'}</p>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    {s.session_dates?.label ?? s.session_dates?.date ?? 'Date TBD'}
-                    {s.time_slot ? ` · ${s.time_slot}` : ''}
+                    {s.meeting?.label ?? s.meeting?.meeting_date ?? 'Date TBD'}
+                    {` · Slot ${s.slot}`}
                     {s.format ? ` · ${s.format}` : ''}
                   </p>
                   {s.topic && <p className="text-xs text-gray-500 mt-1">Topic: {s.topic}</p>}

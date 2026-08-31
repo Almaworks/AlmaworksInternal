@@ -1,9 +1,14 @@
 import { supabase } from '@/lib/supabase'
+import { loadMentorDirectory } from '@/src/program/canonical-repository'
 
 export default async function TestSupabasePage() {
-  const { data: mentors, error } = await supabase
-    .from('mentors')
-    .select('*')
+  let mentors
+  let error: Error | null = null
+  try {
+    mentors = await loadMentorDirectory(supabase)
+  } catch (cause) {
+    error = cause instanceof Error ? cause : new Error('Unable to load mentors')
+  }
 
   if (error) {
     return (

@@ -7,6 +7,7 @@ import TagInput from '@/components/TagInput'
 import StartupModal from '@/components/StartupModal'
 import { CohortScreenControls, useCohortScreen } from '@/components/CohortScreenControls'
 import type { CohortRecordReference } from '@/src/lifecycle/cohort-screen'
+import { loadMentorDirectory, loadStartupDirectory } from '@/src/program/canonical-repository'
 
 type PendingUser = {
   id: string
@@ -51,6 +52,7 @@ type Founder = {
 
 type Startup = {
   id: string
+  organization_id: string
   name: string
   industry: string | null
   stage: string | null
@@ -78,6 +80,44 @@ type Session = {
   session_dates: { date: string; label: string | null; semester_id?: string | null; semester_name?: string | null; semesters?: { name: string } | { name: string }[] | null } | null
   mentors: { full_name: string; slug: string | null } | null
   startups: { name: string; slug: string | null } | null
+}
+
+type CanonicalSessionRow = {
+  id: string
+  mentor_semester_id: string
+  startup_semester_id: string
+  status: string
+  topic: string | null
+  slot: number
+  format: string | null
+  startup_absent: boolean
+  substitute_name: string | null
+  meeting: { meeting_date: string; label: string | null; semester_id: string; semester: { name: string } | null } | null
+  mentor: { membership: { profile: { full_name: string | null } | null } | null } | null
+  startup: { organization: { name: string; slug: string } | null } | null
+}
+
+function mapSession(row: CanonicalSessionRow): Session {
+  return {
+    id: row.id,
+    mentor_id: row.mentor_semester_id,
+    startup_id: row.startup_semester_id,
+    status: row.status,
+    topic: row.topic,
+    time_slot: row.slot === 1 ? '3:30-4:15' : '4:15-5:00',
+    format: row.format,
+    startup_absent: row.startup_absent,
+    substitute_name: row.substitute_name,
+    is_confirmed: row.status === 'confirmed',
+    session_dates: row.meeting ? {
+      date: row.meeting.meeting_date,
+      label: row.meeting.label,
+      semester_id: row.meeting.semester_id,
+      semester_name: row.meeting.semester?.name ?? null,
+    } : null,
+    mentors: row.mentor?.membership?.profile ? { full_name: row.mentor.membership.profile.full_name ?? 'Unnamed mentor', slug: null } : null,
+    startups: row.startup?.organization ? { name: row.startup.organization.name, slug: row.startup.organization.slug } : null,
+  }
 }
 
 type SessionDate = {
@@ -175,18 +215,20 @@ export default function AdminDashboard() {
     if (!editingStartup) return
     setEsSaving(true)
     setEsError(null)
-    const { error } = await supabase
-      .from('startups')
-      .update({
+    const [organizationResult, termResult] = await Promise.all([
+      supabase.from('startup_organizations').update({
         name: esName.trim(),
-        slug: esSlug.trim() || null,
+        slug: esSlug.trim(),
         industry: esIndustry.trim() || null,
-        stage: esStage || null,
         description: esDescription.trim() || null,
-        preferred_tags: esTagsArr,
+      }).eq('id', editingStartup.organization_id),
+      supabase.from('startup_semesters').update({
+        stage: esStage || null,
+        preferred_expertise_tags: esTagsArr,
         mentorship_needs: esMentorshipNeeds,
-      })
-      .eq('id', editingStartup.id)
+      }).eq('id', editingStartup.id),
+    ])
+    const error = organizationResult.error ?? termResult.error
     setEsSaving(false)
     if (error) { setEsError(error.message); return }
     setEditingStartup(null)
@@ -239,10 +281,10 @@ export default function AdminDashboard() {
     setWizardSaving(true)
     const rows = wizardPreviewDates().map(({ date, label }) => ({
       semester_id: activeSemesterId,
-      date,
+      meeting_date: date,
       label,
     }))
-    await supabase.from('session_dates').upsert(rows, { onConflict: 'semester_id,date', ignoreDuplicates: true })
+    await supabase.from('meetings').upsert(rows, { onConflict: 'semester_id,meeting_date', ignoreDuplicates: true })
     setWizardSaving(false)
     setWizardDone(true)
     setTimeout(() => { setWizardDone(false); setShowDateWizard(false) }, 1500)
@@ -264,25 +306,24 @@ export default function AdminDashboard() {
   async function loadAll() {
     const [usersRes, membersRes, mentorsRes, startupsRes, sessionsRes, semesterRes] = await Promise.all([
       supabase.from('profiles').select('id, email, full_name, created_at').eq('status', 'pending').order('created_at'),
-      supabase.from('profiles').select('id, email, full_name, role, is_active, created_at').eq('status', 'approved').order('full_name'),
-      supabase.from('mentors').select('id, full_name, company, role_title, linkedin_url, bio, expertise_tags, is_active, slug, email, general_availability, preferred_format, per_week_availability, opening_talk, semester_id, semesters(name)').order('full_name'),
-      supabase.from('startups').select('id, name, industry, stage, founder_name, founders, slug, description, preferred_tags, mentorship_needs, semester_id, semesters(name)').order('name'),
-      supabase.from('sessions').select('id, mentor_id, startup_id, status, topic, time_slot, format, startup_absent, substitute_name, is_confirmed, session_dates(date, label, semester_id, semesters(name)), mentors(full_name, slug), startups(name, slug)').order('time_slot'),
+      supabase.from('profiles').select('id, email, full_name, is_active, created_at, memberships:semester_memberships(role,status)').eq('status', 'approved').order('full_name'),
+      loadMentorDirectory(supabase),
+      loadStartupDirectory(supabase),
+      supabase.from('sessions').select('id, mentor_semester_id, startup_semester_id, status, topic, slot, format, startup_absent, substitute_name, meeting:meetings(meeting_date, label, semester_id, semester:semesters(name)), mentor:mentor_semesters(membership:semester_memberships(profile:profiles(full_name))), startup:startup_semesters(organization:startup_organizations(name,slug))').order('slot'),
       supabase.from('semesters').select('id, name').eq('is_active', true).maybeSingle(),
     ])
     setPendingUsers((usersRes.data as PendingUser[]) ?? [])
-    setMembers((membersRes.data as Member[]) ?? [])
-    type MentorRow = Omit<Mentor, 'semester_name'> & { semesters: { name: string } | { name: string }[] | null }
-    setMentors(((mentorsRes.data ?? []) as unknown as MentorRow[]).map(m => ({
-      ...m,
-      semester_name: Array.isArray(m.semesters) ? (m.semesters[0]?.name ?? null) : (m.semesters?.name ?? null),
+    type MemberRow = Omit<Member, 'role'> & { memberships: { role: string; status: string }[] | null }
+    setMembers(((membersRes.data ?? []) as unknown as MemberRow[]).map((member) => ({
+      ...member,
+      role: member.memberships?.find((membership) => membership.status === 'active')?.role ?? member.memberships?.[0]?.role ?? 'startup',
     })))
-    type StartupRow = Omit<Startup, 'semester_name'> & { semesters: { name: string } | { name: string }[] | null }
-    setStartups(((startupsRes.data ?? []) as unknown as StartupRow[]).map(s => ({
-      ...s,
-      semester_name: Array.isArray(s.semesters) ? (s.semesters[0]?.name ?? null) : (s.semesters?.name ?? null),
+    setMentors(mentorsRes as unknown as Mentor[])
+    setStartups((startupsRes as unknown as Startup[]).map((startup) => ({
+      ...startup,
+      founder_name: startup.founders[0]?.name ?? null,
     })))
-    setSessions((sessionsRes.data as unknown as Session[]) ?? [])
+    setSessions(((sessionsRes.data ?? []) as unknown as CanonicalSessionRow[]).map(mapSession))
 
     const semData = semesterRes.data as { id: string; name: string } | null
     const semId = semData?.id ?? null
@@ -290,11 +331,11 @@ export default function AdminDashboard() {
     setActiveSemesterName(semData?.name ?? null)
     if (semId) {
       const { data: dateRows } = await supabase
-        .from('session_dates')
-        .select('id, date, label')
+        .from('meetings')
+        .select('id, meeting_date, label')
         .eq('semester_id', semId)
-        .order('date')
-      const dates = (dateRows as SessionDate[]) ?? []
+        .order('meeting_date')
+      const dates = (dateRows ?? []).map((row) => ({ id: row.id, date: row.meeting_date, label: row.label }))
       setSessionDates(dates)
       setSelectedSessionDateId(prev => prev ?? (dates[0]?.id ?? null))
     } else {
@@ -517,15 +558,20 @@ export default function AdminDashboard() {
   }
 
   async function refreshStartups() {
-    const { data } = await supabase
-      .from('startups')
-      .select('id, name, industry, stage, founder_name, founders, slug, description, preferred_tags, semester_id, semesters(name)')
-      .order('name')
-    type SRow = Omit<Startup, 'semester_name'> & { semesters: { name: string } | { name: string }[] | null }
-    setStartups(((data ?? []) as unknown as SRow[]).map(s => ({
-      ...s,
-      semester_name: Array.isArray(s.semesters) ? (s.semesters[0]?.name ?? null) : (s.semesters?.name ?? null),
+    const data = await loadStartupDirectory(supabase)
+    setStartups((data as unknown as Startup[]).map((startup) => ({
+      ...startup,
+      founder_name: startup.founders[0]?.name ?? null,
     })))
+  }
+
+  async function refreshSessions() {
+    const { data, error } = await supabase
+      .from('sessions')
+      .select('id, mentor_semester_id, startup_semester_id, status, topic, slot, format, startup_absent, substitute_name, meeting:meetings(meeting_date, label, semester_id, semester:semesters(name)), mentor:mentor_semesters(membership:semester_memberships(profile:profiles(full_name))), startup:startup_semesters(organization:startup_organizations(name,slug))')
+      .order('slot')
+    if (error) throw error
+    setSessions(((data ?? []) as unknown as CanonicalSessionRow[]).map(mapSession))
   }
 
   async function removeFounder(email: string, startupId: string) {
@@ -620,32 +666,26 @@ export default function AdminDashboard() {
       alert('Pick a mentor.')
       return
     }
-    if (!assignStartupAbsent && !assignStartupId) {
-      alert('Pick a startup, or mark the startup as absent and enter a substitute name.')
+    if (!assignStartupId) {
+      alert('Pick a startup for this session.')
       return
     }
     setAssigning(true)
     try {
       const { error } = await supabase.from('sessions').insert({
-        mentor_id: assignMentorId,
-        startup_id: assignStartupAbsent ? null : assignStartupId,
-        session_date_id: selectedSessionDateId,
+        mentor_semester_id: assignMentorId,
+        startup_semester_id: assignStartupId,
+        meeting_id: selectedSessionDateId,
         semester_id: activeSemesterId,
-        time_slot: assignTimeSlot,
+        slot: assignTimeSlot === '4:15-5:00' ? 2 : 1,
         format: assignFormat,
         startup_absent: assignStartupAbsent,
         substitute_name: assignStartupAbsent && assignSubstituteName.trim() ? assignSubstituteName.trim() : null,
         topic: assignTopic.trim() ? assignTopic.trim() : null,
         status: 'confirmed',
-        is_confirmed: true,
       } as never)
       if (error) throw error
-
-      const { data: sessionRows } = await supabase
-        .from('sessions')
-        .select('id, mentor_id, startup_id, status, topic, time_slot, format, startup_absent, substitute_name, is_confirmed, session_dates(date, label, semester_id, semesters(name)), mentors(full_name, slug), startups(name, slug)')
-        .order('time_slot')
-      setSessions((sessionRows as unknown as Session[]) ?? [])
+      await refreshSessions()
       setAssignTopic('')
       setAssignSubstituteName('')
       setAssignStartupAbsent(false)
@@ -677,21 +717,17 @@ export default function AdminDashboard() {
     setEditSaving(true)
     try {
       const { error } = await supabase.from('sessions').update({
-        mentor_id: editMentorId,
-        startup_id: editStartupAbsent ? null : (editStartupId || null),
-        time_slot: editTimeSlot,
+        mentor_semester_id: editMentorId,
+        startup_semester_id: editStartupId,
+        slot: editTimeSlot === '4:15-5:00' ? 2 : 1,
         format: editFormat,
         topic: editTopic.trim() || null,
-        is_confirmed: editIsConfirmed,
+        status: editIsConfirmed ? 'confirmed' : 'requested',
         startup_absent: editStartupAbsent,
         substitute_name: editStartupAbsent && editSubstituteName.trim() ? editSubstituteName.trim() : null,
       } as never).eq('id', editingSession.id)
       if (error) throw error
-      const { data: sessionRows } = await supabase
-        .from('sessions')
-        .select('id, mentor_id, startup_id, status, topic, time_slot, format, startup_absent, substitute_name, is_confirmed, session_dates(date, label, semester_id, semesters(name)), mentors(full_name, slug), startups(name, slug)')
-        .order('time_slot')
-      setSessions((sessionRows as unknown as Session[]) ?? [])
+      await refreshSessions()
       setEditingSession(null)
     } catch (e) {
       alert(`Update failed: ${e instanceof Error ? e.message : String(e)}`)

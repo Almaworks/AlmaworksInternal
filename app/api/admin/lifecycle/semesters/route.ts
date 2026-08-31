@@ -45,10 +45,10 @@ export async function GET(request: Request) {
     const { data: sessionDates, error: datesError } = ids.length === 0
       ? { data: [], error: null }
       : await userClient
-        .from("session_dates")
-        .select("id,semester_id,date,label")
+        .from("meetings")
+        .select("id,semester_id,date:meeting_date,label")
         .in("semester_id", ids)
-        .order("date", { ascending: true });
+        .order("meeting_date", { ascending: true });
     if (datesError) throw datesError;
     return NextResponse.json({ semesters: semesters ?? [], sessionDates: sessionDates ?? [] });
   } catch (error) {

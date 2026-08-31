@@ -15,6 +15,52 @@ type SessionRow = {
   startup: { id: string; name: string; founders: Record<string, string>[] | null } | null
 }
 
+type CanonicalSessionRow = {
+  id: string
+  slot: number
+  format: string | null
+  status: string
+  meeting: { meeting_date: string } | { meeting_date: string }[] | null
+  mentor: {
+    membership: {
+      profile: { id: string; full_name: string | null; email: string | null } | { id: string; full_name: string | null; email: string | null }[] | null
+    } | { profile: { id: string; full_name: string | null; email: string | null } | { id: string; full_name: string | null; email: string | null }[] | null }[] | null
+  } | null
+  startup: {
+    organization: { id: string; name: string } | { id: string; name: string }[] | null
+    team: { membership: { profile: { email: string | null } | { email: string | null }[] | null } | { profile: { email: string | null } | { email: string | null }[] | null }[] | null }[] | null
+  } | null
+}
+
+function first<T>(value: T | T[] | null): T | null {
+  return Array.isArray(value) ? value[0] ?? null : value
+}
+
+function mapCanonicalSession(row: CanonicalSessionRow): SessionRow {
+  const meeting = first(row.meeting)
+  const mentorMembership = first(row.mentor?.membership ?? null)
+  const mentorProfile = first(mentorMembership?.profile ?? null)
+  const organization = first(row.startup?.organization ?? null)
+  const founders = (row.startup?.team ?? []).flatMap(member => {
+    const membership = first(member.membership)
+    const profile = first(membership?.profile ?? null)
+    return profile?.email ? [{ email: profile.email }] : []
+  })
+  return {
+    id: row.id,
+    session_date: meeting?.meeting_date ?? '',
+    time_slot: row.slot === 1 ? '3:30-4:15' : '4:15-5:00',
+    format: row.format,
+    is_confirmed: row.status === 'confirmed',
+    mentor: mentorProfile ? {
+      id: mentorProfile.id,
+      full_name: mentorProfile.full_name ?? mentorProfile.email ?? 'Unnamed mentor',
+      email: mentorProfile.email,
+    } : null,
+    startup: organization ? { id: organization.id, name: organization.name, founders } : null,
+  }
+}
+
 type SendResult = {
   dry_run: boolean
   sent: number
@@ -81,10 +127,29 @@ export default function AdminNotifyPage() {
     setSelected(new Set())
     const { data } = await supabase
       .from('sessions')
-      .select('id, session_date, time_slot, format, is_confirmed, mentor:mentor_id(id, full_name, email), startup:startup_id(id, name, founders)')
-      .eq('session_date', sessionDate)
-      .order('time_slot')
-    setSessions((data as unknown as SessionRow[]) ?? [])
+      .select(`
+        id,
+        slot,
+        format,
+        status,
+        meeting:meetings!inner(meeting_date),
+        mentor:mentor_semesters!inner(
+          membership:semester_memberships!inner(
+            profile:profiles!inner(id,full_name,email)
+          )
+        ),
+        startup:startup_semesters!inner(
+          organization:startup_organizations!inner(id,name),
+          team:startup_team_memberships(
+            membership:semester_memberships!inner(
+              profile:profiles!inner(email)
+            )
+          )
+        )
+      `)
+      .eq('meetings.meeting_date', sessionDate)
+      .order('slot')
+    setSessions(((data as unknown as CanonicalSessionRow[]) ?? []).map(mapCanonicalSession))
     setLoadingSessions(false)
   }
 
@@ -99,7 +164,8 @@ export default function AdminNotifyPage() {
   function toggleOne(id: string) {
     setSelected(prev => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
   }

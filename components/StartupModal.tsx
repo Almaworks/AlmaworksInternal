@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { loadStartupProfile } from '@/src/program/canonical-repository'
 
 type Founder = {
   name: string
@@ -33,12 +34,9 @@ export default function StartupModal({ startupId, onClose }: Props) {
 
   useEffect(() => {
     if (!startupId) return
-    supabase
-      .from('startups')
-      .select('id, name, description, industry, stage, logo_url, website, preferred_tags, mentorship_needs, founders')
-      .eq('id', startupId)
-      .single()
-      .then(({ data }) => { setStartup(data as Startup | null) })
+    void loadStartupProfile(supabase, startupId).then((data) => {
+      setStartup(data as Startup | null)
+    })
   }, [startupId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {

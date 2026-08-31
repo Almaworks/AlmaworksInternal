@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { loadMentorProfile } from '@/src/program/canonical-repository'
 
 type WeekAvailability = { slot: string; format: string }
 
@@ -65,12 +66,9 @@ export default function MentorModal({ mentorId, onClose }: Props) {
 
   useEffect(() => {
     if (!mentorId) return
-    supabase
-      .from('mentors')
-      .select('id, full_name, email, company, role_title, linkedin_url, bio, expertise_tags, is_active, general_availability, preferred_format, per_week_availability, opening_talk')
-      .eq('id', mentorId)
-      .single()
-      .then(({ data }) => { setMentor(data as Mentor | null) })
+    void loadMentorProfile(supabase, mentorId).then((data) => {
+      setMentor(data as unknown as Mentor | null)
+    })
   }, [mentorId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {

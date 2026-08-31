@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createMentorRecords } from '@/src/program/server/canonical-admin'
 
 type ApprovePayload = {
   userId: string
@@ -38,7 +39,7 @@ export async function POST(req: Request) {
     }
 
     const payload = (await req.json()) as ApprovePayload
-    const { userId, role, fullName, email } = payload
+    const { userId, role } = payload
     if (!userId || !role || !['mentor', 'startup', 'admin'].includes(role)) {
       return NextResponse.json({ error: 'userId and a valid role are required.' }, { status: 400 })
     }
@@ -50,38 +51,34 @@ export async function POST(req: Request) {
     // Approve the profile
     const { error: profileErr } = await adminClient
       .from('profiles')
-      .update({ status: 'approved', role })
+      .update({ status: 'approved' })
       .eq('id', userId)
     if (profileErr) {
       return NextResponse.json({ error: profileErr.message }, { status: 400 })
     }
 
-    // If approved as mentor, ensure a mentors row exists in the active semester
-    if (role === 'mentor') {
-      const { data: activeSem } = await adminClient
-        .from('semesters')
-        .select('id')
-        .eq('is_active', true)
-        .maybeSingle()
-
-      if (activeSem?.id) {
-        const { data: existingMentor } = await adminClient
-          .from('mentors')
-          .select('id')
-          .eq('user_id', userId)
-          .eq('semester_id', activeSem.id)
-          .maybeSingle()
-
-        if (!existingMentor) {
-          await adminClient.from('mentors').insert({
-            user_id: userId,
-            semester_id: activeSem.id,
-            full_name: fullName || email,
-            email,
-            is_active: true,
-            expertise_tags: [],
-          })
-        }
+    const { data: activeSem } = await adminClient.from('semesters').select('id').eq('is_active', true).maybeSingle()
+    if (activeSem?.id) {
+      if (role === 'mentor') {
+        await createMentorRecords(adminClient, {
+          biography: null,
+          company: null,
+          expertiseTags: [],
+          isActive: true,
+          linkedinUrl: null,
+          preferredFormat: null,
+          profileId: userId,
+          semesterId: activeSem.id,
+          title: null,
+        })
+      } else {
+        const membership = await adminClient.from('semester_memberships').upsert({
+          profile_id: userId,
+          role,
+          semester_id: activeSem.id,
+          status: 'active',
+        }, { onConflict: 'semester_id,profile_id' })
+        if (membership.error) return NextResponse.json({ error: membership.error.message }, { status: 400 })
       }
     }
 
