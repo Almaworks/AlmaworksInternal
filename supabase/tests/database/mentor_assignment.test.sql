@@ -1,6 +1,6 @@
 begin;
 
-select plan(71);
+select plan(75);
 
 select has_table('public', 'mentor_assignment_requests', 'assignment requests table exists');
 select has_table('public', 'mentor_assignment_audit', 'assignment audit table exists');
@@ -162,6 +162,51 @@ select is(
   (select actor_profile_id from public.mentor_assignment_audit where idempotency_key = 'assignment-success'),
   'a2000000-0000-0000-0000-000000000001'::uuid,
   'audit records the authenticated actor'
+);
+
+select throws_ok(
+  $$update public.sessions
+    set topic = 'Legacy edit must not rewrite audited history'
+    where id = (select session_id from public.mentor_assignment_audit where idempotency_key = 'assignment-success')$$,
+  '55000',
+  'Audit-managed assignments cannot be updated or deleted through legacy session writes',
+  'an audit-linked assignment rejects legacy session updates'
+);
+select throws_ok(
+  $$delete from public.sessions
+    where id = (select session_id from public.mentor_assignment_audit where idempotency_key = 'assignment-success')$$,
+  '55000',
+  'Audit-managed assignments cannot be updated or deleted through legacy session writes',
+  'an audit-linked assignment rejects legacy session deletes'
+);
+
+set local role postgres;
+insert into public.sessions (
+  id, mentor_id, startup_id, session_date_id, semester_id, status, topic, time_slot, format,
+  startup_absent, is_confirmed
+) values (
+  'aa000000-0000-0000-0000-000000000098',
+  'a7000000-0000-0000-0000-000000000011',
+  'a8000000-0000-0000-0000-000000000002',
+  'a9000000-0000-0000-0000-000000000002',
+  'a1000000-0000-0000-0000-000000000001',
+  'pending', 'Unaudited legacy session', '4:15-5:00', 'online', false, false
+);
+set local role authenticated;
+select results_eq(
+  $$update public.sessions
+    set topic = 'Unaudited legacy edit allowed'
+    where id = 'aa000000-0000-0000-0000-000000000098'
+    returning topic$$,
+  $$values ('Unaudited legacy edit allowed'::text)$$,
+  'an unaudited legacy session can still be updated'
+);
+select results_eq(
+  $$delete from public.sessions
+    where id = 'aa000000-0000-0000-0000-000000000098'
+    returning id$$,
+  $$values ('aa000000-0000-0000-0000-000000000098'::uuid)$$,
+  'an unaudited legacy session can still be deleted'
 );
 
 set local role postgres;

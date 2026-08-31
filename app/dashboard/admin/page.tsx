@@ -20,6 +20,7 @@ import {
   type HistoricalScheduleStartupColumn,
   type ScheduleStartupColumn,
 } from '@/src/assignments/picker'
+import { loadAuditedSessionIds } from '@/src/assignments/audit-provenance'
 import { ADMIN_SCHEDULE_HREF, adminDashboardHref, resolveAdminDashboardTab } from '@/src/assignments/schedule-navigation'
 
 type PendingUser = {
@@ -288,16 +289,15 @@ function AdminDashboardContent() {
 
   async function loadAll(): Promise<{ ok: true } | { ok: false; error: string }> {
     try {
-      const [usersRes, membersRes, mentorsRes, startupsRes, sessionsRes, semesterRes, assignmentAuditRes] = await Promise.all([
+      const [usersRes, membersRes, mentorsRes, startupsRes, sessionsRes, semesterRes] = await Promise.all([
         supabase.from('profiles').select('id, email, full_name, created_at').eq('status', 'pending').order('created_at'),
         supabase.from('profiles').select('id, email, full_name, role, is_active, created_at').eq('status', 'approved').order('full_name'),
         supabase.from('mentors').select('id, full_name, company, role_title, linkedin_url, bio, expertise_tags, is_active, slug, email, general_availability, preferred_format, per_week_availability, opening_talk, semester_id, semesters(name)').order('full_name'),
         supabase.from('startups').select('id, user_id, is_active, name, industry, stage, founder_name, founders, slug, description, preferred_tags, mentorship_needs, semester_id, semesters(name)').order('name'),
         supabase.from('sessions').select('id, mentor_id, startup_id, status, topic, time_slot, format, startup_absent, substitute_name, is_confirmed, session_dates(date, label, semester_id, semesters(name)), mentors(full_name, slug), startups(name, slug)').order('time_slot'),
         supabase.from('semesters').select('id, name').eq('is_active', true).maybeSingle(),
-        supabase.from('mentor_assignment_audit').select('session_id'),
       ])
-      const initialError = [usersRes, membersRes, mentorsRes, startupsRes, sessionsRes, semesterRes, assignmentAuditRes].find(result => result.error !== null)?.error
+      const initialError = [usersRes, membersRes, mentorsRes, startupsRes, sessionsRes, semesterRes].find(result => result.error !== null)?.error
       if (initialError) return { ok: false, error: initialError.message }
 
       type MentorRow = Omit<Mentor, 'semester_name'> & { semesters: { name: string } | { name: string }[] | null }
@@ -311,6 +311,26 @@ function AdminDashboardContent() {
         semester_name: Array.isArray(startup.semesters) ? (startup.semesters[0]?.name ?? null) : (startup.semesters?.name ?? null),
       }))
       const loadedSessions = (sessionsRes.data as unknown as Session[]) ?? []
+      let loadedAuditedSessionIds: ReadonlySet<string>
+      try {
+        loadedAuditedSessionIds = await loadAuditedSessionIds(
+          loadedSessions.map(session => session.id),
+          async sessionIds => {
+            const result = await supabase
+              .from('mentor_assignment_audit')
+              .select('session_id', { count: 'exact' })
+              .in('session_id', [...sessionIds])
+            return { data: result.data, count: result.count, error: result.error }
+          },
+        )
+      } catch (error) {
+        const message = error instanceof Error
+          ? error.message
+          : 'Unable to verify assignment audit protection. The schedule was not refreshed.'
+        setAuditedSessionIds(new Set(sessions.map(session => session.id)))
+        setSessionEditBlockedMessage(message)
+        return { ok: false, error: message }
+      }
       const semData = semesterRes.data as { id: string; name: string } | null
       const semId = semData?.id ?? null
       let dates: SessionDate[] = []
@@ -376,7 +396,8 @@ function AdminDashboardContent() {
       setMentors(loadedMentors)
       setStartups(loadedStartups)
       setSessions(loadedSessions)
-      setAuditedSessionIds(new Set((assignmentAuditRes.data ?? []).map(row => row.session_id)))
+      setAuditedSessionIds(loadedAuditedSessionIds)
+      setSessionEditBlockedMessage(null)
       setActiveSemesterId(semId)
       setActiveSemesterName(semData?.name ?? null)
       setSessionDates(dates)

@@ -66,6 +66,36 @@ revoke all privileges on table public.mentor_assignment_audit from anon, authent
 grant select on table public.mentor_assignment_requests to authenticated;
 grant select on table public.mentor_assignment_audit to authenticated;
 
+create or replace function public.prevent_audit_managed_session_mutation()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if exists (
+    select 1
+    from public.mentor_assignment_audit as audit
+    where audit.session_id = old.id
+  ) then
+    raise exception 'Audit-managed assignments cannot be updated or deleted through legacy session writes'
+      using errcode = '55000';
+  end if;
+
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end;
+$$;
+
+revoke execute on function public.prevent_audit_managed_session_mutation()
+  from public, anon, authenticated, service_role;
+
+create trigger prevent_audit_managed_session_mutation
+before update or delete on public.sessions
+for each row execute function public.prevent_audit_managed_session_mutation();
+
 create or replace function public.commit_mentor_assignment(
   p_semester_id uuid,
   p_session_date_id uuid,
