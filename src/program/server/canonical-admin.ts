@@ -225,47 +225,29 @@ export async function moveFounderMembership(
   if (result.error) throw new Error(result.error.message);
 }
 
-export async function setUserRoleRecords(
+export type SetSemesterMemberAccessInput = {
+  approve: boolean;
+  email: string | null;
+  fullName: string | null;
+  profileId: string;
+  role: "admin" | "mentor" | "startup";
+  semesterId: string;
+};
+
+export async function setSemesterMemberAccess(
   client: AdminClient,
-  input: { profileId: string; role: "admin" | "mentor" | "startup"; semesterId: string },
+  input: SetSemesterMemberAccessInput,
 ) {
-  const membershipResult = await client
-    .from("semester_memberships")
-    .upsert({
-      profile_id: input.profileId,
-      role: input.role,
-      semester_id: input.semesterId,
-      status: "active",
-    }, { onConflict: "semester_id,profile_id" })
-    .select("id")
-    .single();
-  const membership = requireData(membershipResult.data, membershipResult.error, "Unable to set semester role.");
-
-  if (input.role === "admin") {
-    const platformResult = await client.from("platform_roles").upsert({
-      profile_id: input.profileId,
-      role: "super_admin",
-    }, { onConflict: "profile_id,role" });
-    if (platformResult.error) throw new Error(platformResult.error.message);
-  } else {
-    const platformResult = await client.from("platform_roles").delete()
-      .eq("profile_id", input.profileId)
-      .eq("role", "super_admin");
-    if (platformResult.error) throw new Error(platformResult.error.message);
-  }
-
-  if (input.role !== "mentor") return;
-  const profileResult = await client.from("mentor_profiles").upsert({
-    profile_id: input.profileId,
-  }, { ignoreDuplicates: true, onConflict: "profile_id" });
-  if (profileResult.error) throw new Error(profileResult.error.message);
-
-  const termResult = await client.from("mentor_semesters").upsert({
-    readiness_status: "not_started",
-    semester_id: input.semesterId,
-    semester_membership_id: membership.id,
-  }, { ignoreDuplicates: true, onConflict: "semester_id,semester_membership_id" });
-  if (termResult.error) throw new Error(termResult.error.message);
+  const result = await client.rpc("set_semester_member_access", {
+    p_approve: input.approve,
+    p_email: input.email,
+    p_full_name: input.fullName,
+    p_profile_id: input.profileId,
+    p_role: input.role,
+    p_semester_id: input.semesterId,
+  });
+  if (result.error) throw new Error(result.error.message);
+  return result.data;
 }
 
 export type UpdateStartupRecordsInput = {

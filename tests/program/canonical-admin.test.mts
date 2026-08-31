@@ -6,7 +6,7 @@ import {
   createMentorRecords,
   createStartupRecords,
   moveFounderMembership,
-  setUserRoleRecords,
+  setSemesterMemberAccess,
   updateStartupRecords,
   updateMentorRecords,
 } from "../../src/program/server/canonical-admin.ts";
@@ -184,33 +184,47 @@ test("founder move failure cannot leave a source membership deleted", async () =
   ]);
 });
 
-test("role transition creates missing mentor records without overwriting existing mentor fields", async () => {
+test("semester role transition is one database command and never mutates platform roles", async () => {
   const { client, requests } = recordingClient([
-    { id: "membership-1" },
-    [],
-    [],
-    [],
+    "membership-1",
   ]);
 
-  await setUserRoleRecords(client, {
+  await setSemesterMemberAccess(client, {
+    approve: false,
+    email: "mentor@example.com",
+    fullName: "Mentor Name",
     profileId: "profile-1",
     role: "mentor",
     semesterId: "semester-1",
   });
 
-  assert.deepEqual(requests.map((request) => request.path), [
-    "/rest/v1/semester_memberships",
-    "/rest/v1/platform_roles",
-    "/rest/v1/mentor_profiles",
-    "/rest/v1/mentor_semesters",
-  ]);
-  assert.deepEqual(JSON.parse(requests[2].body ?? "null"), { profile_id: "profile-1" });
-  assert.deepEqual(JSON.parse(requests[3].body ?? "null"), {
-    readiness_status: "not_started",
-    semester_id: "semester-1",
-    semester_membership_id: "membership-1",
+  assert.deepEqual(requests.map((request) => request.path), ["/rest/v1/rpc/set_semester_member_access"]);
+  assert.deepEqual(JSON.parse(requests[0].body ?? "null"), {
+    p_approve: false,
+    p_email: "mentor@example.com",
+    p_full_name: "Mentor Name",
+    p_profile_id: "profile-1",
+    p_role: "mentor",
+    p_semester_id: "semester-1",
   });
-  assert.match(requests[2].url.searchParams.get("on_conflict") ?? "", /profile_id/u);
+  assert.ok(requests.every((request) => request.path !== "/rest/v1/platform_roles"));
+});
+
+test("semester role command reports an authorization failure without fallback writes", async () => {
+  const { client, requests } = recordingClient([{
+    body: { code: "42501", message: "Semester administrator access required" },
+    status: 403,
+  }]);
+
+  await assert.rejects(() => setSemesterMemberAccess(client, {
+    approve: true,
+    email: null,
+    fullName: null,
+    profileId: "profile-1",
+    role: "admin",
+    semesterId: "semester-1",
+  }), /Semester administrator access required/u);
+  assert.deepEqual(requests.map((request) => request.path), ["/rest/v1/rpc/set_semester_member_access"]);
 });
 
 test("startup updates are one server-owned atomic command", async () => {

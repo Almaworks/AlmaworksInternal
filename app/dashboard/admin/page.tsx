@@ -7,6 +7,7 @@ import TagInput from '@/components/TagInput'
 import StartupModal from '@/components/StartupModal'
 import { CohortScreenControls, useCohortScreen } from '@/components/CohortScreenControls'
 import type { CohortRecordReference } from '@/src/lifecycle/cohort-screen'
+import { roleForProfileInSemester } from '@/src/lifecycle/cohort-screen'
 import { loadMentorDirectory, loadStartupDirectory } from '@/src/program/canonical-repository'
 
 type PendingUser = {
@@ -308,17 +309,17 @@ export default function AdminDashboard() {
   async function loadAll() {
     const [usersRes, membersRes, mentorsRes, startupsRes, sessionsRes, semesterRes] = await Promise.all([
       supabase.from('profiles').select('id, email, full_name, created_at').eq('status', 'pending').order('created_at'),
-      supabase.from('profiles').select('id, email, full_name, is_active, created_at, memberships:semester_memberships(role,status)').eq('status', 'approved').order('full_name'),
+      supabase.from('profiles').select('id, email, full_name, is_active, created_at, memberships:semester_memberships(role,status,semester_id,semester:semesters(is_active))').eq('status', 'approved').order('full_name'),
       loadMentorDirectory(supabase),
       loadStartupDirectory(supabase),
       supabase.from('sessions').select('id, mentor_semester_id, startup_semester_id, status, topic, slot, format, startup_absent, substitute_name, meeting:meetings(meeting_date, label, semester_id, semester:semesters(name)), mentor:mentor_semesters(membership:semester_memberships(profile:profiles(full_name))), startup:startup_semesters(organization:startup_organizations(name,slug))').order('slot'),
       supabase.from('semesters').select('id, name').eq('is_active', true).maybeSingle(),
     ])
     setPendingUsers((usersRes.data as PendingUser[]) ?? [])
-    type MemberRow = Omit<Member, 'role'> & { memberships: { role: string; status: string }[] | null }
+    type MemberRow = Omit<Member, 'role'> & { memberships: { role: string; status: string; semester_id: string; semester: { is_active: boolean } | null }[] | null }
     setMembers(((membersRes.data ?? []) as unknown as MemberRow[]).map((member) => ({
       ...member,
-      role: member.memberships?.find((membership) => membership.status === 'active')?.role ?? member.memberships?.[0]?.role ?? 'startup',
+      role: member.memberships?.find((membership) => membership.semester?.is_active)?.role ?? member.memberships?.[0]?.role ?? 'startup',
     })))
     setMentors(mentorsRes as unknown as Mentor[])
     setStartups((startupsRes as unknown as Startup[]).map((startup) => ({
@@ -445,6 +446,10 @@ export default function AdminDashboard() {
   async function saveEdit(e: React.FormEvent) {
     e.preventDefault()
     if (!editingMember || !editRole) return
+    if (!cohort.semesterId) {
+      setEditError('Choose a specific semester before editing a member role.')
+      return
+    }
     setEditLoading(true)
     setEditError(null)
 
@@ -464,6 +469,7 @@ export default function AdminDashboard() {
       },
       body: JSON.stringify({
         userId: editingMember.id,
+        semesterId: cohort.semesterId,
         fullName: editName,
         email: editEmail,
         role: editRole,
@@ -474,13 +480,10 @@ export default function AdminDashboard() {
     if (!res.ok) {
       setEditError(json.error ?? 'Something went wrong.')
     } else {
-      setMembers(prev =>
-        prev.map(m =>
-          m.id === editingMember.id
-            ? { ...m, full_name: editName, email: editEmail, role: editRole }
-            : m,
-        ),
-      )
+      setMembers(prev => prev.map(m => m.id === editingMember.id
+        ? { ...m, full_name: editName, email: editEmail, role: cohort.semesterId === activeSemesterId ? editRole : m.role }
+        : m))
+      await cohort.reload()
       setEditingMember(null)
     }
     setEditLoading(false)
@@ -629,7 +632,10 @@ export default function AdminDashboard() {
   })), [members])
   const cohort = useCohortScreen(memberReferences, 'all')
   const scopedMemberIds = new Set(cohort.scopedRecords.map(record => record.recordId))
-  const activeMembershipProfiles = new Set(cohort.members.filter(member => member.status === 'active').map(member => member.profileId))
+  const editableSemesterId = cohort.semesterId ?? activeSemesterId
+  const activeMembershipProfiles = new Set(cohort.members
+    .filter(member => member.status === 'active' && (cohort.semesterId === null || member.semesterId === cohort.semesterId))
+    .map(member => member.profileId))
 
   const filteredMembers = members
     .filter(m => scopedMemberIds.has(m.id))
@@ -642,6 +648,7 @@ export default function AdminDashboard() {
         m.email.toLowerCase().includes(q)
       )
     })
+    .map(m => ({ ...m, role: roleForProfileInSemester(cohort.members, m.id, editableSemesterId) ?? m.role }))
     .sort((a, b) => {
       const aVal = String(a[memberSortKey] ?? '').toLowerCase()
       const bVal = String(b[memberSortKey] ?? '').toLowerCase()
@@ -1124,10 +1131,11 @@ export default function AdminDashboard() {
                               <div className="flex items-center justify-end gap-2">
                                 <button
                                   onClick={() => isEditing ? cancelEdit() : openEdit(m)}
+                                  disabled={cohort.scope === 'all'}
                                   className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
                                     isEditing
                                       ? 'bg-[#002147] text-white border-[#002147]'
-                                      : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                                      : 'border-gray-200 text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50'
                                   }`}
                                 >
                                   {isEditing ? 'Cancel' : 'Edit'}

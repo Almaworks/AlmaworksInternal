@@ -4,6 +4,12 @@ import { createClient } from '@/utils/supabase/client'
 import { useEffect, useMemo, useState } from 'react'
 import SessionCalendar, { type CalSession } from '@/components/SessionCalendar'
 import { loadMentorAvailability, loadMentorSessions } from '@/src/program/canonical-repository'
+import {
+  availabilityRowsForMeetings,
+  availabilityStateFromRows,
+  availabilityWindowKey,
+  type AvailabilitySlot,
+} from '@/src/program/availability-windows'
 
 type SessionDate = {
   id: string
@@ -14,6 +20,7 @@ type SessionDate = {
 type Availability = {
   meeting_id: string
   is_available: boolean
+  slot: AvailabilitySlot
 }
 
 type Session = {
@@ -100,11 +107,7 @@ export default function MentorDashboard() {
     ]).then(([dateResult, availabilityRows]) => {
       if (cancelled) return
       setSessionDates((dateResult.data ?? []).map((row) => ({ id: row.id, date: row.meeting_date, label: row.label })))
-      const map: Record<string, boolean> = {}
-      for (const row of availabilityRows as Availability[]) {
-        map[row.meeting_id] = (map[row.meeting_id] ?? false) || row.is_available
-      }
-      setAvailability(map)
+      setAvailability(availabilityStateFromRows(availabilityRows as Availability[]))
     })
     return () => { cancelled = true }
   }, [profileId, selectedSemesterId, supabase])
@@ -120,21 +123,20 @@ export default function MentorDashboard() {
       })
   }, [mentorId, selectedSemesterId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  function toggleDate(dateId: string) {
-    setAvailability(prev => ({ ...prev, [dateId]: !prev[dateId] }))
+  function toggleWindow(meetingId: string, slot: AvailabilitySlot) {
+    const key = availabilityWindowKey(meetingId, slot)
+    setAvailability(prev => ({ ...prev, [key]: !prev[key] }))
   }
 
   async function saveAvailability() {
     if (!membershipId || !selectedSemesterId) return
     setSaving(true)
-    const rows = sessionDates.flatMap(d => ([1, 2] as const).map((slot) => ({
-      semester_id: selectedSemesterId,
-      semester_membership_id: membershipId,
-      meeting_id: d.id,
-      slot,
-      is_available: availability[d.id] ?? false,
-      source: 'user',
-    })))
+    const rows = availabilityRowsForMeetings({
+      meetingIds: sessionDates.map((meeting) => meeting.id),
+      membershipId,
+      semesterId: selectedSemesterId,
+      state: availability,
+    })
     await supabase.from('meeting_availability').upsert(rows, { onConflict: 'meeting_id,semester_membership_id,slot' })
     setSaving(false)
     setSaved(true)
@@ -233,7 +235,7 @@ export default function MentorDashboard() {
       <section>
         <h2 className="text-base font-semibold text-[#002147] mb-1">Friday Availability</h2>
         <p className="text-sm text-gray-500 mb-4">
-          Select the Fridays you&apos;re available for mentoring sessions this semester.
+          Select each Friday session window when you&apos;re available this semester.
         </p>
 
         {sessionDates.length === 0 ? (
@@ -241,21 +243,31 @@ export default function MentorDashboard() {
         ) : (
           <div className="space-y-2">
             {sessionDates.map(d => (
-              <label
+              <div
                 key={d.id}
-                className="flex items-center gap-3 px-4 py-3 bg-white rounded-xl border border-gray-100 cursor-pointer hover:border-[#75AADB]/50 transition-colors"
+                className="px-4 py-3 bg-white rounded-xl border border-gray-100"
               >
-                <input
-                  type="checkbox"
-                  checked={availability[d.id] ?? false}
-                  onChange={() => toggleDate(d.id)}
-                  className="w-4 h-4 accent-[#002147] rounded"
-                />
-                <div>
+                <div className="mb-2">
                   <p className="text-sm font-medium text-[#002147]">{d.label ?? d.date}</p>
                   <p className="text-xs text-gray-400">{d.date}</p>
                 </div>
-              </label>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {([1, 2] as const).map((slot) => {
+                    const key = availabilityWindowKey(d.id, slot)
+                    return (
+                      <label key={key} className="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-100 px-3 py-2 text-sm text-gray-700 hover:border-[#75AADB]/50">
+                        <input
+                          type="checkbox"
+                          checked={availability[key] ?? false}
+                          onChange={() => toggleWindow(d.id, slot)}
+                          className="w-4 h-4 accent-[#002147] rounded"
+                        />
+                        <span>{slot === 1 ? '3:30–4:15 PM' : '4:15–5:00 PM'}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
             ))}
 
             <div className="pt-2 flex items-center gap-3">

@@ -44,6 +44,8 @@ revoke execute on function public.replace_draft_session_dates(uuid,jsonb) from p
 revoke execute on function public.reset_outreach_opportunities(uuid,uuid[]) from public,anon;
 revoke execute on function public.set_outreach_silence(uuid,boolean,text,timestamptz,timestamptz) from public,anon;
 revoke execute on function public.set_outreach_snooze(uuid,timestamptz,text,timestamptz) from public,anon;
+revoke execute on function public.set_platform_super_admin(uuid,boolean) from public,anon;
+revoke execute on function public.set_semester_member_access(uuid,uuid,public.user_role,boolean,text,text) from public,anon;
 revoke execute on function public.startups_view_write() from public,anon;
 revoke execute on function public.suspend_outreach_membership(uuid,uuid,text,timestamptz) from public,anon;
 revoke execute on function public.transfer_outreach_owner(uuid,uuid,text,timestamptz) from public,anon;
@@ -62,5 +64,7 @@ grant execute on function public.activate_semester_transition(uuid,uuid), public
 to authenticated;
 
 grant execute on function public.move_startup_team_membership(uuid,uuid,uuid),
+  public.set_platform_super_admin(uuid,boolean),
+  public.set_semester_member_access(uuid,uuid,public.user_role,boolean,text,text),
   public.update_startup_records(uuid,text,text,text,text,text,text[],text[])
 to authenticated;

@@ -107,7 +107,13 @@ export function useCohortScreen(records: readonly CohortRecordReference[], role:
     finally { setWorking(false); }
   }
 
-  return { cohorts, members, scope, semesterId, selected, setSelected, loading, working, message, scopedRecords, changeScope, membershipIds, setActivity, importSelected };
+  async function reload() {
+    if (scope === "all") {
+      if (cohorts.current) await load(cohorts.current.id, true);
+    } else if (semesterId) await load(semesterId);
+  }
+
+  return { cohorts, members, scope, semesterId, selected, setSelected, loading, working, message, scopedRecords, changeScope, membershipIds, setActivity, importSelected, reload };
 }
 
 type Controller = ReturnType<typeof useCohortScreen>;

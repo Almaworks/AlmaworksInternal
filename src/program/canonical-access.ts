@@ -64,11 +64,15 @@ export async function requireActiveSemesterAdmin(client: AccessClient, profileId
   throwIfError(semesterResult.error);
   if (!semesterResult.data) throw new Error("No active semester.");
 
+  return requireSemesterAdmin(client, profileId, semesterResult.data.id);
+}
+
+export async function requireSemesterAdmin(client: AccessClient, profileId: string, semesterId: string) {
   const manageResult = await client.rpc("can_manage_semester", {
     candidate_id: profileId,
-    target_semester_id: semesterResult.data.id,
+    target_semester_id: semesterId,
   });
   throwIfError(manageResult.error);
   if (manageResult.data !== true) throw new Error("Semester administrator access required.");
-  return semesterResult.data.id;
+  return semesterId;
 }

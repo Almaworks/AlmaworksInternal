@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import {
   loadCanonicalAccess,
   requireActiveSemesterAdmin,
+  requireSemesterAdmin,
 } from "../../src/program/canonical-access.ts";
 
 type CapturedRequest = { body: string | null; url: URL };
@@ -45,6 +46,20 @@ test("role-aware access derives global admin from platform roles and cohort role
   assert.equal(requests[1].url.searchParams.get("profile_id"), "eq.profile-1");
   assert.equal(requests[2].url.pathname, "/rest/v1/semester_memberships");
   assert.equal(requests[2].url.searchParams.get("semester.order"), "is_active.desc");
+});
+
+test("selected-semester authorization checks the requested cohort instead of substituting the active cohort", async () => {
+  const { client, requests } = recordingClient([true]);
+
+  const semesterId = await requireSemesterAdmin(client, "profile-1", "semester-prior");
+
+  assert.equal(semesterId, "semester-prior");
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url.pathname, "/rest/v1/rpc/can_manage_semester");
+  assert.deepEqual(JSON.parse(requests[0].body ?? "null"), {
+    candidate_id: "profile-1",
+    target_semester_id: "semester-prior",
+  });
 });
 
 test("active-semester authorization verifies can_manage_semester for the authenticated profile", async () => {

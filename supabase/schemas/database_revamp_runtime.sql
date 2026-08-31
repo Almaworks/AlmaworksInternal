@@ -252,6 +252,98 @@ begin
 end;
 $$;
 
+create or replace function public.set_semester_member_access(
+  p_profile_id uuid,
+  p_semester_id uuid,
+  p_role public.user_role,
+  p_approve boolean,
+  p_full_name text,
+  p_email text
+) returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_existing_email text;
+  v_membership_id uuid;
+begin
+  if auth.uid() is null or not public.can_manage_semester(p_semester_id, auth.uid()) then
+    raise exception 'Semester administrator access required' using errcode = '42501';
+  end if;
+
+  select email into v_existing_email from public.profiles where id = p_profile_id;
+  if v_existing_email is null and nullif(trim(p_email), '') is null then
+    raise exception 'Email is required when creating a member profile' using errcode = '22023';
+  end if;
+
+  insert into public.profiles (id, email, full_name, status, is_active)
+  values (
+    p_profile_id,
+    coalesce(nullif(trim(p_email), ''), v_existing_email),
+    nullif(trim(p_full_name), ''),
+    case when p_approve then 'approved' else 'pending' end,
+    true
+  )
+  on conflict (id) do update
+  set email = coalesce(nullif(trim(p_email), ''), public.profiles.email),
+      full_name = coalesce(nullif(trim(p_full_name), ''), public.profiles.full_name),
+      status = case when p_approve then 'approved' else public.profiles.status end,
+      updated_at = now();
+
+  insert into public.semester_memberships (
+    semester_id, profile_id, role, status, activated_at
+  ) values (
+    p_semester_id, p_profile_id, p_role::text, 'active', now()
+  )
+  on conflict (semester_id, profile_id) do update
+  set role = excluded.role,
+      status = 'active',
+      activated_at = coalesce(public.semester_memberships.activated_at, now()),
+      updated_at = now()
+  returning id into v_membership_id;
+
+  if p_role = 'mentor' then
+    insert into public.mentor_profiles (profile_id)
+    values (p_profile_id)
+    on conflict (profile_id) do nothing;
+
+    insert into public.mentor_semesters (
+      semester_id, semester_membership_id, readiness_status
+    ) values (
+      p_semester_id, v_membership_id, 'not_started'
+    )
+    on conflict (semester_id, semester_membership_id) do nothing;
+  end if;
+
+  return v_membership_id;
+end;
+$$;
+
+create or replace function public.set_platform_super_admin(
+  p_profile_id uuid,
+  p_enabled boolean
+) returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if auth.uid() is null or not public.is_super_admin(auth.uid()) then
+    raise exception 'Platform super-administrator access required' using errcode = '42501';
+  end if;
+  if p_enabled then
+    insert into public.platform_roles (profile_id, role, granted_by)
+    values (p_profile_id, 'super_admin', auth.uid())
+    on conflict (profile_id, role) do update
+    set granted_by = auth.uid(), granted_at = now();
+  else
+    delete from public.platform_roles
+    where profile_id = p_profile_id and role = 'super_admin';
+  end if;
+end;
+$$;
+
 create or replace function public.mentors_view_write() returns trigger language plpgsql security definer set search_path = '' as $$
 declare v_membership_id uuid; v_profile_id uuid;
 begin
