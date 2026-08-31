@@ -10,10 +10,56 @@ test("ranks primary expertise above secondary and unrelated matches", () => {
   assert.deepEqual(result.map((x) => x.mentor.id), ["primary", "secondary", "other"]);
 });
 
+test("secondary expertise ranks above an unrelated mentor", () => {
+  const result = rankMentorCandidates({ primaryNeed: "Fundraising strategy", secondaryNeed: "Enterprise sales", slot, mentors: [
+    mentor("unrelated", { expertise: ["Operations"] }),
+    mentor("secondary", { expertise: ["Enterprise sales"] }),
+  ] });
+  assert.equal(result[0].mentor.id, "secondary");
+  assert.ok(result[0].reasons.includes("secondary expertise match"));
+});
+
+test("every ineligible candidate has an explicit exclusion reason", () => {
+  const unavailable = rankMentorCandidates({ primaryNeed: null, secondaryNeed: null, slot, mentors: [mentor("unavailable")] })[0];
+  assert.equal(unavailable.eligible, false);
+  assert.match(unavailable.exclusionReason ?? "", /unavailable/i);
+});
+
 test("availability, recent meetings, workload, and format affect ranking", () => {
   const result = rankMentorCandidates({ primaryNeed: "Product strategy", secondaryNeed: null, slot, mentors: [mentor("available", { expertise: ["Product strategy"], availability: [slot.id] }), mentor("busy", { expertise: ["Product strategy"], availability: ["other"], recentMeetingCount: 2, assignmentLoad: 4, formats: ["remote"] })] });
   assert.equal(result[0].mentor.id, "available");
   assert.ok(result[1].reasons.some((reason) => reason.includes("unavailable")));
+});
+
+test("date availability is accepted when no slot id is provided", () => {
+  const result = rankMentorCandidates({ primaryNeed: null, secondaryNeed: null, slot, mentors: [mentor("date-match", { availability: [slot.date] }), mentor("no-match")] });
+  assert.equal(result[0].mentor.id, "date-match");
+  assert.equal(result[0].eligible, true);
+});
+
+test("recent meetings lower an otherwise equal candidate", () => {
+  const result = rankMentorCandidates({ primaryNeed: null, secondaryNeed: null, slot, mentors: [
+    mentor("recent", { availability: [slot.id], recentMeetingCount: 1 }),
+    mentor("new", { availability: [slot.id] }),
+  ] });
+  assert.equal(result[0].mentor.id, "new");
+});
+
+test("lower assignment load wins an otherwise equal candidate", () => {
+  const result = rankMentorCandidates({ primaryNeed: null, secondaryNeed: null, slot, mentors: [
+    mentor("loaded", { availability: [slot.id], assignmentLoad: 2 }),
+    mentor("free", { availability: [slot.id], assignmentLoad: 1 }),
+  ] });
+  assert.equal(result[0].mentor.id, "free");
+});
+
+test("format fit raises a candidate with the selected meeting format", () => {
+  const result = rankMentorCandidates({ primaryNeed: null, secondaryNeed: null, slot, mentors: [
+    mentor("remote", { availability: [slot.id], formats: ["remote"] }),
+    mentor("in-person", { availability: [slot.id], formats: ["in_person"] }),
+  ] });
+  assert.equal(result[0].mentor.id, "in-person");
+  assert.ok(result[0].reasons.includes("format fit"));
 });
 
 test("second slot excludes the mentor assigned in the first slot", () => {

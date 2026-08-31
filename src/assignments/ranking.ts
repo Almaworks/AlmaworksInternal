@@ -60,12 +60,17 @@ export function rankMentorCandidates(input: RankingInput): RankedMentor[] {
     if (mentor.recentMeetingCount > 0) reasons.push("recent meeting penalty");
     if (mentor.assignmentLoad > 0) reasons.push("workload tie-break");
     if (secondSlotExcluded) reasons.push("excluded from second slot");
+    const exclusionReason = secondSlotExcluded
+      ? "Mentor already assigned to the first slot; excluded from second slot."
+      : !available
+        ? "Mentor unavailable for selected slot."
+        : undefined;
     return {
       mentor,
       score,
       eligible: available && !secondSlotExcluded,
       reasons,
-      ...(secondSlotExcluded ? { exclusionReason: "Mentor already assigned to the first slot; excluded from second slot." } : {}),
+      ...(exclusionReason ? { exclusionReason } : {}),
     };
   }).sort((a, b) => Number(b.eligible) - Number(a.eligible) || b.score - a.score || a.mentor.id.localeCompare(b.mentor.id));
 }
