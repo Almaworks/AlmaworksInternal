@@ -1,7 +1,9 @@
 'use client'
 
 import { createClient } from '@/utils/supabase/client'
+import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
+import { mentorDirectoryScheduleEntry } from '@/src/assignments/schedule-navigation'
 
 type MentorCard = {
   id: string
@@ -109,6 +111,8 @@ export default function MentorDirectoryPage() {
     })
   }, [mentors, search, tagFilter])
 
+  const scheduleEntry = mentorDirectoryScheduleEntry(userRole)
+
   async function submitRequest() {
     if (!requestMentor || !startupId || !activeSemesterId || !requestDateId) return
     setRequesting(true)
@@ -141,9 +145,19 @@ export default function MentorDirectoryPage() {
 
   return (
     <div className="max-w-4xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-[#002147]">Mentor Directory</h1>
-        <p className="text-sm text-gray-500 mt-1">Browse mentors and their areas of expertise.</p>
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-[#002147]">Mentor Directory</h1>
+          <p className="text-sm text-gray-500 mt-1">Browse mentors and their areas of expertise.</p>
+        </div>
+        {scheduleEntry && (
+          <Link
+            href={scheduleEntry.href}
+            className="inline-flex w-fit items-center justify-center rounded-xl bg-[#002147] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#12365f] focus:outline-none focus:ring-2 focus:ring-[#75AADB] focus:ring-offset-2"
+          >
+            {scheduleEntry.label}
+          </Link>
+        )}
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3 mb-5">

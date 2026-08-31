@@ -2,6 +2,7 @@
 
 import { createClient } from '@/utils/supabase/client'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import TagInput from '@/components/TagInput'
 import StartupModal from '@/components/StartupModal'
@@ -18,6 +19,7 @@ import {
   type HistoricalScheduleStartupColumn,
   type ScheduleStartupColumn,
 } from '@/src/assignments/picker'
+import { ADMIN_SCHEDULE_HREF, resolveAdminDashboardTab } from '@/src/assignments/schedule-navigation'
 
 type PendingUser = {
   id: string
@@ -109,7 +111,12 @@ type Tab = 'users' | 'members' | 'schedule' | 'startups'
 
 export default function AdminDashboard() {
   const supabase = createClient()
-  const [tab, setTab] = useState<Tab>('users')
+  const pathname = usePathname()
+  const [tab, setTab] = useState<Tab>(() => resolveAdminDashboardTab(pathname))
+
+  useEffect(() => {
+    setTab(resolveAdminDashboardTab(pathname))
+  }, [pathname])
 
   // Pending users
   const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([])
@@ -865,7 +872,7 @@ export default function AdminDashboard() {
             <p className="text-sm text-white/65 mt-2">One operating view for roster health, scheduling, and follow-up.</p>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => setTab('schedule')} className="rounded-lg border border-white/25 px-3 py-2 text-xs font-medium text-white/85 hover:bg-white/10">Review schedule</button>
+            <Link href={ADMIN_SCHEDULE_HREF} className="rounded-lg border border-white/25 px-3 py-2 text-xs font-medium text-white/85 hover:bg-white/10">Review schedule</Link>
             <button onClick={() => setTab('users')} className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-[#002147] hover:bg-[#e7f2f9]">Review requests{pendingUsers.length > 0 ? ` (${pendingUsers.length})` : ''}</button>
           </div>
         </div>
@@ -908,7 +915,7 @@ export default function AdminDashboard() {
           <h2 className="text-base font-semibold text-[#002147] mt-1 mb-4">What needs your attention</h2>
           <div className="space-y-2">
             <button onClick={() => setTab('users')} className="w-full flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2.5 text-left hover:border-[#75AADB]/50"><span><strong className="block text-sm text-[#002147]">Approve registrations</strong><small className="text-xs text-gray-400">{pendingUsers.length} waiting for a role</small></span><span className="text-[#75AADB]">→</span></button>
-            <button onClick={() => setTab('schedule')} className="w-full flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2.5 text-left hover:border-[#75AADB]/50"><span><strong className="block text-sm text-[#002147]">Check session coverage</strong><small className="text-xs text-gray-400">{sessions.length} sessions in the active semester</small></span><span className="text-[#75AADB]">→</span></button>
+            <Link href={ADMIN_SCHEDULE_HREF} className="w-full flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2.5 text-left hover:border-[#75AADB]/50"><span><strong className="block text-sm text-[#002147]">Check session coverage</strong><small className="text-xs text-gray-400">{sessions.length} sessions in the active semester</small></span><span className="text-[#75AADB]">→</span></Link>
             <Link href="/dashboard/admin/outreach" className="w-full flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2.5 text-left hover:border-[#75AADB]/50"><span><strong className="block text-sm text-[#002147]">Open outreach queue</strong><small className="text-xs text-gray-400">Follow up with prospective members</small></span><span className="text-[#75AADB]">→</span></Link>
           </div>
         </section>
@@ -921,22 +928,27 @@ export default function AdminDashboard() {
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 bg-gray-100 rounded-xl p-1 w-fit flex-wrap">
-        {tabs.map(t => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              tab === t.id ? 'bg-white text-[#002147] shadow-sm' : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            {t.label}
-            {t.badge != null && t.badge > 0 && (
-              <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
-                {t.badge}
-              </span>
-            )}
-          </button>
-        ))}
+        {tabs.map(t => {
+          const className = `flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            tab === t.id ? 'bg-white text-[#002147] shadow-sm' : 'text-gray-500 hover:text-gray-700'
+          }`
+          const label = (
+            <>
+              {t.label}
+              {t.badge != null && t.badge > 0 && (
+                <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                  {t.badge}
+                </span>
+              )}
+            </>
+          )
+
+          return t.id === 'schedule' ? (
+            <Link key={t.id} href={ADMIN_SCHEDULE_HREF} className={className}>{label}</Link>
+          ) : (
+            <button key={t.id} onClick={() => setTab(t.id)} className={className}>{label}</button>
+          )
+        })}
       </div>
 
       {/* ── Pending Users ── */}

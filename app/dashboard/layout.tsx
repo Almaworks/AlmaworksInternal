@@ -6,6 +6,7 @@ import Image from 'next/image'
 import { useRouter, usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { CalendarDays, ChevronLeft, ChevronRight, FileUp, Inbox, LayoutDashboard, LogOut, Menu, Megaphone, Network, Search, Settings, Target, Users, X } from 'lucide-react'
+import { isDashboardNavigationActive } from '@/src/assignments/schedule-navigation'
 
 type Profile = {
   full_name: string | null
@@ -73,6 +74,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     effectiveRole === 'admin'
       ? [
           { href: '/dashboard/admin', label: 'Overview' },
+          { href: '/dashboard/admin/schedule', label: 'Schedule' },
           { href: '/dashboard/admin/semesters', label: 'Semesters' },
           { href: '/dashboard/admin/outreach', label: 'Outreach' },
           { href: '/dashboard/admin/mentor-needs', label: 'Mentor Needs' },
@@ -94,6 +96,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const navIcons = {
     Overview: LayoutDashboard,
+    Schedule: CalendarDays,
     Semesters: CalendarDays,
     Outreach: Megaphone,
     'Mentor Needs': Target,
@@ -173,7 +176,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         <nav className={`flex-1 py-4 space-y-0.5 ${sidebarCollapsed ? 'px-2' : 'px-3'}`} aria-label="Dashboard navigation">
           {navItems.map(({ href, label }) => {
-            const active = pathname === href
+            const active = isDashboardNavigationActive(pathname, href)
             const Icon = navIcons[label as keyof typeof navIcons] ?? Settings
             return (
               <Link
@@ -230,7 +233,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               key={href}
               href={href}
               onClick={() => setMobileNavOpen(false)}
-              className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium ${pathname === href ? 'bg-white text-[#002147]' : 'text-white/65 hover:bg-white/10 hover:text-white'}`}
+              className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium ${isDashboardNavigationActive(pathname, href) ? 'bg-white text-[#002147]' : 'text-white/65 hover:bg-white/10 hover:text-white'}`}
             >
               {label}
             </Link>
