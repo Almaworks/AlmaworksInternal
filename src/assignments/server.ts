@@ -12,6 +12,8 @@ import {
 type Client = SupabaseClient<Database>;
 type AssignmentStatus = Database["public"]["Enums"]["session_status"];
 export type AssignmentTimeSlot = "3:30-4:15" | "4:15-5:00";
+export type AssignmentFormat = "online" | "in_person" | "hybrid";
+export type RequiredOverrideType = "availability" | "capacity" | "expertise" | "second_slot";
 
 export class AssignmentHttpError extends Error {
   readonly status: 400 | 401 | 403 | 409;
@@ -32,12 +34,13 @@ export interface CandidateQuery {
   startupSemesterId: string;
   sessionDateId: string;
   timeSlot: AssignmentTimeSlot;
+  format: AssignmentFormat;
 }
 
 export interface CommitInput extends CandidateQuery {
   mentorProfileId: string;
   idempotencyKey: string;
-  format: string;
+  format: AssignmentFormat;
   topic: string | null;
   overrideTypes: string[];
   overrideReason: string | null;
@@ -46,6 +49,8 @@ export interface CommitInput extends CandidateQuery {
 
 export interface CandidateSourceData {
   sessionDate: { id: string; semesterId: string; date: string } | null;
+  sessionDates: Array<{ id: string; semesterId: string; date: string }>;
+  startupScheduleId: string | null;
   startup: {
     id: string;
     semesterId: string;
@@ -63,10 +68,12 @@ export interface CandidateSourceData {
     name: string;
     expertise: string[];
     preferredFormat: string | null;
+    capacity: number;
   }>;
   availability: Array<{ profileId: string; sessionDateId: string; isAvailable: boolean }>;
   sessions: Array<{
     mentorScheduleId: string;
+    startupScheduleId: string | null;
     sessionDateId: string;
     timeSlot: string | null;
     status: AssignmentStatus;
@@ -81,7 +88,16 @@ export interface AssignmentDataSource {
 export interface CandidateContext {
   startup: NonNullable<CandidateSourceData["startup"]>;
   slot: AssignmentSlot;
-  candidates: RankedMentor[];
+  candidates: AssignmentCandidate[];
+}
+
+export interface AssignmentCandidate extends RankedMentor {
+  rankingEligible: boolean;
+  hardConflict: boolean;
+  hardConflictTypes: string[];
+  requiredOverrideTypes: RequiredOverrideType[];
+  requiresOverrideReason: boolean;
+  explanations: string[];
 }
 
 export interface AssignmentRouteDependencies {
@@ -97,13 +113,6 @@ function requiredUuid(value: string | null, field: string): string {
   return value;
 }
 
-function requiredString(value: unknown, field: string): string {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new AssignmentHttpError(400, "validation_error", `${field} is required.`, field);
-  }
-  return value.trim();
-}
-
 function optionalString(value: unknown, field: string): string | null {
   if (value === undefined || value === null) return null;
   if (typeof value !== "string") {
@@ -115,6 +124,18 @@ function optionalString(value: unknown, field: string): string | null {
 function requiredTimeSlot(value: string | null): AssignmentTimeSlot {
   if (value === "3:30-4:15" || value === "4:15-5:00") return value;
   throw new AssignmentHttpError(400, "validation_error", "timeSlot is invalid.", "timeSlot");
+}
+
+function canonicalFormat(value: unknown, field: string, optional = false): AssignmentFormat {
+  if (value === undefined && optional) return "in_person";
+  if (typeof value !== "string") {
+    throw new AssignmentHttpError(400, "validation_error", `${field} is unsupported.`, field);
+  }
+  const normalized = value.trim().toLocaleLowerCase().replace(/[ _-]/gu, "");
+  if (["online", "remote", "virtual", "video"].includes(normalized)) return "online";
+  if (["inperson", "onsite", "office"].includes(normalized)) return "in_person";
+  if (normalized === "hybrid") return "hybrid";
+  throw new AssignmentHttpError(400, "validation_error", `${field} is unsupported.`, field);
 }
 
 function requiredJsonObject(value: unknown, field: string): Json {
@@ -139,6 +160,7 @@ export function parseCandidateQuery(url: URL): CandidateQuery {
     startupSemesterId: requiredUuid(url.searchParams.get("startupSemesterId"), "startupSemesterId"),
     sessionDateId: requiredUuid(url.searchParams.get("sessionDateId"), "sessionDateId"),
     timeSlot: requiredTimeSlot(url.searchParams.get("timeSlot")),
+    format: canonicalFormat(url.searchParams.get("format") ?? undefined, "format", true),
   };
 }
 
@@ -158,7 +180,7 @@ export function parseCommitBody(value: unknown, headers: Headers): CommitInput {
     timeSlot: requiredTimeSlot(typeof body.timeSlot === "string" ? body.timeSlot : null),
     mentorProfileId: requiredUuid(typeof body.mentorProfileId === "string" ? body.mentorProfileId : null, "mentorProfileId"),
     idempotencyKey,
-    format: requiredString(body.format, "format"),
+    format: canonicalFormat(body.format, "format"),
     topic: optionalString(body.topic, "topic"),
     overrideTypes: stringArray(body.overrideTypes, "overrideTypes"),
     overrideReason: optionalString(body.overrideReason, "overrideReason"),
@@ -167,17 +189,17 @@ export function parseCommitBody(value: unknown, headers: Headers): CommitInput {
 }
 
 function normalizedFormat(value: string | null): MeetingFormat {
-  if (value === "remote") return "remote";
-  if (value === "hybrid") return "hybrid";
-  return "in_person";
+  const format = canonicalFormat(value ?? "in_person", "format");
+  if (format === "online") return "remote";
+  return format;
 }
 
 function needsForRanking(startup: NonNullable<CandidateSourceData["startup"]>) {
-  const [preferredPrimary, preferredSecondary] = startup.preferredExpertiseTags;
-  const [needPrimary, needSecondary] = startup.mentorshipNeeds;
+  const uniqueNeeds = [...startup.preferredExpertiseTags, ...startup.mentorshipNeeds]
+    .filter((need, index, needs) => need.trim().length > 0 && needs.indexOf(need) === index);
   return {
-    primaryNeed: preferredPrimary ?? needPrimary ?? null,
-    secondaryNeed: preferredSecondary ?? needPrimary ?? needSecondary ?? null,
+    primaryNeed: uniqueNeeds[0] ?? null,
+    secondaryNeed: uniqueNeeds[1] ?? null,
   };
 }
 
@@ -194,6 +216,7 @@ export function buildCandidateContext(input: CandidateQuery, data: CandidateSour
     || sessionDate.semesterId !== input.semesterId
     || startup.id !== input.startupSemesterId
     || startup.semesterId !== input.semesterId
+    || data.startupScheduleId === null
   ) throw staleMapping();
 
   const [start, end] = input.timeSlot.split("-");
@@ -203,13 +226,15 @@ export function buildCandidateContext(input: CandidateQuery, data: CandidateSour
     date: sessionDate.date,
     start: start ?? "",
     end: end ?? "",
-    format: "in_person",
+    format: normalizedFormat(input.format),
   };
   const activeSessions = data.sessions.filter((session) => session.status !== "declined");
   const firstSlotMentorIds = input.timeSlot === "4:15-5:00"
-    ? activeSessions
-      .filter((session) => session.sessionDateId === input.sessionDateId && session.timeSlot === "3:30-4:15")
-      .map((session) => session.mentorScheduleId)
+    ? activeSessions.filter((session) => (
+      session.sessionDateId === input.sessionDateId
+      && session.startupScheduleId === data.startupScheduleId
+      && session.timeSlot === "3:30-4:15"
+    )).map((session) => session.mentorScheduleId)
     : [];
   const profileIdByScheduleId = new Map(data.mentors.map((mentor) => [mentor.id, mentor.profileId]));
   const excludeMentorIds = firstSlotMentorIds
@@ -219,21 +244,86 @@ export function buildCandidateContext(input: CandidateQuery, data: CandidateSour
     id: mentor.profileId,
     name: mentor.name,
     expertise: mentor.expertise,
-    availability: data.availability
-      .filter((availability) => availability.profileId === mentor.profileId && availability.isAvailable && availability.sessionDateId === input.sessionDateId)
-      .map(() => sessionDate.date),
-    recentMeetingCount: activeSessions.filter((session) => session.mentorScheduleId === mentor.id && session.sessionDateId === input.sessionDateId).length,
+    availability: data.availability.some((availability) => (
+      availability.profileId === mentor.profileId
+      && availability.sessionDateId === input.sessionDateId
+      && !availability.isAvailable
+    )) ? [] : [sessionDate.date],
+    recentMeetingCount: activeSessions.filter((session) => {
+      const historicalDate = data.sessionDates.find((date) => date.id === session.sessionDateId)?.date;
+      return session.mentorScheduleId === mentor.id
+        && session.startupScheduleId === data.startupScheduleId
+        && historicalDate !== undefined
+        && historicalDate < sessionDate.date;
+    }).length,
     assignmentLoad: activeSessions.filter((session) => session.mentorScheduleId === mentor.id).length,
     formats: [normalizedFormat(mentor.preferredFormat)],
   }));
+  const neededExpertise = [...startup.mentorshipNeeds, ...startup.preferredExpertiseTags];
+  const startupSlotConflict = activeSessions.some((session) => (
+    session.sessionDateId === input.sessionDateId
+    && session.timeSlot === input.timeSlot
+    && session.startupScheduleId === data.startupScheduleId
+  ));
+  const ranked = rankMentorCandidates({
+    ...needsForRanking(startup),
+    slot,
+    mentors,
+    excludeMentorIds,
+  });
   return {
     startup,
     slot,
-    candidates: rankMentorCandidates({
-      ...needsForRanking(startup),
-      slot,
-      mentors,
-      excludeMentorIds,
+    candidates: ranked.map((candidate): AssignmentCandidate => {
+      const mentor = data.mentors.find((item) => item.profileId === candidate.mentor.id);
+      if (mentor === undefined) throw new Error("Candidate mentor mapping is incomplete.");
+      const availabilityBlocked = data.availability.some((availability) => (
+        availability.profileId === mentor.profileId
+        && availability.sessionDateId === input.sessionDateId
+        && !availability.isAvailable
+      ));
+      const capacityExhausted = activeSessions.filter((session) => session.mentorScheduleId === mentor.id).length >= mentor.capacity;
+      const expertiseMatched = neededExpertise.length === 0 || mentor.expertise.some((tag) => neededExpertise.includes(tag));
+      const sameStartupOtherSlot = activeSessions.some((session) => (
+        session.mentorScheduleId === mentor.id
+        && session.startupScheduleId === data.startupScheduleId
+        && session.sessionDateId === input.sessionDateId
+        && session.timeSlot !== input.timeSlot
+      ));
+      const mentorSlotConflict = activeSessions.some((session) => (
+        session.mentorScheduleId === mentor.id
+        && session.sessionDateId === input.sessionDateId
+        && session.timeSlot === input.timeSlot
+      ));
+      const requiredOverrideTypes: RequiredOverrideType[] = [
+        ...(availabilityBlocked ? ["availability" as const] : []),
+        ...(capacityExhausted ? ["capacity" as const] : []),
+        ...(!expertiseMatched ? ["expertise" as const] : []),
+        ...(sameStartupOtherSlot ? ["second_slot" as const] : []),
+      ];
+      const hardConflictTypes = [
+        ...(mentorSlotConflict ? ["mentor_slot"] : []),
+        ...(startupSlotConflict ? ["startup_slot"] : []),
+      ];
+      const explanations = [
+        ...candidate.reasons,
+        ...(availabilityBlocked ? ["Availability is explicitly marked unavailable; an availability override is required."] : []),
+        ...(capacityExhausted ? ["Mentor capacity has been reached; a capacity override is required."] : []),
+        ...(!expertiseMatched ? ["Mentor expertise does not match startup needs; an expertise override is required."] : []),
+        ...(sameStartupOtherSlot ? ["The startup already meets this mentor in the other slot; a second-slot override is required."] : []),
+        ...(mentorSlotConflict ? ["Mentor is already assigned in the selected slot."] : []),
+        ...(startupSlotConflict ? ["Startup is already assigned in the selected slot."] : []),
+      ];
+      return {
+        ...candidate,
+        eligible: hardConflictTypes.length === 0 && requiredOverrideTypes.length === 0,
+        rankingEligible: candidate.eligible,
+        hardConflict: hardConflictTypes.length > 0,
+        hardConflictTypes,
+        requiredOverrideTypes,
+        requiresOverrideReason: requiredOverrideTypes.length > 0,
+        explanations,
+      };
     }),
   };
 }
@@ -252,15 +342,17 @@ function errorCode(error: unknown): string | undefined {
 function responseForError(error: unknown): Response {
   let status = 500;
   let code = "internal_error";
-  const message = errorMessage(error, "Unexpected error.");
+  let message = "Unable to process assignment.";
   let field: string | undefined;
   if (error instanceof AuthorizationError) {
     status = error.status;
     code = error.status === 401 ? "unauthenticated" : error.status === 403 ? "forbidden" : "internal_error";
+    if (status !== 500) message = error.message;
   } else if (error instanceof AssignmentHttpError) {
     status = error.status;
     code = error.code;
     field = error.field;
+    message = error.message;
   }
   return Response.json({ error: { code, message, ...(field === undefined ? {} : { field }) } }, { status });
 }
@@ -301,16 +393,65 @@ function checkResult(result: { error: unknown }): void {
 export function createSupabaseAssignmentDataSource(client: Client): AssignmentDataSource {
   return {
     loadCandidateData: async (input) => {
-      const [sessionDateResult, startupResult, mentorsResult, availabilityResult, sessionsResult] = await Promise.all([
-        client.from("session_dates").select("id, date, semester_id").eq("id", input.sessionDateId).eq("semester_id", input.semesterId).maybeSingle(),
+      const [sessionDatesResult, startupResult, membershipsResult, mentorSemestersResult, scheduleMentorsResult, teamsResult, scheduleStartupsResult, availabilityResult, sessionsResult] = await Promise.all([
+        client.from("session_dates").select("id, date, semester_id").eq("semester_id", input.semesterId),
         client.from("startup_semesters").select("id, semester_id, company_snapshot, goals, mentor_need_context, mentor_need_no_preference, mentorship_needs, preferred_expertise_tags, stage").eq("id", input.startupSemesterId).eq("semester_id", input.semesterId).maybeSingle(),
-        client.from("mentors").select("id, user_id, full_name, expertise_tags, preferred_format").eq("semester_id", input.semesterId).eq("is_active", true),
+        client.from("semester_memberships").select("id, profile_id, semester_id, role, status").eq("semester_id", input.semesterId),
+        client.from("mentor_semesters").select("semester_membership_id, semester_id, capacity, preferred_format").eq("semester_id", input.semesterId),
+        client.from("mentors").select("id, user_id, full_name, semester_id, is_active").eq("semester_id", input.semesterId).eq("is_active", true),
+        client.from("startup_team_memberships").select("id, startup_semester_id, semester_membership_id, semester_id, is_primary_contact").eq("semester_id", input.semesterId),
+        client.from("startups").select("id, user_id, semester_id, is_active").eq("semester_id", input.semesterId).eq("is_active", true),
         client.from("availability").select("user_id, session_date_id, is_available").eq("session_date_id", input.sessionDateId),
-        client.from("sessions").select("mentor_id, session_date_id, time_slot, status").eq("semester_id", input.semesterId),
+        client.from("sessions").select("mentor_id, startup_id, session_date_id, time_slot, status").eq("semester_id", input.semesterId),
       ]);
-      [sessionDateResult, startupResult, mentorsResult, availabilityResult, sessionsResult].forEach(checkResult);
+      [sessionDatesResult, startupResult, membershipsResult, mentorSemestersResult, scheduleMentorsResult, teamsResult, scheduleStartupsResult, availabilityResult, sessionsResult].forEach(checkResult);
+      const activeMentorMemberships = (membershipsResult.data ?? []).filter((membership) => (
+        membership.semester_id === input.semesterId
+        && membership.role === "mentor"
+        && membership.status === "active"
+      ));
+      const activeStartupMemberships = (membershipsResult.data ?? []).filter((membership) => (
+        membership.semester_id === input.semesterId
+        && membership.role === "startup"
+        && membership.status === "active"
+      ));
+      const mentorProfileIds = activeMentorMemberships.map((membership) => membership.profile_id);
+      const mentorProfilesResult = mentorProfileIds.length === 0
+        ? { data: [], error: null }
+        : await client.from("mentor_profiles").select("profile_id, expertise_tags").in("profile_id", mentorProfileIds);
+      checkResult(mentorProfilesResult);
+      const sessionDates = (sessionDatesResult.data ?? []).map((date) => ({
+        id: date.id,
+        semesterId: date.semester_id,
+        date: date.date,
+      }));
+      const sessionDate = sessionDates.find((date) => date.id === input.sessionDateId) ?? null;
+      const mentorProfileById = new Map((mentorProfilesResult.data ?? []).map((profile) => [profile.profile_id, profile]));
+      const mentorSemesterByMembership = new Map((mentorSemestersResult.data ?? []).map((mentorSemester) => [mentorSemester.semester_membership_id, mentorSemester]));
+      const scheduleMentorsByProfile = new Map(
+        (scheduleMentorsResult.data ?? [])
+          .filter((mentor) => mentor.user_id !== null && mentor.is_active && mentor.semester_id === input.semesterId)
+          .sort((left, right) => right.id.localeCompare(left.id))
+          .map((mentor) => [mentor.user_id, mentor]),
+      );
+      const startupProfileByMembership = new Map(activeStartupMemberships.map((membership) => [membership.id, membership.profile_id]));
+      const activeScheduleStartupsByProfile = new Map(
+        (scheduleStartupsResult.data ?? [])
+          .filter((startup) => startup.user_id !== null && startup.is_active && startup.semester_id === input.semesterId)
+          .sort((left, right) => right.id.localeCompare(left.id))
+          .map((startup) => [startup.user_id, startup]),
+      );
+      const startupScheduleId = (teamsResult.data ?? [])
+        .filter((team) => team.semester_id === input.semesterId && team.startup_semester_id === input.startupSemesterId)
+        .sort((left, right) => Number(right.is_primary_contact) - Number(left.is_primary_contact) || left.id.localeCompare(right.id))
+        .map((team) => startupProfileByMembership.get(team.semester_membership_id))
+        .filter((profileId): profileId is string => profileId !== undefined)
+        .map((profileId) => activeScheduleStartupsByProfile.get(profileId)?.id)
+        .find((id): id is string => id !== undefined) ?? null;
       return {
-        sessionDate: sessionDateResult.data === null ? null : { id: sessionDateResult.data.id, semesterId: sessionDateResult.data.semester_id, date: sessionDateResult.data.date },
+        sessionDate,
+        sessionDates,
+        startupScheduleId,
         startup: startupResult.data === null ? null : {
           id: startupResult.data.id,
           semesterId: startupResult.data.semester_id,
@@ -322,13 +463,20 @@ export function createSupabaseAssignmentDataSource(client: Client): AssignmentDa
           preferredExpertiseTags: startupResult.data.preferred_expertise_tags,
           stage: startupResult.data.stage,
         },
-        mentors: (mentorsResult.data ?? []).flatMap((mentor) => mentor.user_id === null ? [] : [{
-          id: mentor.id,
-          profileId: mentor.user_id,
-          name: mentor.full_name,
-          expertise: mentor.expertise_tags,
-          preferredFormat: mentor.preferred_format,
-        }]),
+        mentors: activeMentorMemberships.flatMap((membership) => {
+          const mentorSemester = mentorSemesterByMembership.get(membership.id);
+          const mentorProfile = mentorProfileById.get(membership.profile_id);
+          const scheduleMentor = scheduleMentorsByProfile.get(membership.profile_id);
+          if (mentorSemester === undefined || mentorProfile === undefined || scheduleMentor === undefined) return [];
+          return [{
+            id: scheduleMentor.id,
+            profileId: membership.profile_id,
+            name: scheduleMentor.full_name,
+            expertise: mentorProfile.expertise_tags,
+            preferredFormat: mentorSemester.preferred_format,
+            capacity: mentorSemester.capacity,
+          }];
+        }),
         availability: (availabilityResult.data ?? []).map((availability) => ({
           profileId: availability.user_id,
           sessionDateId: availability.session_date_id,
@@ -336,6 +484,7 @@ export function createSupabaseAssignmentDataSource(client: Client): AssignmentDa
         })),
         sessions: (sessionsResult.data ?? []).map((session) => ({
           mentorScheduleId: session.mentor_id,
+          startupScheduleId: session.startup_id,
           sessionDateId: session.session_date_id,
           timeSlot: session.time_slot,
           status: session.status,
@@ -358,9 +507,10 @@ export function createSupabaseAssignmentDataSource(client: Client): AssignmentDa
       });
       if (error !== null) {
         const code = errorCode(error);
-        if (["23505", "23514", "40001"].includes(code ?? "")) throw new AssignmentHttpError(409, "assignment_conflict", error.message);
-        if (code === "42501") throw new AssignmentHttpError(403, "forbidden", error.message);
-        throw new AssignmentHttpError(400, "validation_error", error.message);
+        if (["23505", "23514", "40001"].includes(code ?? "")) throw new AssignmentHttpError(409, "assignment_conflict", "Assignment conflicts with the current schedule.");
+        if (code === "42501") throw new AssignmentHttpError(403, "forbidden", "Semester administrator access required.");
+        if (code === "22023") throw new AssignmentHttpError(400, "validation_error", "Assignment input is invalid.");
+        throw new Error("Assignment RPC failed.");
       }
       return data;
     },
