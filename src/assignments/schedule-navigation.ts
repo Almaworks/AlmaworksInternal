@@ -7,8 +7,18 @@ export type ScheduleDirectoryEntry = {
   label: string;
 };
 
-export function resolveAdminDashboardTab(pathname: string | null): AdminDashboardTab {
-  return pathname === ADMIN_SCHEDULE_HREF ? "schedule" : "users";
+export function adminDashboardHref(tab: AdminDashboardTab): string {
+  return tab === "schedule"
+    ? ADMIN_SCHEDULE_HREF
+    : `/dashboard/admin?tab=${tab}`;
+}
+
+export function resolveAdminDashboardTab(
+  pathname: string | null,
+  queryTab: string | null = null,
+): AdminDashboardTab {
+  if (pathname === ADMIN_SCHEDULE_HREF) return "schedule";
+  return queryTab === "members" || queryTab === "startups" ? queryTab : "users";
 }
 
 export function isDashboardNavigationActive(pathname: string, href: string): boolean {

@@ -42,7 +42,7 @@ Resolve unlinked columns as roster/data operations before scheduling. Never subs
 
 ## Retry and refresh handling
 
-Each submit attempt receives a retry-safe idempotency key bound to that payload. A transport retry of the same in-flight attempt may reuse its key; a changed mentor, slot, format, topic, override set, reason, or ranking context must use a new key. An idempotent replay is a saved assignment, not permission to submit a different payload under the old key.
+Each click of **Assign** starts a new submit attempt and the current client creates a fresh idempotency UUID for it. The client does not retain that key for a later manual resubmit and does not automatically replay an ambiguous transport failure. If the browser loses the response or the network outcome is unclear, do not immediately click **Assign** again: first refresh or verify the slot through an authorized server/admin surface. Resubmit only after confirming that no assignment was committed; that manual resubmit will use a new key. Any changed mentor, slot, format, topic, override set, reason, or ranking context is also a new payload and must use a new key.
 
 After a successful commit, the UI reloads schedule data. If that refresh fails, the assignment remains saved and the current schedule stays on screen. The UI reports **assignment saved, refresh failed** rather than claiming the grid is current. Use the provided refresh action before making a potentially conflicting follow-up assignment. If refresh continues to fail, verify the session through an authorized server/admin surface and investigate the read error; do not resubmit the assignment as a repair.
 
@@ -58,6 +58,6 @@ The enriched picker owns empty, startup-bound cells only. It never replaces an e
 
 ## Operational QA checklist
 
-Before publishing a weekly schedule, exercise one representative state for: empty linked cell, ranked filters, format reload, second-slot exclusion, unavailable/override candidate, hard conflict, unlinked canonical column, historical occupied column, substitute workflow, successful commit, idempotent replay, and saved-but-refresh-failed recovery. Check the drawer and schedule at desktop and narrow viewport widths, including keyboard focus, Escape/overlay close, return focus, and disabled-control semantics.
+Before publishing a weekly schedule, exercise one representative state for: empty linked cell, ranked filters, format reload, second-slot exclusion, unavailable/override candidate, hard conflict, unlinked canonical column, historical occupied column, substitute workflow, successful commit, ambiguous-response verification, idempotency error handling, and saved-but-refresh-failed recovery. Check the drawer and schedule at desktop and narrow viewport widths, including keyboard focus, Escape/overlay close, return focus, and disabled-control semantics.
 
 Local and remote verification must target only Supabase project `layjdjfvxkowxidwuvbs`. Do not apply migrations or perform remote operations unless the target is independently verified and the operation is separately authorized.

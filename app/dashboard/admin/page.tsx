@@ -2,8 +2,8 @@
 
 import { createClient } from '@/utils/supabase/client'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import { useEffect, useMemo, useState } from 'react'
+import { usePathname, useSearchParams } from 'next/navigation'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import TagInput from '@/components/TagInput'
 import StartupModal from '@/components/StartupModal'
 import { CohortScreenControls, useCohortScreen } from '@/components/CohortScreenControls'
@@ -19,7 +19,7 @@ import {
   type HistoricalScheduleStartupColumn,
   type ScheduleStartupColumn,
 } from '@/src/assignments/picker'
-import { ADMIN_SCHEDULE_HREF, resolveAdminDashboardTab } from '@/src/assignments/schedule-navigation'
+import { ADMIN_SCHEDULE_HREF, adminDashboardHref, resolveAdminDashboardTab } from '@/src/assignments/schedule-navigation'
 
 type PendingUser = {
   id: string
@@ -109,14 +109,11 @@ type MemberSortKey = 'full_name' | 'email' | 'role' | 'is_active'
 type Tab = 'users' | 'members' | 'schedule' | 'startups'
 
 
-export default function AdminDashboard() {
+function AdminDashboardContent() {
   const supabase = createClient()
   const pathname = usePathname()
-  const [tab, setTab] = useState<Tab>(() => resolveAdminDashboardTab(pathname))
-
-  useEffect(() => {
-    setTab(resolveAdminDashboardTab(pathname))
-  }, [pathname])
+  const searchParams = useSearchParams()
+  const tab = resolveAdminDashboardTab(pathname, searchParams.get('tab'))
 
   // Pending users
   const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([])
@@ -873,7 +870,7 @@ export default function AdminDashboard() {
           </div>
           <div className="flex gap-2">
             <Link href={ADMIN_SCHEDULE_HREF} className="rounded-lg border border-white/25 px-3 py-2 text-xs font-medium text-white/85 hover:bg-white/10">Review schedule</Link>
-            <button onClick={() => setTab('users')} className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-[#002147] hover:bg-[#e7f2f9]">Review requests{pendingUsers.length > 0 ? ` (${pendingUsers.length})` : ''}</button>
+            <Link href={adminDashboardHref('users')} className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-[#002147] hover:bg-[#e7f2f9]">Review requests{pendingUsers.length > 0 ? ` (${pendingUsers.length})` : ''}</Link>
           </div>
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-6">
@@ -903,10 +900,10 @@ export default function AdminDashboard() {
           <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden mb-4"><span className="block h-full bg-[#75AADB]" style={{ width: `${([activeSemesterName, members.length > 0, sessionDates.length > 0, pendingUsers.length === 0].filter(Boolean).length / 4) * 100}%` }} /></div>
           <div className="space-y-2 text-sm">
             {[{ label: 'Active semester configured', done: Boolean(activeSemesterName), tab: 'schedule' as Tab }, { label: 'Roster reviewed', done: members.length > 0, tab: 'members' as Tab }, { label: 'Session dates generated', done: sessionDates.length > 0, tab: 'schedule' as Tab }, { label: 'Pending access requests resolved', done: pendingUsers.length === 0, tab: 'users' as Tab }].map(item => (
-              <button key={item.label} onClick={() => setTab(item.tab)} className="w-full flex items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-gray-50">
+              <Link key={item.label} href={adminDashboardHref(item.tab)} className="w-full flex items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-gray-50">
                 <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] ${item.done ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-400'}`}>{item.done ? '✓' : '·'}</span>
                 <span className={item.done ? 'text-gray-500' : 'font-medium text-[#002147]'}>{item.label}</span>
-              </button>
+              </Link>
             ))}
           </div>
         </section>
@@ -914,7 +911,7 @@ export default function AdminDashboard() {
           <p className="text-[10px] uppercase tracking-[0.18em] text-[#75AADB] font-semibold">Quick actions</p>
           <h2 className="text-base font-semibold text-[#002147] mt-1 mb-4">What needs your attention</h2>
           <div className="space-y-2">
-            <button onClick={() => setTab('users')} className="w-full flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2.5 text-left hover:border-[#75AADB]/50"><span><strong className="block text-sm text-[#002147]">Approve registrations</strong><small className="text-xs text-gray-400">{pendingUsers.length} waiting for a role</small></span><span className="text-[#75AADB]">→</span></button>
+            <Link href={adminDashboardHref('users')} className="w-full flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2.5 text-left hover:border-[#75AADB]/50"><span><strong className="block text-sm text-[#002147]">Approve registrations</strong><small className="text-xs text-gray-400">{pendingUsers.length} waiting for a role</small></span><span className="text-[#75AADB]">→</span></Link>
             <Link href={ADMIN_SCHEDULE_HREF} className="w-full flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2.5 text-left hover:border-[#75AADB]/50"><span><strong className="block text-sm text-[#002147]">Check session coverage</strong><small className="text-xs text-gray-400">{sessions.length} sessions in the active semester</small></span><span className="text-[#75AADB]">→</span></Link>
             <Link href="/dashboard/admin/outreach" className="w-full flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2.5 text-left hover:border-[#75AADB]/50"><span><strong className="block text-sm text-[#002147]">Open outreach queue</strong><small className="text-xs text-gray-400">Follow up with prospective members</small></span><span className="text-[#75AADB]">→</span></Link>
           </div>
@@ -943,11 +940,7 @@ export default function AdminDashboard() {
             </>
           )
 
-          return t.id === 'schedule' ? (
-            <Link key={t.id} href={ADMIN_SCHEDULE_HREF} className={className}>{label}</Link>
-          ) : (
-            <button key={t.id} onClick={() => setTab(t.id)} className={className}>{label}</button>
-          )
+          return <Link key={t.id} href={adminDashboardHref(t.id)} className={className}>{label}</Link>
         })}
       </div>
 
@@ -2161,5 +2154,13 @@ export default function AdminDashboard() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function AdminDashboard() {
+  return (
+    <Suspense fallback={<p role="status" className="text-sm text-gray-500">Loading admin workspace…</p>}>
+      <AdminDashboardContent />
+    </Suspense>
   )
 }
