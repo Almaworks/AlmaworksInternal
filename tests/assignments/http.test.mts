@@ -460,7 +460,7 @@ test("duplicate legacy mentor rows count profile-wide capacity and recency", asy
     mentor_profiles: { rows: [{ profile_id: ids.mentor, expertise_tags: ["Enterprise sales"] }] },
     mentors: { rows: [
       { id: "schedule-mentor-1", user_id: ids.mentor, full_name: "Lifecycle mentor", semester_id: ids.semester, is_active: true },
-      { id: "schedule-mentor-z", user_id: ids.mentor, full_name: "Duplicate schedule row", semester_id: ids.semester, is_active: true },
+      { id: "schedule-mentor-z", user_id: ids.mentor, full_name: "Inactive historical duplicate", semester_id: ids.semester, is_active: false },
     ] },
     startup_team_memberships: { rows: [{ id: "team-membership", startup_semester_id: ids.startup, semester_membership_id: "startup-membership", semester_id: ids.semester, is_primary_contact: true }] },
     startups: { rows: [{ id: "schedule-startup-selected", user_id: "startup-profile", semester_id: ids.semester, is_active: true }] },

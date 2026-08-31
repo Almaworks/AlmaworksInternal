@@ -432,14 +432,20 @@ export function createSupabaseAssignmentDataSource(client: Client): AssignmentDa
       const mentorProfileById = new Map((mentorProfilesResult.data ?? []).map((profile) => [profile.profile_id, profile]));
       const mentorSemesterByMembership = new Map((mentorSemestersResult.data ?? []).map((mentorSemester) => [mentorSemester.semester_membership_id, mentorSemester]));
       const scheduleMentorsByProfile = new Map<string, Array<{ id: string; full_name: string }>>();
+      const activeScheduleMentorsByProfile = new Map<string, Array<{ id: string; full_name: string }>>();
       for (const mentor of (scheduleMentorsResult.data ?? [])
-        .filter((item) => item.user_id !== null && item.is_active && item.semester_id === input.semesterId)
+        .filter((item) => item.user_id !== null && item.semester_id === input.semesterId)
         .sort((left, right) => left.id.localeCompare(right.id))) {
         const profileId = mentor.user_id;
         if (profileId === null) continue;
         const scheduleMentors = scheduleMentorsByProfile.get(profileId) ?? [];
         scheduleMentors.push({ id: mentor.id, full_name: mentor.full_name });
         scheduleMentorsByProfile.set(profileId, scheduleMentors);
+        if (mentor.is_active) {
+          const activeScheduleMentors = activeScheduleMentorsByProfile.get(profileId) ?? [];
+          activeScheduleMentors.push({ id: mentor.id, full_name: mentor.full_name });
+          activeScheduleMentorsByProfile.set(profileId, activeScheduleMentors);
+        }
       }
       const startupProfileByMembership = new Map(activeStartupMemberships.map((membership) => [membership.id, membership.profile_id]));
       const activeScheduleStartupsByProfile = new Map(
@@ -474,13 +480,13 @@ export function createSupabaseAssignmentDataSource(client: Client): AssignmentDa
           const mentorSemester = mentorSemesterByMembership.get(membership.id);
           const mentorProfile = mentorProfileById.get(membership.profile_id);
           const scheduleMentors = scheduleMentorsByProfile.get(membership.profile_id);
-          const scheduleMentor = scheduleMentors?.[0];
-          if (mentorSemester === undefined || mentorProfile === undefined || scheduleMentors === undefined || scheduleMentor === undefined) return [];
+          const activeScheduleMentor = activeScheduleMentorsByProfile.get(membership.profile_id)?.[0];
+          if (mentorSemester === undefined || mentorProfile === undefined || scheduleMentors === undefined || activeScheduleMentor === undefined) return [];
           return [{
-            id: scheduleMentor.id,
+            id: activeScheduleMentor.id,
             scheduleMentorIds: scheduleMentors.map((mentor) => mentor.id),
             profileId: membership.profile_id,
-            name: scheduleMentor.full_name,
+            name: activeScheduleMentor.full_name,
             expertise: mentorProfile.expertise_tags,
             preferredFormat: mentorSemester.preferred_format,
             capacity: mentorSemester.capacity,
