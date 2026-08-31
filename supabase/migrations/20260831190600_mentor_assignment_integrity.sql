@@ -1,89 +1,39 @@
--- Authorized, atomic mentor assignment transaction for the weekly schedule.
+set local check_function_bodies = off;
 
-create table public.mentor_assignment_requests (
-  id uuid primary key default gen_random_uuid(),
-  semester_id uuid not null references public.semesters(id) on delete restrict,
-  actor_profile_id uuid not null references public.profiles(id),
-  session_date_id uuid not null references public.session_dates(id),
-  time_slot text not null check (time_slot in ('3:30-4:15', '4:15-5:00')),
-  startup_semester_id uuid not null references public.startup_semesters(id),
-  mentor_profile_id uuid not null references public.mentor_profiles(profile_id),
-  idempotency_key text not null check (pg_catalog.length(pg_catalog.btrim(idempotency_key)) > 0),
-  request_fingerprint text not null,
-  request_payload jsonb not null check (pg_catalog.jsonb_typeof(request_payload) = 'object'),
-  session_id uuid references public.sessions(id),
-  created_at timestamptz not null default pg_catalog.now(),
-  unique (semester_id, idempotency_key)
-);
+revoke all on table "public"."mentor_assignment_audit" from "anon";
 
-create table public.mentor_assignment_audit (
-  id uuid primary key default gen_random_uuid(),
-  semester_id uuid not null references public.semesters(id) on delete restrict,
-  request_id uuid not null unique references public.mentor_assignment_requests(id) on delete restrict,
-  session_id uuid not null references public.sessions(id) on delete restrict,
-  actor_profile_id uuid not null references public.profiles(id),
-  session_date_id uuid not null references public.session_dates(id),
-  time_slot text not null check (time_slot in ('3:30-4:15', '4:15-5:00')),
-  startup_semester_id uuid not null references public.startup_semesters(id),
-  mentor_profile_id uuid not null references public.mentor_profiles(profile_id),
-  action text not null default 'assignment.committed' check (action = 'assignment.committed'),
-  override_types text[] not null default '{}'::text[],
-  override_reason text,
-  ranking_context jsonb not null default '{}'::jsonb check (pg_catalog.jsonb_typeof(ranking_context) = 'object'),
-  idempotency_key text not null,
-  created_at timestamptz not null default pg_catalog.now(),
-  check (
-    (pg_catalog.cardinality(override_types) = 0 and override_reason is null)
-    or (pg_catalog.cardinality(override_types) > 0 and pg_catalog.length(pg_catalog.btrim(override_reason)) > 0)
-  ),
-  unique (semester_id, idempotency_key)
-);
+revoke all on table "public"."mentor_assignment_requests" from "anon";
 
-create index mentor_assignment_requests_slot_idx
-  on public.mentor_assignment_requests (semester_id, session_date_id, time_slot);
-create index mentor_assignment_audit_startup_idx
-  on public.mentor_assignment_audit (semester_id, startup_semester_id, created_at desc);
-create index mentor_assignment_audit_mentor_idx
-  on public.mentor_assignment_audit (semester_id, mentor_profile_id, created_at desc);
+alter table "public"."mentor_assignment_audit"
+  drop constraint "mentor_assignment_audit_request_id_fkey";
 
-alter table public.mentor_assignment_requests enable row level security;
-alter table public.mentor_assignment_audit enable row level security;
+alter table "public"."mentor_assignment_audit"
+  drop constraint "mentor_assignment_audit_semester_id_fkey";
 
-create policy "semester admins can read assignment requests"
-  on public.mentor_assignment_requests
-  for select
-  to authenticated
-  using (public.can_manage_semester(semester_id, (select auth.uid())));
+alter table "public"."mentor_assignment_audit"
+  drop constraint "mentor_assignment_audit_session_id_fkey";
 
-create policy "semester admins can read assignment audit"
-  on public.mentor_assignment_audit
-  for select
-  to authenticated
-  using (public.can_manage_semester(semester_id, (select auth.uid())));
+alter table "public"."mentor_assignment_requests"
+  drop constraint "mentor_assignment_requests_semester_id_fkey";
 
-revoke all privileges on table public.mentor_assignment_requests from anon, authenticated;
-revoke all privileges on table public.mentor_assignment_audit from anon, authenticated;
-grant select on table public.mentor_assignment_requests to authenticated;
-grant select on table public.mentor_assignment_audit to authenticated;
-
-create or replace function public.commit_mentor_assignment(
-  p_semester_id uuid,
-  p_session_date_id uuid,
-  p_time_slot text,
+create or replace function public.commit_mentor_assignment (
+  p_semester_id         uuid,
+  p_session_date_id     uuid,
+  p_time_slot           text,
   p_startup_semester_id uuid,
-  p_mentor_profile_id uuid,
-  p_idempotency_key text,
-  p_format text default 'online',
-  p_topic text default null,
-  p_override_types text[] default '{}'::text[],
-  p_override_reason text default null,
-  p_ranking_context jsonb default '{}'::jsonb
+  p_mentor_profile_id   uuid,
+  p_idempotency_key     text,
+  p_format              text   default 'online'::text,
+  p_topic               text   default null::text,
+  p_override_types      text[] default '{}'::text[],
+  p_override_reason     text   default null::text,
+  p_ranking_context     jsonb  default '{}'::jsonb
 )
-returns jsonb
-language plpgsql
-security definer
-set search_path = ''
-as $$
+  returns jsonb
+  language plpgsql
+  security definer
+  set search_path to ''
+  AS $function$
 declare
   v_actor_id uuid := auth.uid();
   v_key text := nullif(pg_catalog.btrim(p_idempotency_key), '');
@@ -397,11 +347,24 @@ begin
     'replayed', false
   );
 end;
-$$;
+$function$;
 
-revoke execute on function public.commit_mentor_assignment(
-  uuid, uuid, text, uuid, uuid, text, text, text, text[], text, jsonb
-) from public, anon;
-grant execute on function public.commit_mentor_assignment(
-  uuid, uuid, text, uuid, uuid, text, text, text, text[], text, jsonb
-) to authenticated;
+alter table "public"."mentor_assignment_audit"
+  add constraint "mentor_assignment_audit_request_id_fkey" foreign key (request_id) references public.mentor_assignment_requests(id) on delete restrict;
+
+alter table "public"."mentor_assignment_audit"
+  add constraint "mentor_assignment_audit_semester_id_fkey" foreign key (semester_id) references public.semesters(id) on delete restrict;
+
+alter table "public"."mentor_assignment_audit"
+  add constraint "mentor_assignment_audit_session_id_fkey" foreign key (session_id) references public.sessions(id) on delete restrict;
+
+alter table "public"."mentor_assignment_requests"
+  add constraint "mentor_assignment_requests_semester_id_fkey" foreign key (semester_id) references public.semesters(id) on delete restrict;
+
+revoke all on table "public"."mentor_assignment_audit" from "authenticated";
+
+grant select on table "public"."mentor_assignment_audit" to "authenticated";
+
+revoke all on table "public"."mentor_assignment_requests" from "authenticated";
+
+grant select on table "public"."mentor_assignment_requests" to "authenticated";

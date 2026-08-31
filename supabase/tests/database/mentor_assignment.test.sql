@@ -1,6 +1,6 @@
 begin;
 
-select plan(30);
+select plan(69);
 
 select has_table('public', 'mentor_assignment_requests', 'assignment requests table exists');
 select has_table('public', 'mentor_assignment_audit', 'assignment audit table exists');
@@ -34,6 +34,26 @@ select ok(
   ),
   'authenticated users may execute the assignment RPC'
 );
+
+with assignment_tables(table_name) as (
+  values
+    ('public.mentor_assignment_requests'::text),
+    ('public.mentor_assignment_audit'::text)
+), assignment_roles(role_name) as (
+  values ('anon'::name), ('authenticated'::name)
+), assignment_privileges(privilege_name) as (
+  values
+    ('select'::text), ('insert'::text), ('update'::text), ('delete'::text),
+    ('truncate'::text), ('trigger'::text), ('references'::text), ('maintain'::text)
+)
+select ok(
+  has_table_privilege(role_name, table_name, privilege_name)
+    = (role_name = 'authenticated'::name and privilege_name = 'select'),
+  format('%s has only the expected %s privilege on %s', role_name, privilege_name, table_name)
+)
+from assignment_tables
+cross join assignment_roles
+cross join assignment_privileges;
 
 insert into public.semesters (id, name, start_date, end_date, lifecycle_status)
 values
@@ -144,6 +164,15 @@ select is(
   'audit records the authenticated actor'
 );
 
+set local role postgres;
+select throws_ok(
+  $$delete from public.mentor_assignment_requests where idempotency_key = 'assignment-success'$$,
+  '23503',
+  'update or delete on table "mentor_assignment_requests" violates foreign key constraint "mentor_assignment_audit_request_id_fkey" on table "mentor_assignment_audit"',
+  'an assignment audit prevents its request from being deleted'
+);
+set local role authenticated;
+
 select set_config('request.jwt.claim.sub', 'a2000000-0000-0000-0000-000000000002', true);
 select throws_ok(
   $$select public.commit_mentor_assignment(
@@ -230,6 +259,36 @@ select is(
   'the override reason is audited'
 );
 
+set local role postgres;
+create function public.test_fail_mentor_assignment_audit_insert()
+returns trigger
+language plpgsql
+as $$
+begin
+  raise exception 'forced assignment audit failure' using errcode = 'P0001';
+end;
+$$;
+create trigger test_fail_mentor_assignment_audit_insert
+before insert on public.mentor_assignment_audit
+for each row execute function public.test_fail_mentor_assignment_audit_insert();
+set local role authenticated;
+select throws_ok(
+  $$select public.commit_mentor_assignment(
+    'a1000000-0000-0000-0000-000000000001', 'a9000000-0000-0000-0000-000000000002',
+    '3:30-4:15', 'a6000000-0000-0000-0000-000000000002', 'a2000000-0000-0000-0000-000000000013',
+    'late-audit-failure', 'online', null, array['expertise'], 'Deliberate rollback proof', '{}'
+  )$$,
+  'P0001', 'forced assignment audit failure',
+  'an audit failure after request and session inserts aborts the assignment'
+);
+set local role postgres;
+drop trigger test_fail_mentor_assignment_audit_insert on public.mentor_assignment_audit;
+drop function public.test_fail_mentor_assignment_audit_insert();
+set local role authenticated;
+select is((select count(*) from public.sessions), 2::bigint, 'a late audit failure rolls back the session write');
+select is((select count(*) from public.mentor_assignment_requests), 2::bigint, 'a late audit failure rolls back the request write');
+select is((select count(*) from public.mentor_assignment_audit), 2::bigint, 'a late audit failure rolls back the audit write');
+
 select throws_ok(
   $$select public.commit_mentor_assignment(
     'a1000000-0000-0000-0000-000000000001', 'a9000000-0000-0000-0000-000000000002',
@@ -249,6 +308,41 @@ select throws_ok(
   'expertise mismatch cannot commit without an override'
 );
 
+set local role postgres;
+update public.startup_team_memberships
+set is_primary_contact = false
+where startup_semester_id = 'a6000000-0000-0000-0000-000000000001'
+  and semester_membership_id = 'a3000000-0000-0000-0000-000000000021';
+insert into public.startup_team_memberships (
+  semester_id, startup_semester_id, semester_membership_id, is_primary_contact
+) values (
+  'a1000000-0000-0000-0000-000000000001',
+  'a6000000-0000-0000-0000-000000000001',
+  'a3000000-0000-0000-0000-000000000001',
+  true
+);
+insert into public.startups (id, user_id, semester_id, name, preferred_tags)
+values (
+  'a0000000-0000-0000-0000-000000000001',
+  'a2000000-0000-0000-0000-000000000001',
+  'a1000000-0000-0000-0000-000000000001',
+  'Decoy admin schedule startup', array['Product strategy']
+);
+set local role authenticated;
+select lives_ok(
+  $$select public.commit_mentor_assignment(
+    'a1000000-0000-0000-0000-000000000001', 'a9000000-0000-0000-0000-000000000002',
+    '3:30-4:15', 'a6000000-0000-0000-0000-000000000001', 'a2000000-0000-0000-0000-000000000012',
+    'mixed-role-team', 'online', 'Role-safe startup lookup', array['capacity'], 'Capacity exception for role lookup test', '{}'
+  )$$,
+  'a non-startup team membership cannot select the scheduled startup'
+);
+select is(
+  (select startup_id from public.sessions where topic = 'Role-safe startup lookup'),
+  'a8000000-0000-0000-0000-000000000001'::uuid,
+  'startup selection uses an active startup-role membership'
+);
+
 select is(
   (public.commit_mentor_assignment(
     'a1000000-0000-0000-0000-000000000001', 'a9000000-0000-0000-0000-000000000001',
@@ -258,7 +352,7 @@ select is(
   'true',
   'replaying the same idempotency key returns the committed result'
 );
-select is((select count(*) from public.sessions), 2::bigint, 'idempotent replay does not duplicate the session');
+select is((select count(*) from public.sessions), 3::bigint, 'idempotent replay does not duplicate the session');
 select throws_ok(
   $$select public.commit_mentor_assignment(
     'a1000000-0000-0000-0000-000000000001', 'a9000000-0000-0000-0000-000000000001',
