@@ -24,6 +24,21 @@ export interface PickerCandidate {
   exclusionReason?: string;
 }
 
+export interface ScheduleStartupColumn {
+  startupSemesterId: string;
+  startupId: string | null;
+  name: string;
+  linked: boolean;
+}
+
+export interface HistoricalScheduleStartupColumn {
+  startupSemesterId: null;
+  startupId: string;
+  name: string;
+  linked: false;
+  historicalOnly: true;
+}
+
 export interface PickerCommitPayload {
   semesterId: string;
   startupSemesterId: string;
@@ -59,6 +74,87 @@ export function filterCandidates(candidates: readonly PickerCandidate[], search:
 export function selectCandidate(candidates: readonly PickerCandidate[], mentorProfileId: string): PickerCandidate | null {
   const candidate = candidates.find((item) => item.mentor.id === mentorProfileId);
   return candidate === undefined || candidate.hardConflict ? null : candidate;
+}
+
+export function selectVisibleCandidate(visibleCandidates: readonly PickerCandidate[], mentorProfileId: string): PickerCandidate | null {
+  return selectCandidate(visibleCandidates, mentorProfileId);
+}
+
+export function deriveStartupNeeds(startup: {
+  mentorshipNeeds: readonly string[];
+  preferredExpertiseTags: readonly string[];
+}): { primary: string | null; secondary: string | null; preferredExpertise: string[] } {
+  return {
+    primary: startup.mentorshipNeeds[0] ?? null,
+    secondary: startup.mentorshipNeeds[1] ?? null,
+    preferredExpertise: [...startup.preferredExpertiseTags],
+  };
+}
+
+export function buildScheduleStartupColumns(input: {
+  startupSemesters: ReadonlyArray<{ id: string; startupOrganizationId: string }>;
+  organizations: ReadonlyArray<{ id: string; name: string }>;
+  bridges: ReadonlyArray<{ startupSemesterId: string; startupId: string; isPrimaryContact: boolean }>;
+}): ScheduleStartupColumn[] {
+  const organizationNames = new Map(input.organizations.map((organization) => [organization.id, organization.name]));
+  return input.startupSemesters.map((startupSemester) => {
+    const bridge = input.bridges
+      .filter((candidate) => candidate.startupSemesterId === startupSemester.id)
+      .sort((left, right) => Number(right.isPrimaryContact) - Number(left.isPrimaryContact) || left.startupId.localeCompare(right.startupId))[0];
+    const startupId = bridge?.startupId ?? null;
+    return {
+      startupSemesterId: startupSemester.id,
+      startupId,
+      name: organizationNames.get(startupSemester.startupOrganizationId) ?? "Unnamed startup",
+      linked: startupId !== null,
+    };
+  });
+}
+
+export function buildHistoricalScheduleStartupColumns(input: {
+  semesterId: string;
+  canonicalStartupIds: readonly string[];
+  sessions: ReadonlyArray<{ semesterId: string | null; startupId: string | null; startupName: string | null }>;
+}): HistoricalScheduleStartupColumn[] {
+  const canonicalStartupIds = new Set(input.canonicalStartupIds);
+  const namesByStartupId = new Map<string, string>();
+  for (const session of input.sessions) {
+    if (
+      session.semesterId !== input.semesterId
+      || session.startupId === null
+      || canonicalStartupIds.has(session.startupId)
+      || namesByStartupId.has(session.startupId)
+    ) continue;
+    namesByStartupId.set(session.startupId, session.startupName ?? "Historical startup");
+  }
+  return [...namesByStartupId].map(([startupId, name]) => ({
+    startupSemesterId: null,
+    startupId,
+    name,
+    linked: false,
+    historicalOnly: true,
+  }));
+}
+
+export function assignmentRefreshFeedback(input: {
+  startupName: string;
+  date: string;
+  timeSlot: PickerTimeSlot;
+  replayed: boolean;
+  refreshSucceeded: boolean;
+}): { message: string; retryRequired: boolean } {
+  if (!input.refreshSucceeded) {
+    return {
+      message: `${input.startupName}'s assignment was saved, but the schedule refresh failed.`,
+      retryRequired: true,
+    };
+  }
+  return {
+    message: input.replayed
+      ? `${input.startupName}'s assignment was already saved and the schedule refreshed.`
+      : `${input.startupName}'s mentor was assigned for ${input.date}, ${input.timeSlot}.`,
+    retryRequired: false,
+  };
 }
 
 export function canSubmitAssignment(

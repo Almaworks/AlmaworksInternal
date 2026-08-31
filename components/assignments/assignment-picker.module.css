@@ -145,6 +145,35 @@
   text-overflow: ellipsis;
 }
 
+.preferredExpertise {
+  margin-top: 11px;
+}
+
+.preferredExpertise > span {
+  display: block;
+  margin-bottom: 5px;
+  color: #637489;
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.preferredExpertise > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.preferredExpertise > div > span {
+  border: 1px solid #d8e5ed;
+  border-radius: 999px;
+  background: #f5f9fb;
+  padding: 3px 7px;
+  color: #49667b;
+  font-size: .67rem;
+}
+
 .contextCopy,
 .goals,
 .occupiedNotice {

@@ -5,8 +5,10 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   buildCommitPayload,
   canSubmitAssignment,
+  deriveStartupNeeds,
   filterCandidates,
   selectCandidate,
+  selectVisibleCandidate,
   type PickerCandidate,
   type PickerFormat,
   type PickerTimeSlot,
@@ -202,12 +204,12 @@ export default function MentorAssignmentPicker({ open, target, onClose, onCommit
     filterCandidates(context?.candidates ?? [], search, expertiseFilter)
   ), [context, expertiseFilter, search]);
   const selectedCandidate = useMemo(() => (
-    selectedMentorId === null ? null : selectCandidate(context?.candidates ?? [], selectedMentorId)
-  ), [context, selectedMentorId]);
-  const needs = useMemo(() => unique([
-    ...(context?.startup.preferredExpertiseTags ?? []),
-    ...(context?.startup.mentorshipNeeds ?? []),
-  ]), [context]);
+    selectedMentorId === null ? null : selectVisibleCandidate(visibleCandidates, selectedMentorId)
+  ), [selectedMentorId, visibleCandidates]);
+  const needs = useMemo(() => deriveStartupNeeds({
+    mentorshipNeeds: context?.startup.mentorshipNeeds ?? [],
+    preferredExpertiseTags: context?.startup.preferredExpertiseTags ?? [],
+  }), [context]);
   const submitEnabled = canSubmitAssignment(selectedCandidate, overrideAcknowledged, overrideReason) && !submitting;
 
   function handleDialogKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
@@ -327,13 +329,19 @@ export default function MentorAssignmentPicker({ open, target, onClose, onCommit
             <div className={styles.needGrid}>
               <div>
                 <span>Primary</span>
-                <strong>{needs[0] ?? "Not specified"}</strong>
+                <strong>{needs.primary ?? "Not specified"}</strong>
               </div>
               <div>
                 <span>Secondary</span>
-                <strong>{needs[1] ?? "Not specified"}</strong>
+                <strong>{needs.secondary ?? "Not specified"}</strong>
               </div>
             </div>
+            {needs.preferredExpertise.length > 0 && (
+              <div className={styles.preferredExpertise}>
+                <span>Preferred expertise</span>
+                <div>{needs.preferredExpertise.map((tag) => <span key={tag}>{tag}</span>)}</div>
+              </div>
+            )}
             {(context?.startup.mentorNeedContext || context?.startup.companySnapshot) && (
               <p className={styles.contextCopy}>{context.startup.mentorNeedContext ?? context.startup.companySnapshot}</p>
             )}

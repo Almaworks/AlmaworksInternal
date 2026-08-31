@@ -11,6 +11,13 @@ import MentorAssignmentPicker, {
   type AssignmentPickerTarget,
 } from '@/components/assignments/MentorAssignmentPicker'
 import type { CohortRecordReference } from '@/src/lifecycle/cohort-screen'
+import {
+  assignmentRefreshFeedback,
+  buildHistoricalScheduleStartupColumns,
+  buildScheduleStartupColumns,
+  type HistoricalScheduleStartupColumn,
+  type ScheduleStartupColumn,
+} from '@/src/assignments/picker'
 
 type PendingUser = {
   id: string
@@ -56,6 +63,7 @@ type Founder = {
 type Startup = {
   id: string
   user_id: string | null
+  is_active: boolean
   name: string
   industry: string | null
   stage: string | null
@@ -67,8 +75,9 @@ type Startup = {
   mentorship_needs: string[]
   semester_id: string | null
   semester_name: string | null
-  startup_semester_id: string | null
 }
+
+type ScheduleColumn = ScheduleStartupColumn | HistoricalScheduleStartupColumn
 
 type Session = {
   id: string
@@ -207,6 +216,7 @@ export default function AdminDashboard() {
   const [startups, setStartups] = useState<Startup[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
   const [sessionDates, setSessionDates] = useState<SessionDate[]>([])
+  const [scheduleStartupColumns, setScheduleStartupColumns] = useState<ScheduleColumn[]>([])
   const [activeSemesterId, setActiveSemesterId] = useState<string | null>(null)
   const [activeSemesterName, setActiveSemesterName] = useState<string | null>(null)
   const [selectedSessionDateId, setSelectedSessionDateId] = useState<string | null>(null)
@@ -218,6 +228,8 @@ export default function AdminDashboard() {
   const [assigning, setAssigning] = useState<boolean>(false)
   const [assignmentPickerTarget, setAssignmentPickerTarget] = useState<AssignmentPickerTarget | null>(null)
   const [assignmentFeedback, setAssignmentFeedback] = useState<string | null>(null)
+  const [assignmentRefreshRetryRequired, setAssignmentRefreshRetryRequired] = useState(false)
+  const [assignmentRefreshRetrying, setAssignmentRefreshRetrying] = useState(false)
 
   // Session date wizard
   const [showDateWizard, setShowDateWizard] = useState(false)
@@ -267,58 +279,105 @@ export default function AdminDashboard() {
   const [editSubstituteName, setEditSubstituteName] = useState<string>('')
   const [editSaving, setEditSaving] = useState<boolean>(false)
 
-  async function loadAll() {
-    const [usersRes, membersRes, mentorsRes, startupsRes, sessionsRes, semesterRes] = await Promise.all([
-      supabase.from('profiles').select('id, email, full_name, created_at').eq('status', 'pending').order('created_at'),
-      supabase.from('profiles').select('id, email, full_name, role, is_active, created_at').eq('status', 'approved').order('full_name'),
-      supabase.from('mentors').select('id, full_name, company, role_title, linkedin_url, bio, expertise_tags, is_active, slug, email, general_availability, preferred_format, per_week_availability, opening_talk, semester_id, semesters(name)').order('full_name'),
-      supabase.from('startups').select('id, user_id, name, industry, stage, founder_name, founders, slug, description, preferred_tags, mentorship_needs, semester_id, semesters(name)').order('name'),
-      supabase.from('sessions').select('id, mentor_id, startup_id, status, topic, time_slot, format, startup_absent, substitute_name, is_confirmed, session_dates(date, label, semester_id, semesters(name)), mentors(full_name, slug), startups(name, slug)').order('time_slot'),
-      supabase.from('semesters').select('id, name').eq('is_active', true).maybeSingle(),
-    ])
-    setPendingUsers((usersRes.data as PendingUser[]) ?? [])
-    setMembers((membersRes.data as Member[]) ?? [])
-    type MentorRow = Omit<Mentor, 'semester_name'> & { semesters: { name: string } | { name: string }[] | null }
-    setMentors(((mentorsRes.data ?? []) as unknown as MentorRow[]).map(m => ({
-      ...m,
-      semester_name: Array.isArray(m.semesters) ? (m.semesters[0]?.name ?? null) : (m.semesters?.name ?? null),
-    })))
-    type StartupRow = Omit<Startup, 'semester_name' | 'startup_semester_id'> & { semesters: { name: string } | { name: string }[] | null }
-    const loadedStartups = ((startupsRes.data ?? []) as unknown as StartupRow[]).map(s => ({
-      ...s,
-      semester_name: Array.isArray(s.semesters) ? (s.semesters[0]?.name ?? null) : (s.semesters?.name ?? null),
-      startup_semester_id: null,
-    }))
-    setSessions((sessionsRes.data as unknown as Session[]) ?? [])
-
-    const semData = semesterRes.data as { id: string; name: string } | null
-    const semId = semData?.id ?? null
-    setActiveSemesterId(semId)
-    setActiveSemesterName(semData?.name ?? null)
-    if (semId) {
-      const [dateRowsResult, teamRowsResult, membershipRowsResult] = await Promise.all([
-        supabase.from('session_dates').select('id, date, label').eq('semester_id', semId).order('date'),
-        supabase.from('startup_team_memberships').select('startup_semester_id, semester_membership_id, is_primary_contact').eq('semester_id', semId),
-        supabase.from('semester_memberships').select('id, profile_id').eq('semester_id', semId).eq('role', 'startup').eq('status', 'active'),
+  async function loadAll(): Promise<{ ok: true } | { ok: false; error: string }> {
+    try {
+      const [usersRes, membersRes, mentorsRes, startupsRes, sessionsRes, semesterRes] = await Promise.all([
+        supabase.from('profiles').select('id, email, full_name, created_at').eq('status', 'pending').order('created_at'),
+        supabase.from('profiles').select('id, email, full_name, role, is_active, created_at').eq('status', 'approved').order('full_name'),
+        supabase.from('mentors').select('id, full_name, company, role_title, linkedin_url, bio, expertise_tags, is_active, slug, email, general_availability, preferred_format, per_week_availability, opening_talk, semester_id, semesters(name)').order('full_name'),
+        supabase.from('startups').select('id, user_id, is_active, name, industry, stage, founder_name, founders, slug, description, preferred_tags, mentorship_needs, semester_id, semesters(name)').order('name'),
+        supabase.from('sessions').select('id, mentor_id, startup_id, status, topic, time_slot, format, startup_absent, substitute_name, is_confirmed, session_dates(date, label, semester_id, semesters(name)), mentors(full_name, slug), startups(name, slug)').order('time_slot'),
+        supabase.from('semesters').select('id, name').eq('is_active', true).maybeSingle(),
       ])
-      const dateRows = dateRowsResult.data
-      const dates = (dateRows as SessionDate[]) ?? []
-      setSessionDates(dates)
-      setSelectedSessionDateId(prev => prev ?? (dates[0]?.id ?? null))
-      const profileByMembership = new Map((membershipRowsResult.data ?? []).map(row => [row.id, row.profile_id]))
-      const startupSemesterByProfile = new Map<string, string>()
-      for (const team of [...(teamRowsResult.data ?? [])].sort((left, right) => Number(right.is_primary_contact) - Number(left.is_primary_contact))) {
-        const profileId = profileByMembership.get(team.semester_membership_id)
-        if (profileId && !startupSemesterByProfile.has(profileId)) startupSemesterByProfile.set(profileId, team.startup_semester_id)
-      }
-      setStartups(loadedStartups.map(startup => ({
+      const initialError = [usersRes, membersRes, mentorsRes, startupsRes, sessionsRes, semesterRes].find(result => result.error !== null)?.error
+      if (initialError) return { ok: false, error: initialError.message }
+
+      type MentorRow = Omit<Mentor, 'semester_name'> & { semesters: { name: string } | { name: string }[] | null }
+      const loadedMentors = ((mentorsRes.data ?? []) as unknown as MentorRow[]).map(mentor => ({
+        ...mentor,
+        semester_name: Array.isArray(mentor.semesters) ? (mentor.semesters[0]?.name ?? null) : (mentor.semesters?.name ?? null),
+      }))
+      type StartupRow = Omit<Startup, 'semester_name'> & { semesters: { name: string } | { name: string }[] | null }
+      const loadedStartups = ((startupsRes.data ?? []) as unknown as StartupRow[]).map(startup => ({
         ...startup,
-        startup_semester_id: startup.user_id ? (startupSemesterByProfile.get(startup.user_id) ?? null) : null,
-      })))
-    } else {
-      setSessionDates([])
-      setSelectedSessionDateId(null)
+        semester_name: Array.isArray(startup.semesters) ? (startup.semesters[0]?.name ?? null) : (startup.semesters?.name ?? null),
+      }))
+      const loadedSessions = (sessionsRes.data as unknown as Session[]) ?? []
+      const semData = semesterRes.data as { id: string; name: string } | null
+      const semId = semData?.id ?? null
+      let dates: SessionDate[] = []
+      let columns: ScheduleColumn[] = []
+
+      if (semId) {
+        const [dateRowsResult, startupSemesterRowsResult, organizationRowsResult, teamRowsResult, membershipRowsResult] = await Promise.all([
+          supabase.from('session_dates').select('id, date, label').eq('semester_id', semId).order('date'),
+          supabase.from('startup_semesters').select('id, startup_organization_id').eq('semester_id', semId),
+          supabase.from('startup_organizations').select('id, name').order('name'),
+          supabase.from('startup_team_memberships').select('startup_semester_id, semester_membership_id, is_primary_contact').eq('semester_id', semId),
+          supabase.from('semester_memberships').select('id, profile_id').eq('semester_id', semId).eq('role', 'startup').eq('status', 'active'),
+        ])
+        const scheduleError = [dateRowsResult, startupSemesterRowsResult, organizationRowsResult, teamRowsResult, membershipRowsResult]
+          .find(result => result.error !== null)?.error
+        if (scheduleError) return { ok: false, error: scheduleError.message }
+
+        dates = (dateRowsResult.data as SessionDate[]) ?? []
+        const profileByMembership = new Map((membershipRowsResult.data ?? []).map(row => [row.id, row.profile_id]))
+        const activeScheduleStartupsByProfile = new Map<string, Startup[]>()
+        for (const startup of loadedStartups
+          .filter(item => item.semester_id === semId && item.is_active && item.user_id !== null)
+          .sort((left, right) => left.id.localeCompare(right.id))) {
+          const profileId = startup.user_id
+          if (profileId === null) continue
+          const scheduleStartups = activeScheduleStartupsByProfile.get(profileId) ?? []
+          scheduleStartups.push(startup)
+          activeScheduleStartupsByProfile.set(profileId, scheduleStartups)
+        }
+        const bridges = (teamRowsResult.data ?? []).flatMap(team => {
+          const profileId = profileByMembership.get(team.semester_membership_id)
+          const startupId = profileId ? activeScheduleStartupsByProfile.get(profileId)?.[0]?.id : undefined
+          return startupId ? [{
+            startupSemesterId: team.startup_semester_id,
+            startupId,
+            isPrimaryContact: team.is_primary_contact,
+          }] : []
+        })
+        const canonicalColumns = buildScheduleStartupColumns({
+          startupSemesters: (startupSemesterRowsResult.data ?? []).map(row => ({
+            id: row.id,
+            startupOrganizationId: row.startup_organization_id,
+          })),
+          organizations: (organizationRowsResult.data ?? []).map(row => ({ id: row.id, name: row.name })),
+          bridges,
+        })
+        const historicalColumns = buildHistoricalScheduleStartupColumns({
+          semesterId: semId,
+          canonicalStartupIds: canonicalColumns.flatMap(column => column.startupId ? [column.startupId] : []),
+          sessions: loadedSessions
+            .filter(session => !session.startup_absent)
+            .map(session => ({
+              semesterId: session.session_dates?.semester_id ?? null,
+              startupId: session.startup_id,
+              startupName: session.startups?.name ?? null,
+            })),
+        })
+        columns = [...canonicalColumns, ...historicalColumns]
+      }
+
+      setPendingUsers((usersRes.data as PendingUser[]) ?? [])
+      setMembers((membersRes.data as Member[]) ?? [])
+      setMentors(loadedMentors)
       setStartups(loadedStartups)
+      setSessions(loadedSessions)
+      setActiveSemesterId(semId)
+      setActiveSemesterName(semData?.name ?? null)
+      setSessionDates(dates)
+      setScheduleStartupColumns(columns)
+      setSelectedSessionDateId(previous => (
+        previous && dates.some(date => date.id === previous) ? previous : (dates[0]?.id ?? null)
+      ))
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'Unable to refresh schedule data.' }
     }
   }
 
@@ -629,15 +688,17 @@ export default function AdminDashboard() {
 
   // ── Schedule ───────────────────────────────────────────────────────────────
 
-  function openAssignmentPicker(startup: Startup, date: SessionDate, timeSlot: '3:30-4:15' | '4:15-5:00') {
-    if (!activeSemesterId || !startup.startup_semester_id) {
-      setAssignmentFeedback(`${startup.name} is not linked to an active startup cohort record, so the ranked picker cannot assign this slot.`)
+  function openAssignmentPicker(startup: ScheduleColumn, date: SessionDate, timeSlot: '3:30-4:15' | '4:15-5:00') {
+    if (!activeSemesterId || startup.startupSemesterId === null || !startup.linked) {
+      setAssignmentFeedback(`${startup.name} has no active legacy schedule bridge for this semester. Link an active startup team member before assigning a mentor.`)
+      setAssignmentRefreshRetryRequired(false)
       return
     }
     setAssignmentFeedback(null)
+    setAssignmentRefreshRetryRequired(false)
     setAssignmentPickerTarget({
       semesterId: activeSemesterId,
-      startupSemesterId: startup.startup_semester_id,
+      startupSemesterId: startup.startupSemesterId,
       startupName: startup.name,
       sessionDateId: date.id,
       date: date.date,
@@ -647,12 +708,29 @@ export default function AdminDashboard() {
   }
 
   async function handleAssignmentCommitted(result: AssignmentCommitResult, target: AssignmentPickerTarget) {
-    await loadAll()
-    setAssignmentFeedback(
-      result.replayed
-        ? `${target.startupName}'s assignment was already saved and the schedule is up to date.`
-        : `${target.startupName}'s mentor was assigned for ${target.date}, ${target.timeSlot}.`,
-    )
+    const refresh = await loadAll()
+    const feedback = assignmentRefreshFeedback({
+      startupName: target.startupName,
+      date: target.date,
+      timeSlot: target.timeSlot,
+      replayed: result.replayed,
+      refreshSucceeded: refresh.ok,
+    })
+    setAssignmentFeedback(feedback.message)
+    setAssignmentRefreshRetryRequired(feedback.retryRequired)
+  }
+
+  async function retryAssignmentRefresh() {
+    setAssignmentRefreshRetrying(true)
+    const refresh = await loadAll()
+    setAssignmentRefreshRetrying(false)
+    if (refresh.ok) {
+      setAssignmentFeedback('Schedule data refreshed successfully.')
+      setAssignmentRefreshRetryRequired(false)
+    } else {
+      setAssignmentFeedback('The assignment remains saved, but the schedule refresh failed again. Please retry.')
+      setAssignmentRefreshRetryRequired(true)
+    }
   }
 
   async function assignForWeek() {
@@ -1236,19 +1314,14 @@ export default function AdminDashboard() {
           slot,
         })))
 
-        // One column per active-semester startup; lifecycle linkage is checked when the picker opens.
-        const colStartups = [...new Map(
-          startups
-            .filter(startup => startup.semester_id === activeSemesterId)
-            .map(startup => [startup.startup_semester_id ?? startup.id, startup] as const),
-        ).values()]
+        const colStartups = scheduleStartupColumns
 
-        // Build lookup: `date__slot__startupName` -> session
+        // Build lookup: `date__slot__legacyStartupId` -> session.
         const cellMap = new Map<string, Session>()
         for (const s of sessions) {
-          if (!s.session_dates || s.startup_absent) continue
+          if (!s.session_dates || s.startup_absent || !s.startup_id) continue
           const slot = s.time_slot ?? 'TBD'
-          const key = `${s.session_dates.date}__${slot}__${s.startups?.name ?? ''}`
+          const key = `${s.session_dates.date}__${slot}__${s.startup_id}`
           cellMap.set(key, s)
         }
 
@@ -1294,9 +1367,19 @@ export default function AdminDashboard() {
             </div>
 
             {assignmentFeedback && (
-              <p role="status" className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-                {assignmentFeedback}
-              </p>
+              <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                <p>{assignmentFeedback}</p>
+                {assignmentRefreshRetryRequired && (
+                  <button
+                    type="button"
+                    onClick={retryAssignmentRefresh}
+                    disabled={assignmentRefreshRetrying}
+                    className="rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {assignmentRefreshRetrying ? 'Refreshing…' : 'Retry refresh'}
+                  </button>
+                )}
+              </div>
             )}
 
             {/* Session dates wizard */}
@@ -1400,10 +1483,12 @@ export default function AdminDashboard() {
                         Date / Time
                       </th>
                       {colStartups.map(st => (
-                        <th key={st.id} className="px-3 py-3 text-center font-semibold text-[#002147] whitespace-nowrap border-b border-r border-gray-200 min-w-[120px]">
+                        <th key={st.startupSemesterId ?? `historical-${st.startupId}`} className="px-3 py-3 text-center font-semibold text-[#002147] whitespace-nowrap border-b border-r border-gray-200 min-w-[120px]">
                           {st.name}
-                          {st.semester_name && (
-                            <span className="block text-[10px] font-normal text-gray-400 mt-0.5">{st.semester_name}</span>
+                          {!st.linked && (
+                            <span className="block text-[10px] font-semibold text-amber-700 mt-0.5">
+                              {'historicalOnly' in st ? 'Historical only' : 'Unlinked'}
+                            </span>
                           )}
                         </th>
                       ))}
@@ -1425,14 +1510,14 @@ export default function AdminDashboard() {
                             <span className="block text-[10px] font-normal text-gray-400">{row.slot}</span>
                           </td>
                           {colStartups.map(st => {
-                            const cellKey = `${row.date}__${row.slot}__${st.name}`
-                            const cell = cellMap.get(cellKey)
+                            const cellKey = st.startupId ? `${row.date}__${row.slot}__${st.startupId}` : null
+                            const cell = cellKey ? cellMap.get(cellKey) : undefined
                             const formatBg =
                               (cell?.format === 'in-person' || cell?.format === 'in_person') ? 'bg-green-50 text-green-800 border border-green-200 hover:bg-green-100' :
                               cell?.format === 'online' ? 'bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100' :
                               'bg-gray-50 text-gray-700 border border-gray-200 hover:bg-gray-100'
                             return (
-                              <td key={st.id} className="px-2 py-2 text-center border-r border-gray-100 align-top">
+                              <td key={st.startupSemesterId ?? `historical-${st.startupId}`} className="px-2 py-2 text-center border-r border-gray-100 align-top">
                                 {cell ? (
                                   <button
                                     onClick={() => openEditSession(cell)}
@@ -1450,7 +1535,7 @@ export default function AdminDashboard() {
                                       <span className="block text-[9px] font-normal opacity-70">unconfirmed</span>
                                     )}
                                   </button>
-                                ) : (
+                                ) : st.linked ? (
                                   <button
                                     onClick={() => {
                                       const dateObj = sessionDates.find(d => d.date === row.date)
@@ -1460,6 +1545,24 @@ export default function AdminDashboard() {
                                     aria-label={`Assign a mentor to ${st.name} on ${row.label ?? row.date}, ${row.slot}`}
                                   >
                                     + Assign
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled
+                                    className="w-full min-h-10 rounded-lg border border-dashed border-amber-200 bg-amber-50/60 px-1 text-[10px] font-semibold text-amber-700 disabled:cursor-not-allowed"
+                                    aria-label={
+                                      'historicalOnly' in st
+                                        ? `${st.name} is a historical-only schedule column and cannot receive new assignments`
+                                        : `${st.name} is unlinked and cannot receive assignments until an active legacy schedule bridge exists`
+                                    }
+                                    title={
+                                      'historicalOnly' in st
+                                        ? 'Historical-only startup record'
+                                        : 'No active legacy schedule bridge. Link an active startup team member.'
+                                    }
+                                  >
+                                    {'historicalOnly' in st ? 'Historical' : 'Unlinked'}
                                   </button>
                                 )}
                               </td>
