@@ -52,11 +52,11 @@ test("mentor creation owns the membership, durable profile, and semester record 
   ]);
 
   const mentorSemesterId = await createMentorRecords(client, {
+    actorProfileId: "admin-1",
     biography: "Advisor",
     company: "Alma Labs",
     expertiseTags: ["Sales"],
     email: "mentor@example.com",
-    fullName: "Mentor Name",
     isActive: true,
     linkedinUrl: null,
     preferredFormat: "online",
@@ -68,11 +68,11 @@ test("mentor creation owns the membership, durable profile, and semester record 
   assert.equal(mentorSemesterId, "mentor-term-1");
   assert.deepEqual(requests.map((request) => request.path), ["/rest/v1/rpc/create_mentor_records"]);
   assert.deepEqual(JSON.parse(requests[0].body ?? "null"), {
+    p_actor_profile_id: "admin-1",
     p_biography: "Advisor",
     p_company: "Alma Labs",
     p_email: "mentor@example.com",
     p_expertise_tags: ["Sales"],
-    p_full_name: "Mentor Name",
     p_general_availability: null,
     p_is_active: true,
     p_linkedin_url: null,
@@ -113,6 +113,7 @@ test("mentor updates split identity, biography, term, and activity across canoni
   ]);
 
   await updateMentorRecords(client, {
+    actorProfileId: "admin-1",
     biography: "Updated biography",
     company: "Updated company",
     email: "mentor@example.com",
@@ -129,6 +130,7 @@ test("mentor updates split identity, biography, term, and activity across canoni
 
   assert.deepEqual(requests.map((request) => request.path), ["/rest/v1/rpc/update_mentor_records"]);
   assert.deepEqual(JSON.parse(requests[0].body ?? "null"), {
+    p_actor_profile_id: "admin-1",
     p_mentor_semester_id: "mentor-term-1",
     p_patch: {
       biography: "Updated biography",
@@ -224,6 +226,7 @@ test("semester role transition is one database command and never mutates platfor
   ]);
 
   await setSemesterMemberAccess(client, {
+    actorProfileId: "admin-1",
     approve: false,
     email: "mentor@example.com",
     fullName: "Mentor Name",
@@ -234,6 +237,7 @@ test("semester role transition is one database command and never mutates platfor
 
   assert.deepEqual(requests.map((request) => request.path), ["/rest/v1/rpc/set_semester_member_access"]);
   assert.deepEqual(JSON.parse(requests[0].body ?? "null"), {
+    p_actor_profile_id: "admin-1",
     p_approve: false,
     p_email: "mentor@example.com",
     p_full_name: "Mentor Name",
@@ -251,6 +255,7 @@ test("semester role command reports an authorization failure without fallback wr
   }]);
 
   await assert.rejects(() => setSemesterMemberAccess(client, {
+    actorProfileId: "admin-1",
     approve: true,
     email: null,
     fullName: null,
@@ -265,6 +270,7 @@ test("semester role command reports an authorization failure without fallback wr
 test("unknown RPC transport outcome is marked ambiguous instead of rejected", async () => {
   const { client } = recordingClient([new TypeError("connection reset")]);
   await assert.rejects(() => setSemesterMemberAccess(client, {
+    actorProfileId: "admin-1",
     approve: false,
     email: "member@example.com",
     fullName: "Member",

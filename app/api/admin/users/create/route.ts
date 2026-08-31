@@ -23,15 +23,15 @@ export async function POST(request: Request) {
     if (existingProfile.data) return NextResponse.json({ error: 'A user with this email already exists.' }, { status: 409 })
     const redirectTo = `${new URL(request.url).origin}/auth/callback`
     const link = await adminClient.auth.admin.generateLink({
-      type: 'magiclink', email, options: { redirectTo, data: { full_name: fullName } },
+      type: 'invite', email, options: { redirectTo, data: { full_name: fullName } },
     })
     if (link.error || !link.data.user?.id) {
       return NextResponse.json({ error: link.error?.message ?? 'Could not generate magic link.' }, { status: 400 })
     }
     await provisionSemesterMemberAccess({
       authAdmin: adminClient.auth.admin,
-      input: { approve: true, email, fullName, profileId: link.data.user.id, role, semesterId },
-      setAccess: (accessInput) => setSemesterMemberAccess(userClient, accessInput),
+      input: { actorProfileId: user.id, approve: true, email, fullName, profileId: link.data.user.id, role, semesterId },
+      setAccess: (accessInput) => setSemesterMemberAccess(adminClient, accessInput),
     })
     return NextResponse.json({ ok: true, email, role })
   } catch (error) {

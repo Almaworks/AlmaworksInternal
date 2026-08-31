@@ -35,6 +35,7 @@ test("database access failure restores the prior Auth email", async () => {
   await assert.rejects(() => synchronizeAuthEmailAndSemesterAccess({
     authAdmin: auth.client,
     input: {
+      actorProfileId: "admin-1",
       approve: false,
       email: "new@example.com",
       fullName: "New Name",
@@ -56,6 +57,7 @@ test("failed Auth email rollback reports explicit reconciliation", async () => {
     () => synchronizeAuthEmailAndSemesterAccess({
       authAdmin: auth.client,
       input: {
+        actorProfileId: "admin-1",
         approve: false,
         email: "new@example.com",
         fullName: "New Name",
@@ -80,6 +82,7 @@ test("missing prior Auth email reports reconciliation when the database commit f
         updateUserById: async (_userId: string, attributes: { email: string }) => ({ data: { user: { email: attributes.email } }, error: null }),
       },
       input: {
+        actorProfileId: "admin-1",
         approve: false,
         email: "new@example.com",
         fullName: "New Name",
@@ -105,6 +108,7 @@ test("successful synchronization updates Auth before committing database identit
       },
     },
     input: {
+      actorProfileId: "admin-1",
       approve: false,
       email: "new@example.com",
       fullName: "New Name",
@@ -131,6 +135,7 @@ test("failed database provisioning removes the newly created Auth identity", asy
       },
     },
     input: {
+      actorProfileId: "admin-1",
       approve: true,
       email: "new@example.com",
       fullName: "New User",
@@ -148,6 +153,7 @@ test("failed cleanup after provisioning reports explicit reconciliation", async 
     () => provisionSemesterMemberAccess({
       authAdmin: { deleteUser: async () => ({ data: { user: null }, error: { message: "delete failed" } }) },
       input: {
+        actorProfileId: "admin-1",
         approve: true,
         email: "new@example.com",
         fullName: "New User",
@@ -181,6 +187,7 @@ test("target authorization failure happens before any Auth lookup or mutation", 
       },
     },
     input: {
+      actorProfileId: "admin-1",
       approve: false,
       email: "new@example.com",
       fullName: "Member",
@@ -218,6 +225,7 @@ test("ambiguous provisioning outcome does not delete Auth and requires reconcili
       },
     },
     input: {
+      actorProfileId: "admin-1",
       approve: true,
       email: "new@example.com",
       fullName: "New User",

@@ -24,8 +24,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Missing required fields.' }, { status: 400 })
     }
 
-    const { adminClient, userClient } = await requireSemesterAdmin(req, payload.semesterId)
-    const existingProfile = await userClient.from('profiles').select('id').eq('email', email).maybeSingle()
+    const { adminClient, user } = await requireSemesterAdmin(req, payload.semesterId)
+    const existingProfile = await adminClient.from('profiles').select('id').eq('email', email).maybeSingle()
     if (existingProfile.error) {
       return NextResponse.json({ error: existingProfile.error.message }, { status: 400 })
     }
@@ -48,12 +48,12 @@ export async function POST(req: Request) {
     const userId = linkData.user.id
     const mentorId = await provisionAuthBackedDatabaseMutation({
       authAdmin: adminClient.auth.admin,
-      mutateDatabase: () => createMentorRecords(userClient, {
+      mutateDatabase: () => createMentorRecords(adminClient, {
+        actorProfileId: user.id,
         biography: payload.bio,
         company: payload.company,
         email,
         expertiseTags: payload.expertiseTags ?? [],
-        fullName,
         isActive: payload.isActive,
         linkedinUrl: payload.linkedinUrl,
         preferredFormat: null,

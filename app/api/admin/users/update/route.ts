@@ -20,8 +20,8 @@ export async function PATCH(request: Request) {
     await updateExistingSemesterMemberIdentity({
       authorizeTarget: (target) => authorizeSemesterMemberIdentityUpdate(userClient, target),
       authAdmin: adminClient.auth.admin,
-      input: { approve: false, email, fullName, profileId: payload.userId, role: payload.role, semesterId },
-      setAccess: (accessInput) => setSemesterMemberAccess(userClient, accessInput),
+      input: { actorProfileId: user.id, approve: false, email, fullName, profileId: payload.userId, role: payload.role, semesterId },
+      setAccess: (accessInput) => setSemesterMemberAccess(adminClient, accessInput),
     })
     return NextResponse.json({ ok: true })
   } catch (error) {

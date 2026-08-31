@@ -55,11 +55,11 @@ function requireData<T>(data: T | null, error: { message: string } | null, messa
 }
 
 export type CreateMentorRecordsInput = {
+  actorProfileId: string;
   biography: string | null;
   company: string | null;
   expertiseTags: string[];
   email: string;
-  fullName: string;
   generalAvailability?: string | null;
   isActive: boolean;
   linkedinUrl: string | null;
@@ -72,11 +72,11 @@ export type CreateMentorRecordsInput = {
 
 export async function createMentorRecords(client: AdminClient, input: CreateMentorRecordsInput) {
   return runUuidRpc(client, "create_mentor_records", {
+    p_actor_profile_id: input.actorProfileId,
     p_biography: input.biography,
     p_company: input.company,
     p_email: input.email,
     p_expertise_tags: input.expertiseTags,
-    p_full_name: input.fullName,
     p_general_availability: input.generalAvailability ?? null,
     p_is_active: input.isActive,
     p_linkedin_url: input.linkedinUrl,
@@ -89,6 +89,7 @@ export async function createMentorRecords(client: AdminClient, input: CreateMent
 }
 
 export type UpdateMentorRecordsInput = {
+  actorProfileId: string;
   biography?: string | null;
   company?: string | null;
   email?: string | null;
@@ -117,6 +118,7 @@ export async function updateMentorRecords(client: AdminClient, input: UpdateMent
   if (input.preferredFormat !== undefined) patch.preferred_format = input.preferredFormat;
   if (input.title !== undefined) patch.title = input.title;
   return runUuidRpc(client, "update_mentor_records", {
+    p_actor_profile_id: input.actorProfileId,
     p_mentor_semester_id: input.mentorSemesterId,
     p_patch: patch,
   }, "Unable to update mentor records.");
@@ -226,6 +228,7 @@ export async function moveFounderMembership(
 }
 
 export type SetSemesterMemberAccessInput = {
+  actorProfileId: string;
   approve: boolean;
   email: string | null;
   fullName: string | null;
@@ -239,6 +242,7 @@ export async function setSemesterMemberAccess(
   input: SetSemesterMemberAccessInput,
 ) {
   return runUuidRpc(client, "set_semester_member_access", {
+    p_actor_profile_id: input.actorProfileId,
     p_approve: input.approve,
     p_email: input.email,
     p_full_name: input.fullName,

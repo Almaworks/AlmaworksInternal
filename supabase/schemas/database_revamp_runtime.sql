@@ -280,10 +280,10 @@ end;
 $$;
 
 create or replace function public.create_mentor_records(
+  p_actor_profile_id uuid,
   p_profile_id uuid,
   p_semester_id uuid,
   p_email text,
-  p_full_name text,
   p_biography text,
   p_company text,
   p_expertise_tags text[],
@@ -299,31 +299,51 @@ security definer
 set search_path = ''
 as $$
 declare
+  v_existing_email text;
   v_existing_role public.user_role;
+  v_existing_status text;
   v_membership_id uuid;
   v_mentor_semester_id uuid;
 begin
-  if auth.uid() is null or not public.can_manage_semester(p_semester_id, auth.uid()) then
+  if p_actor_profile_id is null or not public.can_manage_semester(p_semester_id, p_actor_profile_id) then
     raise exception 'Semester administrator access required' using errcode = '42501';
   end if;
-  if public.is_super_admin(p_profile_id) and not public.is_super_admin(auth.uid()) then
+  if public.is_super_admin(p_profile_id) and not public.is_super_admin(p_actor_profile_id) then
     raise exception 'Platform super-administrator access required for this identity' using errcode = '42501';
   end if;
-  select role into v_existing_role
-  from public.semester_memberships
-  where semester_id = p_semester_id and profile_id = p_profile_id;
+
+  select membership.id, membership.role
+  into v_membership_id, v_existing_role
+  from public.semester_memberships membership
+  where membership.semester_id = p_semester_id
+    and membership.profile_id = p_profile_id;
+
+  select profile.email, profile.status
+  into v_existing_email, v_existing_status
+  from public.profiles profile
+  where profile.id = p_profile_id;
+
+  if v_existing_email is null then
+    raise exception 'Pending Auth-triggered profile is required' using errcode = 'P0002';
+  end if;
+  if v_membership_id is null and v_existing_status is distinct from 'pending' then
+    raise exception 'Pending Auth-triggered profile is required' using errcode = '23514';
+  end if;
+  if v_membership_id is null and (
+    nullif(trim(p_email), '') is null
+    or lower(v_existing_email) is distinct from lower(trim(p_email))
+  ) then
+    raise exception 'Profile email does not match the Auth-triggered identity' using errcode = '23514';
+  end if;
   if v_existing_role is not null and v_existing_role <> 'mentor' then
     raise exception 'Existing semester membership has an incompatible role' using errcode = '23514';
   end if;
 
-  insert into public.profiles (id, email, full_name, status, is_active)
-  values (p_profile_id, trim(p_email), nullif(trim(p_full_name), ''), 'approved', true)
-  on conflict (id) do update
-  set email = excluded.email,
-      full_name = excluded.full_name,
-      status = 'approved',
+  update public.profiles
+  set status = 'approved',
       is_active = true,
-      updated_at = now();
+      updated_at = now()
+  where id = p_profile_id;
 
   insert into public.semester_memberships (semester_id, profile_id, role, status, activated_at)
   values (p_semester_id, p_profile_id, 'mentor', case when p_is_active then 'active' else 'onboarding' end,
@@ -363,6 +383,7 @@ end;
 $$;
 
 create or replace function public.update_mentor_records(
+  p_actor_profile_id uuid,
   p_mentor_semester_id uuid,
   p_patch jsonb
 ) returns uuid
@@ -383,10 +404,10 @@ begin
   if v_profile_id is null then
     raise exception 'Mentor semester not found' using errcode = 'P0002';
   end if;
-  if auth.uid() is null or not public.can_manage_semester(v_semester_id, auth.uid()) then
+  if p_actor_profile_id is null or not public.can_manage_semester(v_semester_id, p_actor_profile_id) then
     raise exception 'Semester administrator access required' using errcode = '42501';
   end if;
-  if public.is_super_admin(v_profile_id) and not public.is_super_admin(auth.uid()) then
+  if public.is_super_admin(v_profile_id) and not public.is_super_admin(p_actor_profile_id) then
     raise exception 'Platform super-administrator access required for this identity' using errcode = '42501';
   end if;
 
@@ -424,6 +445,7 @@ end;
 $$;
 
 create or replace function public.set_semester_member_access(
+  p_actor_profile_id uuid,
   p_profile_id uuid,
   p_semester_id uuid,
   p_role public.user_role,
@@ -438,9 +460,10 @@ as $$
 declare
   v_existing_email text;
   v_existing_role public.user_role;
+  v_existing_status text;
   v_membership_id uuid;
 begin
-  if auth.uid() is null or not public.can_manage_semester(p_semester_id, auth.uid()) then
+  if p_actor_profile_id is null or not public.can_manage_semester(p_semester_id, p_actor_profile_id) then
     raise exception 'Semester administrator access required' using errcode = '42501';
   end if;
 
@@ -450,11 +473,28 @@ begin
   where membership.semester_id = p_semester_id
     and membership.profile_id = p_profile_id;
 
+  select profile.email, profile.status
+  into v_existing_email, v_existing_status
+  from public.profiles profile
+  where profile.id = p_profile_id;
+
+  if v_existing_email is null then
+    raise exception 'Pending Auth-triggered profile is required' using errcode = 'P0002';
+  end if;
   if not p_approve and v_membership_id is null then
     raise exception 'Semester member not found' using errcode = 'P0002';
   end if;
+  if v_membership_id is null and v_existing_status is distinct from 'pending' then
+    raise exception 'Pending Auth-triggered profile is required' using errcode = '23514';
+  end if;
+  if v_membership_id is null and (
+    nullif(trim(p_email), '') is null
+    or lower(v_existing_email) is distinct from lower(trim(p_email))
+  ) then
+    raise exception 'Profile email does not match the Auth-triggered identity' using errcode = '23514';
+  end if;
 
-  if public.is_super_admin(p_profile_id) and not public.is_super_admin(auth.uid()) then
+  if public.is_super_admin(p_profile_id) and not public.is_super_admin(p_actor_profile_id) then
     raise exception 'Platform super-administrator access required for this identity' using errcode = '42501';
   end if;
 
@@ -473,24 +513,19 @@ begin
     raise exception 'Role transition requires explicit data migration' using errcode = '23514';
   end if;
 
-  select email into v_existing_email from public.profiles where id = p_profile_id;
-  if v_existing_email is null and nullif(trim(p_email), '') is null then
-    raise exception 'Email is required when creating a member profile' using errcode = '22023';
+  if p_approve then
+    update public.profiles
+    set status = 'approved',
+        is_active = true,
+        updated_at = now()
+    where id = p_profile_id;
+  else
+    update public.profiles
+    set email = coalesce(nullif(trim(p_email), ''), email),
+        full_name = coalesce(nullif(trim(p_full_name), ''), full_name),
+        updated_at = now()
+    where id = p_profile_id;
   end if;
-
-  insert into public.profiles (id, email, full_name, status, is_active)
-  values (
-    p_profile_id,
-    coalesce(nullif(trim(p_email), ''), v_existing_email),
-    nullif(trim(p_full_name), ''),
-    case when p_approve then 'approved' else 'pending' end,
-    true
-  )
-  on conflict (id) do update
-  set email = coalesce(nullif(trim(p_email), ''), public.profiles.email),
-      full_name = coalesce(nullif(trim(p_full_name), ''), public.profiles.full_name),
-      status = case when p_approve then 'approved' else public.profiles.status end,
-      updated_at = now();
 
   insert into public.semester_memberships (
     semester_id, profile_id, role, status, activated_at

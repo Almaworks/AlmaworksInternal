@@ -47,7 +47,8 @@ export async function PATCH(req: Request) {
     })
     const email = payload.email === undefined ? undefined : payload.email?.trim().toLowerCase()
     if (email === '') return NextResponse.json({ error: 'email cannot be empty.' }, { status: 400 })
-    const updateDatabase = () => updateMentorRecords(context.userClient, {
+    const updateDatabase = () => updateMentorRecords(context.adminClient, {
+      actorProfileId: context.user.id,
       biography: payload.bio,
       company: payload.company,
       email,
