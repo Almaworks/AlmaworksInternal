@@ -33,7 +33,7 @@ export default function MentorInboxPage() {
         .from('sessions')
         .select('id, status, topic, time_slot, format, session_dates(date, label), startups(name)')
         .eq('mentor_id', mentorRow.id)
-        .eq('status', 'pending')
+        .eq('status', 'requested')
         .order('date', { referencedTable: 'session_dates' })
       setSessions((data as unknown as PendingSession[]) ?? [])
       setLoading(false)

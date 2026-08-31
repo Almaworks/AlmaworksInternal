@@ -4,7 +4,7 @@ import type { OutreachStage } from "@/src/outreach/types";
 export type OutreachView = "mine" | "team" | "people" | "companies" | "imports";
 
 const outreachStages = new Set<OutreachStage>([
-  "prospect", "researching", "ready", "contacted", "responded", "meeting", "nurture", "converted", "closed",
+  "not_contacted", "researching", "contacted", "replied", "conversation_scheduled", "ready", "declined", "closed",
 ]);
 
 export interface WorkspaceRow {

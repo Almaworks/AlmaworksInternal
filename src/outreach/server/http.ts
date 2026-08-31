@@ -21,14 +21,13 @@ const CHANNELS = new Set<OutreachChannel>([
   "other",
 ]);
 const STAGES = new Set<OutreachStage>([
-  "prospect",
+  "not_contacted",
   "researching",
   "ready",
   "contacted",
-  "responded",
-  "meeting",
-  "nurture",
-  "converted",
+  "replied",
+  "conversation_scheduled",
+  "declined",
   "closed",
 ]);
 const ACTIVITY_KINDS = new Set(["email", "call", "linkedin", "meeting", "reply", "note"]);
@@ -154,15 +153,22 @@ export type SilenceBody = {
 
 export interface ImportPreviewBody {
   semesterId: string;
-  source: "csv" | "excel";
+  source: "csv";
   sourceFilename?: string;
   rows: readonly JsonObject[];
+}
+
+export interface ImportReviewDecision {
+  rowNumber: number;
+  decision: "create" | "merge" | "exclude";
+  matchedContactId?: string;
 }
 
 export interface ImportCommitBody {
   semesterId: string;
   importId: string;
   idempotencyKey: string;
+  decisions: readonly ImportReviewDecision[];
 }
 
 export interface LegacyMigrationBody {
@@ -368,7 +374,7 @@ export function parseCreateContactBody(value: unknown): CreateContactBody {
     },
     opportunity: {
       ownerProfileId: nullableUuid(opportunity.ownerProfileId, "opportunity.ownerProfileId"),
-      stage: stage(opportunity.stage, "opportunity.stage", "prospect"),
+      stage: stage(opportunity.stage, "opportunity.stage", "not_contacted"),
       cadenceDays: integerInRange(
         opportunity.cadenceDays,
         "opportunity.cadenceDays",
@@ -514,8 +520,8 @@ export function parseSilenceBody(value: unknown): SilenceBody {
 
 export function parseImportPreviewBody(value: unknown): ImportPreviewBody {
   const body = object(value);
-  if (body.source !== "csv" && body.source !== "excel") {
-    validation("source", "source must be csv or excel.");
+  if (body.source !== "csv") {
+    validation("source", "source must be csv.");
   }
   if (!Array.isArray(body.rows) || body.rows.length === 0 || body.rows.length > 250) {
     validation("rows", "rows must contain between 1 and 250 objects.");
@@ -543,10 +549,37 @@ export function parseImportCommitBody(value: unknown, headers: Headers): ImportC
   if (idempotencyKey === null || idempotencyKey.trim().length === 0) {
     validation("Idempotency-Key", "Idempotency-Key header is required.");
   }
+  if (!Array.isArray(body.decisions) || body.decisions.length === 0 || body.decisions.length > 250) {
+    validation("decisions", "decisions must contain between 1 and 250 reviewed rows.");
+  }
+  const seenRows = new Set<number>();
+  const decisions = body.decisions.map((value, index) => {
+    const decision = object(value);
+    const rowNumber = decision.rowNumber;
+    if (!Number.isInteger(rowNumber) || (rowNumber as number) < 1 || (rowNumber as number) > 250) {
+      validation(`decisions[${index}].rowNumber`, `decisions[${index}].rowNumber must be an integer from 1 through 250.`);
+    }
+    if (seenRows.has(rowNumber as number)) {
+      validation(`decisions[${index}].rowNumber`, "Each reviewed row may appear only once.");
+    }
+    seenRows.add(rowNumber as number);
+    if (decision.decision !== "create" && decision.decision !== "merge" && decision.decision !== "exclude") {
+      validation(`decisions[${index}].decision`, "decision must be create, merge, or exclude.");
+    }
+    if (decision.decision === "merge") {
+      return {
+        rowNumber: rowNumber as number,
+        decision: "merge" as const,
+        matchedContactId: uuid(decision.matchedContactId, `decisions[${index}].matchedContactId`),
+      };
+    }
+    return { rowNumber: rowNumber as number, decision: decision.decision } as ImportReviewDecision;
+  });
   return {
     semesterId: uuid(body.semesterId, "semesterId"),
     importId: uuid(body.importId, "importId"),
     idempotencyKey: idempotencyKey.trim(),
+    decisions,
   };
 }
 

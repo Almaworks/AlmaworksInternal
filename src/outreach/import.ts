@@ -74,26 +74,76 @@ export interface ImportPreviewSummary {
   rowsWithIssues: number;
 }
 
+export function parseOutreachCsv(csvText: string): Record<string, string>[] {
+  const records: string[][] = [];
+  let record: string[] = [];
+  let field = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < csvText.length; index += 1) {
+    const character = csvText[index];
+    if (character === '"') {
+      if (inQuotes && csvText[index + 1] === '"') {
+        field += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (character === "," && !inQuotes) {
+      record.push(field);
+      field = "";
+    } else if ((character === "\n" || character === "\r") && !inQuotes) {
+      if (character === "\r" && csvText[index + 1] === "\n") index += 1;
+      record.push(field);
+      if (record.some((value) => value.trim() !== "")) records.push(record);
+      record = [];
+      field = "";
+    } else {
+      field += character;
+    }
+  }
+
+  if (inQuotes) throw new Error("CSV contains an unclosed quoted field.");
+  record.push(field);
+  if (record.some((value) => value.trim() !== "")) records.push(record);
+  if (records.length < 2) throw new Error("CSV must contain a header and at least one data row.");
+
+  const headers = records[0].map((value, index) => {
+    const header = value.replace(/^\uFEFF/u, "").trim().toLowerCase();
+    if (header === "") throw new Error(`CSV header ${index + 1} is empty.`);
+    return header;
+  });
+  if (new Set(headers).size !== headers.length) throw new Error("CSV headers must be unique.");
+
+  const dataRecords = records.slice(1);
+  if (dataRecords.length > 250) throw new Error("CSV imports are limited to 250 rows.");
+  return dataRecords.map((values) => Object.fromEntries(
+    headers.map((header, index) => [header, (values[index] ?? "").trim()]),
+  ));
+}
+
 const STAGE_BY_LEGACY_STATUS: Readonly<Record<string, OutreachStage>> = {
-  prospect: "prospect",
-  new: "prospect",
+  prospect: "not_contacted",
+  new: "not_contacted",
   researching: "researching",
   research: "researching",
   ready: "ready",
   qualified: "ready",
   contacted: "contacted",
-  responded: "responded",
-  meeting: "meeting",
-  scheduled: "meeting",
-  nurture: "nurture",
-  converted: "converted",
-  onboarded: "converted",
+  responded: "replied",
+  replied: "replied",
+  meeting: "conversation_scheduled",
+  scheduled: "conversation_scheduled",
+  nurture: "contacted",
+  converted: "closed",
+  onboarded: "closed",
+  declined: "declined",
   closed: "closed",
-  waiting: "prospect",
-  no: "prospect",
-  havent_reached: "prospect",
+  waiting: "not_contacted",
+  no: "declined",
+  havent_reached: "not_contacted",
   reached_out: "contacted",
-  confirmed: "responded",
+  confirmed: "replied",
 };
 
 const RELATIONSHIP_LABELS: Readonly<Record<string, RelationshipLabel>> = {
@@ -198,7 +248,7 @@ function normalizeLinkedInUrl(value: string | null): string | null {
 
 function normalizeStatus(value: string | null, issues: ImportIssueCode[]): OutreachStage {
   if (value === null) {
-    return "prospect";
+    return "not_contacted";
   }
 
   const status = value
@@ -211,7 +261,7 @@ function normalizeStatus(value: string | null, issues: ImportIssueCode[]): Outre
   }
 
   issues.push("stage_invalid");
-  return "prospect";
+  return "not_contacted";
 }
 
 function relationshipValues(value: unknown): readonly string[] {

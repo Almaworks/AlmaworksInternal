@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "../../db/types.ts";
-import type { ActivityKind, OutreachChannel } from "../types.ts";
+import type { ActivityKind, OutreachChannel, OutreachStage } from "../types.ts";
 import {
   type OutreachCursor,
   type OutreachWorkspaceItem,
@@ -20,8 +20,9 @@ type OutreachOpportunityRow = Pick<
    | "silence_reason"
    | "cadence_days"
    | "latest_inbound_activity_at"
-   | "latest_outbound_activity_at"
-   | "updated_at"
+  | "latest_outbound_activity_at"
+  | "updated_at"
+  | "relationship_types"
 >;
 
 type OutreachContactRow = Pick<
@@ -194,38 +195,11 @@ async function loadCompanyDataByContactId(
   }));
 }
 
-async function loadLabelsByOpportunityId(
-  client: SupabaseClient<Database>,
-  opportunityIds: readonly string[],
-): Promise<ReadonlyMap<string, readonly string[]>> {
-  if (opportunityIds.length === 0) return new Map();
-  const { data: links, error: linkError } = await client
-    .from("outreach_opportunity_labels")
-    .select("opportunity_id, relationship_label_id")
-    .in("opportunity_id", [...opportunityIds]);
-  if (linkError !== null) throw queryError("outreach labels", linkError.message);
-  const labelIds = [...new Set((links ?? []).map((link) => link.relationship_label_id))];
-  if (labelIds.length === 0) return new Map();
-  const { data: labels, error: labelError } = await client
-    .from("outreach_relationship_labels")
-    .select("id, name")
-    .in("id", labelIds);
-  if (labelError !== null) throw queryError("outreach label definitions", labelError.message);
-  const names = new Map((labels ?? []).map((label) => [label.id, label.name]));
-  const result = new Map<string, string[]>();
-  for (const link of links ?? []) {
-    const name = names.get(link.relationship_label_id);
-    if (name !== undefined) result.set(link.opportunity_id, [...(result.get(link.opportunity_id) ?? []), name]);
-  }
-  return result;
-}
-
 function toWorkspaceItem(
   opportunity: OutreachOpportunityRow,
   contacts: ReadonlyMap<string, OutreachContactRow>,
   owners: ReadonlyMap<string, OwnerProfileRow>,
   companies: ReadonlyMap<string, { name: string; domain: string | null }>,
-  labels: ReadonlyMap<string, readonly string[]>,
 ): OutreachWorkspaceItem {
   const contact = contacts.get(opportunity.contact_id);
   if (contact === undefined) {
@@ -243,7 +217,7 @@ function toWorkspaceItem(
     contactName: contact.full_name,
     contactEmail: contact.email,
     biography: contact.biography,
-    stage: opportunity.stage,
+    stage: opportunity.stage as OutreachStage,
     ownerProfileId: opportunity.owner_profile_id,
     ownerName: owner?.full_name ?? null,
     ownerIsActive: owner?.is_active ?? false,
@@ -257,7 +231,7 @@ function toWorkspaceItem(
     updatedAt: opportunity.updated_at,
     companyName: companies.get(contact.id)?.name ?? null,
     companyDomain: companies.get(contact.id)?.domain ?? null,
-    labels: labels.get(opportunity.id) ?? [],
+    labels: opportunity.relationship_types,
   };
 }
 
@@ -271,14 +245,13 @@ async function workspaceItemsFromOpportunities(
       ? []
       : [opportunity.owner_profile_id]),
   )];
-  const [contacts, owners, companies, labels] = await Promise.all([
+  const [contacts, owners, companies] = await Promise.all([
     loadContactsById(client, contactIds),
     loadOwnersById(client, ownerIds),
     loadCompanyDataByContactId(client, contactIds),
-    loadLabelsByOpportunityId(client, opportunities.map((opportunity) => opportunity.id)),
   ]);
 
-  return opportunities.map((opportunity) => toWorkspaceItem(opportunity, contacts, owners, companies, labels));
+  return opportunities.map((opportunity) => toWorkspaceItem(opportunity, contacts, owners, companies));
 }
 
 export async function loadOutreachWorkspace(
@@ -301,7 +274,7 @@ export async function loadOutreachWorkspace(
   let query = client
     .from("outreach_opportunities")
     .select(
-      "id, semester_id, contact_id, owner_profile_id, stage, cadence_days, next_follow_up_at, snoozed_until, is_silenced, silence_reason, latest_inbound_activity_at, latest_outbound_activity_at, updated_at",
+      "id, semester_id, contact_id, owner_profile_id, stage, relationship_types, cadence_days, next_follow_up_at, snoozed_until, is_silenced, silence_reason, latest_inbound_activity_at, latest_outbound_activity_at, updated_at",
     )
     .order("next_follow_up_at", { ascending: true, nullsFirst: false })
     .order("id", { ascending: true })
@@ -345,7 +318,7 @@ export async function loadOutreachContactDetail(
   const { data: opportunity, error: opportunityError } = await client
     .from("outreach_opportunities")
     .select(
-      "id, semester_id, contact_id, owner_profile_id, stage, cadence_days, next_follow_up_at, snoozed_until, is_silenced, silence_reason, latest_inbound_activity_at, latest_outbound_activity_at, updated_at",
+      "id, semester_id, contact_id, owner_profile_id, stage, relationship_types, cadence_days, next_follow_up_at, snoozed_until, is_silenced, silence_reason, latest_inbound_activity_at, latest_outbound_activity_at, updated_at",
     )
     .eq("semester_id", options.semesterId)
     .eq("id", options.opportunityId)
@@ -357,7 +330,7 @@ export async function loadOutreachContactDetail(
     return null;
   }
 
-  const [items, activitiesResult, labelsResult] = await Promise.all([
+  const [items, activitiesResult] = await Promise.all([
     workspaceItemsFromOpportunities(client, [opportunity]),
     client
       .from("outreach_activities")
@@ -369,32 +342,10 @@ export async function loadOutreachContactDetail(
       .order("occurred_at", { ascending: false })
       .order("id", { ascending: false })
       .limit(MAX_PAGE_SIZE),
-    client
-      .from("outreach_opportunity_labels")
-      .select("relationship_label_id")
-      .eq("semester_id", options.semesterId)
-      .eq("opportunity_id", options.opportunityId)
-      .limit(MAX_PAGE_SIZE),
   ]);
   if (activitiesResult.error !== null) {
     throw queryError("outreach activity history", activitiesResult.error.message);
   }
-  if (labelsResult.error !== null) {
-    throw queryError("outreach relationship labels", labelsResult.error.message);
-  }
-
-  const labelIds = (labelsResult.data ?? []).map((label) => label.relationship_label_id);
-  const { data: labels, error: labelsError } = labelIds.length === 0
-    ? { data: [], error: null }
-    : await client
-      .from("outreach_relationship_labels")
-      .select("id, slug, name")
-      .in("id", labelIds)
-      .order("name", { ascending: true });
-  if (labelsError !== null) {
-    throw queryError("relationship label definitions", labelsError.message);
-  }
-
   return {
     item: items[0],
     activities: (activitiesResult.data ?? []).map((activity) => ({
@@ -407,7 +358,11 @@ export async function loadOutreachContactDetail(
       previousOwnerProfileId: activity.previous_owner_profile_id,
       newOwnerProfileId: activity.new_owner_profile_id,
     })),
-    relationshipLabels: labels ?? [],
+    relationshipLabels: opportunity.relationship_types.map((relationshipType) => ({
+      id: relationshipType,
+      slug: relationshipType,
+      name: relationshipType.replaceAll("_", " "),
+    })),
   };
 }
 

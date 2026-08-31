@@ -61,7 +61,7 @@ test("normalizes legacy contact fields into a canonical editable row", () => {
     linkedinUrl: "https://www.linkedin.com/in/ada-lovelace",
     company: "Analytical Engines",
     companyDomain: "example.com",
-    stage: "converted",
+    stage: "closed",
     relationshipLabels: ["mentor", "investor", "partner"],
     ownerName: "Ada Owner",
     issues: [],
@@ -102,11 +102,11 @@ test("normalizes real CSV headers after removing case and spacing differences", 
 
 test("maps legacy waiting and response statuses to outreach stages", () => {
   const expectedStages = {
-    Waiting: "prospect",
-    No: "prospect",
-    "Haven't reached": "prospect",
+    Waiting: "not_contacted",
+    No: "declined",
+    "Haven't reached": "not_contacted",
     "Reached out": "contacted",
-    Confirmed: "responded",
+    Confirmed: "replied",
   } as const;
 
   for (const [status, stage] of Object.entries(expectedStages)) {

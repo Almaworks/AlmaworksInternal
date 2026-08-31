@@ -1,8 +1,8 @@
 'use client'
 
 import { createClient } from '@/utils/supabase/client'
+import { AlmaworksBrand } from '@/components/AlmaworksBrand'
 import { useRouter } from 'next/navigation'
-import Image from 'next/image'
 import { useEffect, useState } from 'react'
 
 export default function PendingPage() {
@@ -39,7 +39,7 @@ export default function PendingPage() {
   return (
     <div className="min-h-screen bg-[#002147] flex flex-col">
       <div className="flex items-center justify-between px-8 py-6">
-        <Image src="/images/logo.svg" alt="Almaworks" width={130} height={30} className="invert brightness-200" />
+        <AlmaworksBrand tone="white" iconSize={32} priority />
       </div>
 
       <div className="flex-1 flex items-center justify-center px-4">

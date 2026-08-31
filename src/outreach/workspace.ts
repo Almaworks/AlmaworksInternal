@@ -4,6 +4,17 @@ import {
 } from "./cadence.ts";
 import type { OutreachStage } from "./types.ts";
 
+export function getOutreachScreenState(input: {
+  semestersLoading: boolean;
+  workspaceLoading: boolean;
+  hasData: boolean;
+  hasError: boolean;
+}): "loading" | "error" | "ready" {
+  if (input.semestersLoading || input.workspaceLoading) return "loading";
+  if (input.hasError || !input.hasData) return "error";
+  return "ready";
+}
+
 export interface OutreachCursor {
   nextFollowUpAt: string | null;
   id: string;
@@ -100,7 +111,7 @@ function compareNextAction(
 }
 
 function isAwaitingResponse(item: OutreachWorkspaceItem): boolean {
-  if (item.stage === "closed" || item.stage === "converted") {
+  if (item.stage === "closed" || item.stage === "declined") {
     return false;
   }
   if (item.latestOutboundActivityAt === null) {

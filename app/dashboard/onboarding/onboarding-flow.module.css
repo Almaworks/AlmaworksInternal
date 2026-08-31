@@ -24,7 +24,6 @@
     linear-gradient(148deg, #031b36 0%, #08335d 100%);
 }
 .contextBrand { display: flex; align-items: center; gap: .65rem; font-family: Georgia, serif; letter-spacing: -.02em; }
-.contextBrand span { display: grid; width: 2.15rem; height: 2.15rem; place-items: center; border: 1px solid rgba(255,255,255,.32); border-radius: 50%; color: #a9d3e6; font: 700 .62rem Arial, sans-serif; letter-spacing: .08em; }
 .contextCopy { margin: auto 0 2rem; max-width: 27rem; }
 .eyebrow { margin: 0; color: var(--blue); font-size: .66rem; font-weight: 850; letter-spacing: .16em; text-transform: uppercase; }
 .contextCopy .eyebrow { color: #83bed9; }

@@ -34,79 +34,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      access_requests: {
-        Row: {
-          created_at: string
-          email: string
-          full_name: string
-          id: string
-          reason: string | null
-          requested_role: Database["public"]["Enums"]["user_role"]
-          requester_profile_id: string | null
-          review_note: string | null
-          reviewed_at: string | null
-          reviewed_by: string | null
-          semester_id: string
-          startup_name: string | null
-          status: Database["public"]["Enums"]["access_request_status"]
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          email: string
-          full_name: string
-          id?: string
-          reason?: string | null
-          requested_role: Database["public"]["Enums"]["user_role"]
-          requester_profile_id?: string | null
-          review_note?: string | null
-          reviewed_at?: string | null
-          reviewed_by?: string | null
-          semester_id: string
-          startup_name?: string | null
-          status?: Database["public"]["Enums"]["access_request_status"]
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          email?: string
-          full_name?: string
-          id?: string
-          reason?: string | null
-          requested_role?: Database["public"]["Enums"]["user_role"]
-          requester_profile_id?: string | null
-          review_note?: string | null
-          reviewed_at?: string | null
-          reviewed_by?: string | null
-          semester_id?: string
-          startup_name?: string | null
-          status?: Database["public"]["Enums"]["access_request_status"]
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "access_requests_requester_profile_id_fkey"
-            columns: ["requester_profile_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "access_requests_reviewed_by_fkey"
-            columns: ["reviewed_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "access_requests_semester_id_fkey"
-            columns: ["semester_id"]
-            isOneToOne: false
-            referencedRelation: "semesters"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       agent_registration_requests: {
         Row: {
           created_at: string
@@ -183,157 +110,6 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
-      }
-      availability: {
-        Row: {
-          created_at: string
-          id: string
-          is_available: boolean
-          session_date_id: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          is_available?: boolean
-          session_date_id: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          is_available?: boolean
-          session_date_id?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "availability_session_date_id_fkey"
-            columns: ["session_date_id"]
-            isOneToOne: false
-            referencedRelation: "session_dates"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "availability_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      availability_windows: {
-        Row: {
-          created_at: string
-          ends_at: string
-          id: string
-          profile_id: string | null
-          semester_id: string
-          source: string
-          starts_at: string
-          startup_semester_id: string | null
-          timezone: string
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          ends_at: string
-          id?: string
-          profile_id?: string | null
-          semester_id: string
-          source?: string
-          starts_at: string
-          startup_semester_id?: string | null
-          timezone: string
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          ends_at?: string
-          id?: string
-          profile_id?: string | null
-          semester_id?: string
-          source?: string
-          starts_at?: string
-          startup_semester_id?: string | null
-          timezone?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "availability_windows_profile_id_fkey"
-            columns: ["profile_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "availability_windows_semester_id_fkey"
-            columns: ["semester_id"]
-            isOneToOne: false
-            referencedRelation: "semesters"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "availability_windows_startup_semester_id_fkey"
-            columns: ["startup_semester_id"]
-            isOneToOne: false
-            referencedRelation: "startup_semesters"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      invitation_delivery_attempts: {
-        Row: {
-          attempted_at: string
-          error_code: string | null
-          error_message: string | null
-          id: string
-          invitation_id: string
-          outcome: string
-          provider: string
-          provider_message_id: string | null
-          semester_id: string
-        }
-        Insert: {
-          attempted_at?: string
-          error_code?: string | null
-          error_message?: string | null
-          id?: string
-          invitation_id: string
-          outcome: string
-          provider: string
-          provider_message_id?: string | null
-          semester_id: string
-        }
-        Update: {
-          attempted_at?: string
-          error_code?: string | null
-          error_message?: string | null
-          id?: string
-          invitation_id?: string
-          outcome?: string
-          provider?: string
-          provider_message_id?: string | null
-          semester_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "invitation_delivery_attempts_invitation_id_fkey"
-            columns: ["invitation_id"]
-            isOneToOne: false
-            referencedRelation: "invitations"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "invitation_delivery_attempts_semester_id_fkey"
-            columns: ["semester_id"]
-            isOneToOne: false
-            referencedRelation: "semesters"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       invitations: {
         Row: {
@@ -425,282 +201,123 @@ export type Database = {
             referencedRelation: "startup_semesters"
             referencedColumns: ["id"]
           },
-        ]
-      }
-      lifecycle_audit_events: {
-        Row: {
-          action: string
-          actor_profile_id: string | null
-          created_at: string
-          details: Json
-          id: string
-          semester_id: string
-          subject_id: string | null
-          subject_type: string
-        }
-        Insert: {
-          action: string
-          actor_profile_id?: string | null
-          created_at?: string
-          details?: Json
-          id?: string
-          semester_id: string
-          subject_id?: string | null
-          subject_type: string
-        }
-        Update: {
-          action?: string
-          actor_profile_id?: string | null
-          created_at?: string
-          details?: Json
-          id?: string
-          semester_id?: string
-          subject_id?: string | null
-          subject_type?: string
-        }
-        Relationships: [
           {
-            foreignKeyName: "lifecycle_audit_events_actor_profile_id_fkey"
-            columns: ["actor_profile_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "lifecycle_audit_events_semester_id_fkey"
-            columns: ["semester_id"]
-            isOneToOne: false
-            referencedRelation: "semesters"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      lifecycle_configuration_templates: {
-        Row: {
-          configuration: Json
-          created_at: string
-          created_by: string | null
-          id: string
-          is_recommended: boolean
-          name: string
-          version: number
-        }
-        Insert: {
-          configuration: Json
-          created_at?: string
-          created_by?: string | null
-          id?: string
-          is_recommended?: boolean
-          name: string
-          version: number
-        }
-        Update: {
-          configuration?: Json
-          created_at?: string
-          created_by?: string | null
-          id?: string
-          is_recommended?: boolean
-          name?: string
-          version?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "lifecycle_configuration_templates_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      mentor_assignment_audit: {
-        Row: {
-          action: string
-          actor_profile_id: string
-          created_at: string
-          id: string
-          idempotency_key: string
-          mentor_profile_id: string
-          override_reason: string | null
-          override_types: string[]
-          ranking_context: Json
-          request_id: string
-          semester_id: string
-          session_date_id: string
-          session_id: string
-          startup_semester_id: string
-          time_slot: string
-        }
-        Insert: {
-          action?: string
-          actor_profile_id: string
-          created_at?: string
-          id?: string
-          idempotency_key: string
-          mentor_profile_id: string
-          override_reason?: string | null
-          override_types?: string[]
-          ranking_context?: Json
-          request_id: string
-          semester_id: string
-          session_date_id: string
-          session_id: string
-          startup_semester_id: string
-          time_slot: string
-        }
-        Update: {
-          action?: string
-          actor_profile_id?: string
-          created_at?: string
-          id?: string
-          idempotency_key?: string
-          mentor_profile_id?: string
-          override_reason?: string | null
-          override_types?: string[]
-          ranking_context?: Json
-          request_id?: string
-          semester_id?: string
-          session_date_id?: string
-          session_id?: string
-          startup_semester_id?: string
-          time_slot?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "mentor_assignment_audit_actor_profile_id_fkey"
-            columns: ["actor_profile_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "mentor_assignment_audit_mentor_profile_id_fkey"
-            columns: ["mentor_profile_id"]
-            isOneToOne: false
-            referencedRelation: "mentor_profiles"
-            referencedColumns: ["profile_id"]
-          },
-          {
-            foreignKeyName: "mentor_assignment_audit_request_id_fkey"
-            columns: ["request_id"]
-            isOneToOne: true
-            referencedRelation: "mentor_assignment_requests"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "mentor_assignment_audit_semester_id_fkey"
-            columns: ["semester_id"]
-            isOneToOne: false
-            referencedRelation: "semesters"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "mentor_assignment_audit_session_date_id_fkey"
-            columns: ["session_date_id"]
-            isOneToOne: false
-            referencedRelation: "session_dates"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "mentor_assignment_audit_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "sessions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "mentor_assignment_audit_startup_semester_id_fkey"
+            foreignKeyName: "invitations_startup_semester_id_fkey"
             columns: ["startup_semester_id"]
             isOneToOne: false
-            referencedRelation: "startup_semesters"
+            referencedRelation: "startups"
             referencedColumns: ["id"]
           },
         ]
       }
-      mentor_assignment_requests: {
+      meeting_availability: {
         Row: {
-          actor_profile_id: string
           created_at: string
           id: string
-          idempotency_key: string
-          mentor_profile_id: string
-          request_fingerprint: string
-          request_payload: Json
+          is_available: boolean
+          meeting_id: string
           semester_id: string
-          session_date_id: string
-          session_id: string | null
-          startup_semester_id: string
-          time_slot: string
+          semester_membership_id: string
+          slot: number
+          source: string
+          updated_at: string
         }
         Insert: {
-          actor_profile_id: string
           created_at?: string
           id?: string
-          idempotency_key: string
-          mentor_profile_id: string
-          request_fingerprint: string
-          request_payload: Json
+          is_available?: boolean
+          meeting_id: string
           semester_id: string
-          session_date_id: string
-          session_id?: string | null
-          startup_semester_id: string
-          time_slot: string
+          semester_membership_id: string
+          slot: number
+          source?: string
+          updated_at?: string
         }
         Update: {
-          actor_profile_id?: string
           created_at?: string
           id?: string
-          idempotency_key?: string
-          mentor_profile_id?: string
-          request_fingerprint?: string
-          request_payload?: Json
+          is_available?: boolean
+          meeting_id?: string
           semester_id?: string
-          session_date_id?: string
-          session_id?: string | null
-          startup_semester_id?: string
-          time_slot?: string
+          semester_membership_id?: string
+          slot?: number
+          source?: string
+          updated_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: "mentor_assignment_requests_actor_profile_id_fkey"
-            columns: ["actor_profile_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "mentor_assignment_requests_mentor_profile_id_fkey"
-            columns: ["mentor_profile_id"]
-            isOneToOne: false
-            referencedRelation: "mentor_profiles"
-            referencedColumns: ["profile_id"]
-          },
-          {
-            foreignKeyName: "mentor_assignment_requests_semester_id_fkey"
+            foreignKeyName: "meeting_availability_semester_id_fkey"
             columns: ["semester_id"]
             isOneToOne: false
             referencedRelation: "semesters"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "mentor_assignment_requests_session_date_id_fkey"
-            columns: ["session_date_id"]
+            foreignKeyName: "meeting_availability_semester_id_meeting_id_fkey"
+            columns: ["semester_id", "meeting_id"]
+            isOneToOne: false
+            referencedRelation: "meetings"
+            referencedColumns: ["semester_id", "id"]
+          },
+          {
+            foreignKeyName: "meeting_availability_semester_id_meeting_id_fkey"
+            columns: ["semester_id", "meeting_id"]
             isOneToOne: false
             referencedRelation: "session_dates"
-            referencedColumns: ["id"]
+            referencedColumns: ["semester_id", "id"]
           },
           {
-            foreignKeyName: "mentor_assignment_requests_session_id_fkey"
-            columns: ["session_id"]
+            foreignKeyName: "meeting_availability_semester_id_semester_membership_id_fkey"
+            columns: ["semester_id", "semester_membership_id"]
             isOneToOne: false
-            referencedRelation: "sessions"
-            referencedColumns: ["id"]
+            referencedRelation: "semester_memberships"
+            referencedColumns: ["semester_id", "id"]
           },
+        ]
+      }
+      meetings: {
+        Row: {
+          created_at: string
+          id: string
+          label: string | null
+          meeting_date: string
+          semester_id: string
+          slot_1_ends_at: string
+          slot_1_starts_at: string
+          slot_2_ends_at: string
+          slot_2_starts_at: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          meeting_date: string
+          semester_id: string
+          slot_1_ends_at?: string
+          slot_1_starts_at?: string
+          slot_2_ends_at?: string
+          slot_2_starts_at?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          meeting_date?: string
+          semester_id?: string
+          slot_1_ends_at?: string
+          slot_1_starts_at?: string
+          slot_2_ends_at?: string
+          slot_2_starts_at?: string
+          updated_at?: string
+        }
+        Relationships: [
           {
-            foreignKeyName: "mentor_assignment_requests_startup_semester_id_fkey"
-            columns: ["startup_semester_id"]
+            foreignKeyName: "meetings_semester_id_fkey"
+            columns: ["semester_id"]
             isOneToOne: false
-            referencedRelation: "startup_semesters"
+            referencedRelation: "semesters"
             referencedColumns: ["id"]
           },
         ]
@@ -756,8 +373,11 @@ export type Database = {
         Row: {
           capacity: number
           created_at: string
+          general_availability: string | null
           id: string
           mentorship_goals: string | null
+          opening_talk: string | null
+          per_week_availability: Json
           preferred_format: string | null
           readiness_status: string
           semester_id: string
@@ -767,8 +387,11 @@ export type Database = {
         Insert: {
           capacity?: number
           created_at?: string
+          general_availability?: string | null
           id?: string
           mentorship_goals?: string | null
+          opening_talk?: string | null
+          per_week_availability?: Json
           preferred_format?: string | null
           readiness_status?: string
           semester_id: string
@@ -778,8 +401,11 @@ export type Database = {
         Update: {
           capacity?: number
           created_at?: string
+          general_availability?: string | null
           id?: string
           mentorship_goals?: string | null
+          opening_talk?: string | null
+          per_week_availability?: Json
           preferred_format?: string | null
           readiness_status?: string
           semester_id?: string
@@ -803,222 +429,6 @@ export type Database = {
           },
         ]
       }
-      mentors: {
-        Row: {
-          bio: string | null
-          company: string | null
-          created_at: string
-          email: string | null
-          expertise_tags: string[]
-          full_name: string
-          general_availability: string | null
-          id: string
-          is_active: boolean
-          linkedin_url: string | null
-          mentorship_goals: string | null
-          opening_talk: string | null
-          per_week_availability: Json
-          photo_url: string | null
-          preferred_format: string | null
-          role_title: string | null
-          semester_id: string
-          slug: string | null
-          updated_at: string
-          user_id: string | null
-          website_url: string | null
-        }
-        Insert: {
-          bio?: string | null
-          company?: string | null
-          created_at?: string
-          email?: string | null
-          expertise_tags?: string[]
-          full_name: string
-          general_availability?: string | null
-          id?: string
-          is_active?: boolean
-          linkedin_url?: string | null
-          mentorship_goals?: string | null
-          opening_talk?: string | null
-          per_week_availability?: Json
-          photo_url?: string | null
-          preferred_format?: string | null
-          role_title?: string | null
-          semester_id: string
-          slug?: string | null
-          updated_at?: string
-          user_id?: string | null
-          website_url?: string | null
-        }
-        Update: {
-          bio?: string | null
-          company?: string | null
-          created_at?: string
-          email?: string | null
-          expertise_tags?: string[]
-          full_name?: string
-          general_availability?: string | null
-          id?: string
-          is_active?: boolean
-          linkedin_url?: string | null
-          mentorship_goals?: string | null
-          opening_talk?: string | null
-          per_week_availability?: Json
-          photo_url?: string | null
-          preferred_format?: string | null
-          role_title?: string | null
-          semester_id?: string
-          slug?: string | null
-          updated_at?: string
-          user_id?: string | null
-          website_url?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "mentors_semester_id_fkey"
-            columns: ["semester_id"]
-            isOneToOne: false
-            referencedRelation: "semesters"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "mentors_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      onboarding_progress: {
-        Row: {
-          completed_at: string | null
-          created_at: string
-          id: string
-          is_required: boolean
-          item_key: string
-          payload: Json
-          semester_id: string
-          semester_membership_id: string
-          updated_at: string
-        }
-        Insert: {
-          completed_at?: string | null
-          created_at?: string
-          id?: string
-          is_required: boolean
-          item_key: string
-          payload?: Json
-          semester_id: string
-          semester_membership_id: string
-          updated_at?: string
-        }
-        Update: {
-          completed_at?: string | null
-          created_at?: string
-          id?: string
-          is_required?: boolean
-          item_key?: string
-          payload?: Json
-          semester_id?: string
-          semester_membership_id?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "onboarding_progress_semester_id_fkey"
-            columns: ["semester_id"]
-            isOneToOne: false
-            referencedRelation: "semesters"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "onboarding_progress_semester_membership_id_fkey"
-            columns: ["semester_membership_id"]
-            isOneToOne: false
-            referencedRelation: "semester_memberships"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      outreach: {
-        Row: {
-          admin_id: string | null
-          company: string | null
-          converted_mentor_id: string | null
-          created_at: string
-          expertise_tags: string[]
-          id: string
-          last_contacted_at: string | null
-          linkedin_url: string | null
-          notes: string | null
-          outreach_type: string[]
-          prospect_email: string | null
-          prospect_name: string
-          referred_by: string | null
-          semester_id: string
-          source_channel: string | null
-          status: Database["public"]["Enums"]["outreach_status"]
-          updated_at: string
-          who_reached_out: string | null
-        }
-        Insert: {
-          admin_id?: string | null
-          company?: string | null
-          converted_mentor_id?: string | null
-          created_at?: string
-          expertise_tags?: string[]
-          id?: string
-          last_contacted_at?: string | null
-          linkedin_url?: string | null
-          notes?: string | null
-          outreach_type?: string[]
-          prospect_email?: string | null
-          prospect_name: string
-          referred_by?: string | null
-          semester_id: string
-          source_channel?: string | null
-          status?: Database["public"]["Enums"]["outreach_status"]
-          updated_at?: string
-          who_reached_out?: string | null
-        }
-        Update: {
-          admin_id?: string | null
-          company?: string | null
-          converted_mentor_id?: string | null
-          created_at?: string
-          expertise_tags?: string[]
-          id?: string
-          last_contacted_at?: string | null
-          linkedin_url?: string | null
-          notes?: string | null
-          outreach_type?: string[]
-          prospect_email?: string | null
-          prospect_name?: string
-          referred_by?: string | null
-          semester_id?: string
-          source_channel?: string | null
-          status?: Database["public"]["Enums"]["outreach_status"]
-          updated_at?: string
-          who_reached_out?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "outreach_converted_mentor_id_fkey"
-            columns: ["converted_mentor_id"]
-            isOneToOne: false
-            referencedRelation: "mentors"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "outreach_semester_id_fkey"
-            columns: ["semester_id"]
-            isOneToOne: false
-            referencedRelation: "semesters"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       outreach_activities: {
         Row: {
           activity_kind: Database["public"]["Enums"]["outreach_activity_kind"]
@@ -1028,7 +438,6 @@ export type Database = {
           details: Json
           external_message_id: string | null
           id: string
-          import_job_id: string | null
           new_owner_profile_id: string | null
           occurred_at: string
           opportunity_id: string
@@ -1045,7 +454,6 @@ export type Database = {
           details?: Json
           external_message_id?: string | null
           id?: string
-          import_job_id?: string | null
           new_owner_profile_id?: string | null
           occurred_at?: string
           opportunity_id: string
@@ -1062,7 +470,6 @@ export type Database = {
           details?: Json
           external_message_id?: string | null
           id?: string
-          import_job_id?: string | null
           new_owner_profile_id?: string | null
           occurred_at?: string
           opportunity_id?: string
@@ -1101,13 +508,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "outreach_activities_semester_id_import_job_id_fkey"
-            columns: ["semester_id", "import_job_id"]
-            isOneToOne: false
-            referencedRelation: "outreach_import_jobs"
-            referencedColumns: ["semester_id", "id"]
-          },
-          {
             foreignKeyName: "outreach_activities_semester_id_opportunity_id_fkey"
             columns: ["semester_id", "opportunity_id"]
             isOneToOne: false
@@ -1122,36 +522,6 @@ export type Database = {
             referencedColumns: ["semester_id", "opportunity_id", "id"]
           },
         ]
-      }
-      outreach_activity_log: {
-        Row: {
-          action_type: string
-          admin_id: string
-          created_at: string
-          detail: Json
-          id: string
-          outreach_id: string
-          semester_id: string
-        }
-        Insert: {
-          action_type: string
-          admin_id: string
-          created_at?: string
-          detail?: Json
-          id?: string
-          outreach_id: string
-          semester_id: string
-        }
-        Update: {
-          action_type?: string
-          admin_id?: string
-          created_at?: string
-          detail?: Json
-          id?: string
-          outreach_id?: string
-          semester_id?: string
-        }
-        Relationships: []
       }
       outreach_companies: {
         Row: {
@@ -1253,6 +623,7 @@ export type Database = {
       }
       outreach_contacts: {
         Row: {
+          background_notes: string | null
           biography: string | null
           canonical_linkedin_url: string | null
           created_at: string
@@ -1264,9 +635,11 @@ export type Database = {
           linkedin_url: string | null
           notes: string | null
           phone: string | null
+          relationship_types: string[]
           updated_at: string
         }
         Insert: {
+          background_notes?: string | null
           biography?: string | null
           canonical_linkedin_url?: string | null
           created_at?: string
@@ -1278,9 +651,11 @@ export type Database = {
           linkedin_url?: string | null
           notes?: string | null
           phone?: string | null
+          relationship_types?: string[]
           updated_at?: string
         }
         Update: {
+          background_notes?: string | null
           biography?: string | null
           canonical_linkedin_url?: string | null
           created_at?: string
@@ -1292,6 +667,7 @@ export type Database = {
           linkedin_url?: string | null
           notes?: string | null
           phone?: string | null
+          relationship_types?: string[]
           updated_at?: string
         }
         Relationships: [
@@ -1304,169 +680,60 @@ export type Database = {
           },
         ]
       }
-      outreach_import_jobs: {
+      outreach_imports: {
         Row: {
           committed_at: string | null
-          committed_by: string | null
           created_at: string
           created_by: string
           id: string
-          idempotency_key: string | null
-          last_error: string | null
-          rolled_back_at: string | null
+          idempotency_key: string
+          result: Json
+          rows: Json
           semester_id: string
-          source: string
-          source_filename: string | null
-          status: Database["public"]["Enums"]["outreach_import_status"]
-          summary: Json
+          source_name: string
+          status: string
           updated_at: string
         }
         Insert: {
           committed_at?: string | null
-          committed_by?: string | null
           created_at?: string
           created_by: string
           id?: string
-          idempotency_key?: string | null
-          last_error?: string | null
-          rolled_back_at?: string | null
+          idempotency_key: string
+          result?: Json
+          rows?: Json
           semester_id: string
-          source: string
-          source_filename?: string | null
-          status?: Database["public"]["Enums"]["outreach_import_status"]
-          summary?: Json
+          source_name: string
+          status?: string
           updated_at?: string
         }
         Update: {
           committed_at?: string | null
-          committed_by?: string | null
           created_at?: string
           created_by?: string
           id?: string
-          idempotency_key?: string | null
-          last_error?: string | null
-          rolled_back_at?: string | null
+          idempotency_key?: string
+          result?: Json
+          rows?: Json
           semester_id?: string
-          source?: string
-          source_filename?: string | null
-          status?: Database["public"]["Enums"]["outreach_import_status"]
-          summary?: Json
+          source_name?: string
+          status?: string
           updated_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: "outreach_import_jobs_committed_by_fkey"
-            columns: ["committed_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "outreach_import_jobs_created_by_fkey"
+            foreignKeyName: "outreach_imports_created_by_fkey"
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "outreach_import_jobs_semester_id_fkey"
+            foreignKeyName: "outreach_imports_semester_id_fkey"
             columns: ["semester_id"]
             isOneToOne: false
             referencedRelation: "semesters"
             referencedColumns: ["id"]
-          },
-        ]
-      }
-      outreach_import_rows: {
-        Row: {
-          committed_opportunity_id: string | null
-          created_at: string
-          excluded: boolean
-          excluded_reason: string | null
-          id: string
-          import_job_id: string
-          issue_codes: string[]
-          match_decision: Database["public"]["Enums"]["outreach_import_match_decision"]
-          matched_company_id: string | null
-          matched_contact_id: string | null
-          normalized_payload: Json
-          raw_payload: Json
-          row_number: number
-          selected: boolean
-          semester_id: string
-          updated_at: string
-        }
-        Insert: {
-          committed_opportunity_id?: string | null
-          created_at?: string
-          excluded?: boolean
-          excluded_reason?: string | null
-          id?: string
-          import_job_id: string
-          issue_codes?: string[]
-          match_decision?: Database["public"]["Enums"]["outreach_import_match_decision"]
-          matched_company_id?: string | null
-          matched_contact_id?: string | null
-          normalized_payload?: Json
-          raw_payload: Json
-          row_number: number
-          selected?: boolean
-          semester_id: string
-          updated_at?: string
-        }
-        Update: {
-          committed_opportunity_id?: string | null
-          created_at?: string
-          excluded?: boolean
-          excluded_reason?: string | null
-          id?: string
-          import_job_id?: string
-          issue_codes?: string[]
-          match_decision?: Database["public"]["Enums"]["outreach_import_match_decision"]
-          matched_company_id?: string | null
-          matched_contact_id?: string | null
-          normalized_payload?: Json
-          raw_payload?: Json
-          row_number?: number
-          selected?: boolean
-          semester_id?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "outreach_import_rows_matched_company_id_fkey"
-            columns: ["matched_company_id"]
-            isOneToOne: false
-            referencedRelation: "outreach_companies"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "outreach_import_rows_matched_contact_id_fkey"
-            columns: ["matched_contact_id"]
-            isOneToOne: false
-            referencedRelation: "outreach_contacts"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "outreach_import_rows_semester_id_committed_opportunity_id_fkey"
-            columns: ["semester_id", "committed_opportunity_id"]
-            isOneToOne: false
-            referencedRelation: "outreach_opportunities"
-            referencedColumns: ["semester_id", "id"]
-          },
-          {
-            foreignKeyName: "outreach_import_rows_semester_id_fkey"
-            columns: ["semester_id"]
-            isOneToOne: false
-            referencedRelation: "semesters"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "outreach_import_rows_semester_id_import_job_id_fkey"
-            columns: ["semester_id", "import_job_id"]
-            isOneToOne: false
-            referencedRelation: "outreach_import_jobs"
-            referencedColumns: ["semester_id", "id"]
           },
         ]
       }
@@ -1474,9 +741,6 @@ export type Database = {
         Row: {
           cadence_days: number
           contact_id: string
-          conversion_details: Json
-          converted_mentor_profile_id: string | null
-          converted_startup_semester_id: string | null
           created_at: string
           created_by: string | null
           id: string
@@ -1484,26 +748,24 @@ export type Database = {
           latest_inbound_activity_at: string | null
           latest_outbound_activity_at: string | null
           next_follow_up_at: string | null
-          notes: string | null
           owner_profile_id: string | null
           priority: number
           referred_by: string | null
+          relationship_types: string[]
           semester_id: string
+          semester_notes: string | null
           silence_reason: string | null
           silenced_at: string | null
           silenced_by: string | null
           snoozed_until: string | null
           source_channel: Database["public"]["Enums"]["outreach_channel"] | null
-          source_import_job_id: string | null
-          stage: Database["public"]["Enums"]["outreach_stage"]
+          source_context: Json
+          stage: string
           updated_at: string
         }
         Insert: {
           cadence_days?: number
           contact_id: string
-          conversion_details?: Json
-          converted_mentor_profile_id?: string | null
-          converted_startup_semester_id?: string | null
           created_at?: string
           created_by?: string | null
           id?: string
@@ -1511,11 +773,12 @@ export type Database = {
           latest_inbound_activity_at?: string | null
           latest_outbound_activity_at?: string | null
           next_follow_up_at?: string | null
-          notes?: string | null
           owner_profile_id?: string | null
           priority?: number
           referred_by?: string | null
+          relationship_types?: string[]
           semester_id: string
+          semester_notes?: string | null
           silence_reason?: string | null
           silenced_at?: string | null
           silenced_by?: string | null
@@ -1523,16 +786,13 @@ export type Database = {
           source_channel?:
             | Database["public"]["Enums"]["outreach_channel"]
             | null
-          source_import_job_id?: string | null
-          stage?: Database["public"]["Enums"]["outreach_stage"]
+          source_context?: Json
+          stage?: string
           updated_at?: string
         }
         Update: {
           cadence_days?: number
           contact_id?: string
-          conversion_details?: Json
-          converted_mentor_profile_id?: string | null
-          converted_startup_semester_id?: string | null
           created_at?: string
           created_by?: string | null
           id?: string
@@ -1540,11 +800,12 @@ export type Database = {
           latest_inbound_activity_at?: string | null
           latest_outbound_activity_at?: string | null
           next_follow_up_at?: string | null
-          notes?: string | null
           owner_profile_id?: string | null
           priority?: number
           referred_by?: string | null
+          relationship_types?: string[]
           semester_id?: string
+          semester_notes?: string | null
           silence_reason?: string | null
           silenced_at?: string | null
           silenced_by?: string | null
@@ -1552,8 +813,8 @@ export type Database = {
           source_channel?:
             | Database["public"]["Enums"]["outreach_channel"]
             | null
-          source_import_job_id?: string | null
-          stage?: Database["public"]["Enums"]["outreach_stage"]
+          source_context?: Json
+          stage?: string
           updated_at?: string
         }
         Relationships: [
@@ -1562,20 +823,6 @@ export type Database = {
             columns: ["contact_id"]
             isOneToOne: false
             referencedRelation: "outreach_contacts"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "outreach_opportunities_converted_mentor_profile_id_fkey"
-            columns: ["converted_mentor_profile_id"]
-            isOneToOne: false
-            referencedRelation: "mentor_profiles"
-            referencedColumns: ["profile_id"]
-          },
-          {
-            foreignKeyName: "outreach_opportunities_converted_startup_semester_id_fkey"
-            columns: ["converted_startup_semester_id"]
-            isOneToOne: false
-            referencedRelation: "startup_semesters"
             referencedColumns: ["id"]
           },
           {
@@ -1600,109 +847,8 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "outreach_opportunities_semester_id_source_import_job_id_fkey"
-            columns: ["semester_id", "source_import_job_id"]
-            isOneToOne: false
-            referencedRelation: "outreach_import_jobs"
-            referencedColumns: ["semester_id", "id"]
-          },
-          {
             foreignKeyName: "outreach_opportunities_silenced_by_fkey"
             columns: ["silenced_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      outreach_opportunity_labels: {
-        Row: {
-          added_at: string
-          added_by: string | null
-          opportunity_id: string
-          relationship_label_id: string
-          semester_id: string
-        }
-        Insert: {
-          added_at?: string
-          added_by?: string | null
-          opportunity_id: string
-          relationship_label_id: string
-          semester_id: string
-        }
-        Update: {
-          added_at?: string
-          added_by?: string | null
-          opportunity_id?: string
-          relationship_label_id?: string
-          semester_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "outreach_opportunity_labels_added_by_fkey"
-            columns: ["added_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "outreach_opportunity_labels_relationship_label_id_fkey"
-            columns: ["relationship_label_id"]
-            isOneToOne: false
-            referencedRelation: "outreach_relationship_labels"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "outreach_opportunity_labels_semester_id_fkey"
-            columns: ["semester_id"]
-            isOneToOne: false
-            referencedRelation: "semesters"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "outreach_opportunity_labels_semester_id_opportunity_id_fkey"
-            columns: ["semester_id", "opportunity_id"]
-            isOneToOne: false
-            referencedRelation: "outreach_opportunities"
-            referencedColumns: ["semester_id", "id"]
-          },
-        ]
-      }
-      outreach_relationship_labels: {
-        Row: {
-          color_token: string | null
-          created_at: string
-          created_by: string | null
-          description: string | null
-          id: string
-          name: string
-          slug: string
-          updated_at: string
-        }
-        Insert: {
-          color_token?: string | null
-          created_at?: string
-          created_by?: string | null
-          description?: string | null
-          id?: string
-          name: string
-          slug: string
-          updated_at?: string
-        }
-        Update: {
-          color_token?: string | null
-          created_at?: string
-          created_by?: string | null
-          description?: string | null
-          id?: string
-          name?: string
-          slug?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "outreach_relationship_labels_created_by_fkey"
-            columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -1747,6 +893,7 @@ export type Database = {
       }
       profiles: {
         Row: {
+          auth_user_id: string | null
           created_at: string
           email: string
           full_name: string | null
@@ -1758,6 +905,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          auth_user_id?: string | null
           created_at?: string
           email: string
           full_name?: string | null
@@ -1769,6 +917,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          auth_user_id?: string | null
           created_at?: string
           email?: string
           full_name?: string | null
@@ -1789,6 +938,54 @@ export type Database = {
           },
         ]
       }
+      program_audit_events: {
+        Row: {
+          action: string
+          actor_profile_id: string | null
+          created_at: string
+          details: Json
+          id: string
+          semester_id: string
+          subject_id: string | null
+          subject_type: string
+        }
+        Insert: {
+          action: string
+          actor_profile_id?: string | null
+          created_at?: string
+          details?: Json
+          id?: string
+          semester_id: string
+          subject_id?: string | null
+          subject_type: string
+        }
+        Update: {
+          action?: string
+          actor_profile_id?: string | null
+          created_at?: string
+          details?: Json
+          id?: string
+          semester_id?: string
+          subject_id?: string | null
+          subject_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "program_audit_events_actor_profile_id_fkey"
+            columns: ["actor_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "program_audit_events_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       semester_memberships: {
         Row: {
           activated_at: string | null
@@ -1796,6 +993,9 @@ export type Database = {
           created_at: string
           id: string
           invited_at: string | null
+          onboarding_completed_at: string | null
+          onboarding_data: Json
+          onboarding_started_at: string | null
           profile_id: string
           role: Database["public"]["Enums"]["user_role"]
           semester_id: string
@@ -1809,6 +1009,9 @@ export type Database = {
           created_at?: string
           id?: string
           invited_at?: string | null
+          onboarding_completed_at?: string | null
+          onboarding_data?: Json
+          onboarding_started_at?: string | null
           profile_id: string
           role: Database["public"]["Enums"]["user_role"]
           semester_id: string
@@ -1822,6 +1025,9 @@ export type Database = {
           created_at?: string
           id?: string
           invited_at?: string | null
+          onboarding_completed_at?: string | null
+          onboarding_data?: Json
+          onboarding_started_at?: string | null
           profile_id?: string
           role?: Database["public"]["Enums"]["user_role"]
           semester_id?: string
@@ -1891,72 +1097,103 @@ export type Database = {
         }
         Relationships: []
       }
-      session_dates: {
-        Row: {
-          created_at: string
-          date: string
-          id: string
-          label: string | null
-          semester_id: string
-        }
-        Insert: {
-          created_at?: string
-          date: string
-          id?: string
-          label?: string | null
-          semester_id: string
-        }
-        Update: {
-          created_at?: string
-          date?: string
-          id?: string
-          label?: string | null
-          semester_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "session_dates_semester_id_fkey"
-            columns: ["semester_id"]
-            isOneToOne: false
-            referencedRelation: "semesters"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       sessions: {
         Row: {
           confirmed_at: string | null
           created_at: string
           format: string | null
           id: string
-          is_confirmed: boolean
-          mentor_id: string
+          idempotency_key: string | null
+          is_confirmed: boolean | null
+          meeting_id: string
+          mentor_id: string | null
+          mentor_semester_id: string
           notes: string | null
           requested_at: string
           semester_id: string
-          session_date_id: string
+          session_date: string | null
+          session_date_id: string | null
+          slot: number
           startup_absent: boolean
           startup_id: string | null
-          status: Database["public"]["Enums"]["session_status"]
+          startup_semester_id: string
+          status: string
           substitute_name: string | null
           time_slot: string | null
           topic: string | null
           updated_at: string
+          mentors: {
+            bio: string | null
+            company: string | null
+            created_at: string | null
+            email: string | null
+            expertise_tags: string[] | null
+            full_name: string | null
+            general_availability: string | null
+            id: string | null
+            is_active: boolean | null
+            linkedin_url: string | null
+            mentorship_goals: string | null
+            opening_talk: string | null
+            per_week_availability: Json | null
+            photo_url: string | null
+            preferred_format: string | null
+            role_title: string | null
+            semester_id: string | null
+            slug: string | null
+            updated_at: string | null
+            user_id: string | null
+            website_url: string | null
+          } | null
+          session_dates: {
+            created_at: string | null
+            date: string | null
+            id: string | null
+            label: string | null
+            semester_id: string | null
+          } | null
+          startups: {
+            created_at: string | null
+            description: string | null
+            founder_name: string | null
+            founders: Json | null
+            id: string | null
+            industry: string | null
+            is_active: boolean | null
+            logo_url: string | null
+            mentor_preferences: string | null
+            mentorship_needs: string[] | null
+            name: string | null
+            preferred_tags: string[] | null
+            semester_goals: string[] | null
+            semester_id: string | null
+            slug: string | null
+            stage: Database["public"]["Enums"]["startup_stage"] | null
+            updated_at: string | null
+            user_id: string | null
+            website: string | null
+          } | null
         }
         Insert: {
           confirmed_at?: string | null
           created_at?: string
           format?: string | null
           id?: string
-          is_confirmed?: boolean
-          mentor_id: string
+          idempotency_key?: string | null
+          is_confirmed?: boolean | null
+          meeting_id: string
+          mentor_id?: string | null
+          mentor_semester_id: string
           notes?: string | null
           requested_at?: string
           semester_id: string
-          session_date_id: string
+          session_date?: string | null
+          session_date_id?: string | null
+          slot: number
           startup_absent?: boolean
           startup_id?: string | null
-          status?: Database["public"]["Enums"]["session_status"]
+          startup_semester_id: string
+          status?: string
           substitute_name?: string | null
           time_slot?: string | null
           topic?: string | null
@@ -1967,28 +1204,27 @@ export type Database = {
           created_at?: string
           format?: string | null
           id?: string
-          is_confirmed?: boolean
-          mentor_id?: string
+          idempotency_key?: string | null
+          is_confirmed?: boolean | null
+          meeting_id?: string
+          mentor_id?: string | null
+          mentor_semester_id?: string
           notes?: string | null
           requested_at?: string
           semester_id?: string
-          session_date_id?: string
+          session_date?: string | null
+          session_date_id?: string | null
+          slot?: number
           startup_absent?: boolean
           startup_id?: string | null
-          status?: Database["public"]["Enums"]["session_status"]
+          startup_semester_id?: string
+          status?: string
           substitute_name?: string | null
           time_slot?: string | null
           topic?: string | null
           updated_at?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "sessions_mentor_id_fkey"
-            columns: ["mentor_id"]
-            isOneToOne: false
-            referencedRelation: "mentors"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "sessions_semester_id_fkey"
             columns: ["semester_id"]
@@ -1997,18 +1233,46 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "sessions_session_date_id_fkey"
-            columns: ["session_date_id"]
+            foreignKeyName: "sessions_semester_meeting_fkey"
+            columns: ["semester_id", "meeting_id"]
             isOneToOne: false
-            referencedRelation: "session_dates"
-            referencedColumns: ["id"]
+            referencedRelation: "meetings"
+            referencedColumns: ["semester_id", "id"]
           },
           {
-            foreignKeyName: "sessions_startup_id_fkey"
-            columns: ["startup_id"]
+            foreignKeyName: "sessions_semester_meeting_fkey"
+            columns: ["semester_id", "meeting_id"]
+            isOneToOne: false
+            referencedRelation: "session_dates"
+            referencedColumns: ["semester_id", "id"]
+          },
+          {
+            foreignKeyName: "sessions_semester_mentor_fkey"
+            columns: ["semester_id", "mentor_semester_id"]
+            isOneToOne: false
+            referencedRelation: "mentor_semesters"
+            referencedColumns: ["semester_id", "id"]
+          },
+          {
+            foreignKeyName: "sessions_semester_mentor_fkey"
+            columns: ["semester_id", "mentor_semester_id"]
+            isOneToOne: false
+            referencedRelation: "mentors"
+            referencedColumns: ["semester_id", "id"]
+          },
+          {
+            foreignKeyName: "sessions_semester_startup_fkey"
+            columns: ["semester_id", "startup_semester_id"]
+            isOneToOne: false
+            referencedRelation: "startup_semesters"
+            referencedColumns: ["semester_id", "id"]
+          },
+          {
+            foreignKeyName: "sessions_semester_startup_fkey"
+            columns: ["semester_id", "startup_semester_id"]
             isOneToOne: false
             referencedRelation: "startups"
-            referencedColumns: ["id"]
+            referencedColumns: ["semester_id", "id"]
           },
         ]
       }
@@ -2016,6 +1280,7 @@ export type Database = {
         Row: {
           created_at: string
           description: string | null
+          durable_contact_data: Json
           id: string
           industry: string | null
           logo_url: string | null
@@ -2027,6 +1292,7 @@ export type Database = {
         Insert: {
           created_at?: string
           description?: string | null
+          durable_contact_data?: Json
           id?: string
           industry?: string | null
           logo_url?: string | null
@@ -2038,6 +1304,7 @@ export type Database = {
         Update: {
           created_at?: string
           description?: string | null
+          durable_contact_data?: Json
           id?: string
           industry?: string | null
           logo_url?: string | null
@@ -2158,85 +1425,11 @@ export type Database = {
             referencedRelation: "startup_semesters"
             referencedColumns: ["id"]
           },
-        ]
-      }
-      startups: {
-        Row: {
-          created_at: string
-          description: string | null
-          founder_name: string | null
-          founders: Json
-          id: string
-          industry: string | null
-          is_active: boolean
-          logo_url: string | null
-          mentor_preferences: string | null
-          mentorship_needs: string[]
-          name: string
-          preferred_tags: string[]
-          semester_goals: string[]
-          semester_id: string
-          slug: string | null
-          stage: Database["public"]["Enums"]["startup_stage"] | null
-          updated_at: string
-          user_id: string | null
-          website: string | null
-        }
-        Insert: {
-          created_at?: string
-          description?: string | null
-          founder_name?: string | null
-          founders?: Json
-          id?: string
-          industry?: string | null
-          is_active?: boolean
-          logo_url?: string | null
-          mentor_preferences?: string | null
-          mentorship_needs?: string[]
-          name: string
-          preferred_tags?: string[]
-          semester_goals?: string[]
-          semester_id: string
-          slug?: string | null
-          stage?: Database["public"]["Enums"]["startup_stage"] | null
-          updated_at?: string
-          user_id?: string | null
-          website?: string | null
-        }
-        Update: {
-          created_at?: string
-          description?: string | null
-          founder_name?: string | null
-          founders?: Json
-          id?: string
-          industry?: string | null
-          is_active?: boolean
-          logo_url?: string | null
-          mentor_preferences?: string | null
-          mentorship_needs?: string[]
-          name?: string
-          preferred_tags?: string[]
-          semester_goals?: string[]
-          semester_id?: string
-          slug?: string | null
-          stage?: Database["public"]["Enums"]["startup_stage"] | null
-          updated_at?: string
-          user_id?: string | null
-          website?: string | null
-        }
-        Relationships: [
           {
-            foreignKeyName: "startups_semester_id_fkey"
-            columns: ["semester_id"]
+            foreignKeyName: "startup_team_memberships_startup_semester_id_fkey"
+            columns: ["startup_semester_id"]
             isOneToOne: false
-            referencedRelation: "semesters"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "startups_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
+            referencedRelation: "startups"
             referencedColumns: ["id"]
           },
         ]
@@ -2477,7 +1670,178 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      availability: {
+        Row: {
+          created_at: string | null
+          id: string | null
+          is_available: boolean | null
+          session_date_id: string | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "semester_memberships_profile_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mentors: {
+        Row: {
+          bio: string | null
+          company: string | null
+          created_at: string | null
+          email: string | null
+          expertise_tags: string[] | null
+          full_name: string | null
+          general_availability: string | null
+          id: string | null
+          is_active: boolean | null
+          linkedin_url: string | null
+          mentorship_goals: string | null
+          opening_talk: string | null
+          per_week_availability: Json | null
+          photo_url: string | null
+          preferred_format: string | null
+          role_title: string | null
+          semester_id: string | null
+          slug: string | null
+          updated_at: string | null
+          user_id: string | null
+          website_url: string | null
+          semesters: {
+            archived_at: string | null
+            closed_at: string | null
+            configuration: Json
+            configuration_template_version: number | null
+            created_at: string
+            end_date: string
+            id: string
+            is_active: boolean
+            lifecycle_status: Database["public"]["Enums"]["semester_lifecycle_status"]
+            name: string
+            start_date: string
+            updated_at: string
+          } | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mentor_semesters_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "semester_memberships_profile_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      session_dates: {
+        Row: {
+          created_at: string | null
+          date: string | null
+          id: string | null
+          label: string | null
+          semester_id: string | null
+          semesters: {
+            archived_at: string | null
+            closed_at: string | null
+            configuration: Json
+            configuration_template_version: number | null
+            created_at: string
+            end_date: string
+            id: string
+            is_active: boolean
+            lifecycle_status: Database["public"]["Enums"]["semester_lifecycle_status"]
+            name: string
+            start_date: string
+            updated_at: string
+          } | null
+        }
+        Insert: {
+          created_at?: string | null
+          date?: string | null
+          id?: string | null
+          label?: string | null
+          semester_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          date?: string | null
+          id?: string | null
+          label?: string | null
+          semester_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meetings_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      startups: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          founder_name: string | null
+          founders: Json | null
+          id: string | null
+          industry: string | null
+          is_active: boolean | null
+          logo_url: string | null
+          mentor_preferences: string | null
+          mentorship_needs: string[] | null
+          name: string | null
+          preferred_tags: string[] | null
+          semester_goals: string[] | null
+          semester_id: string | null
+          slug: string | null
+          stage: Database["public"]["Enums"]["startup_stage"] | null
+          updated_at: string | null
+          user_id: string | null
+          website: string | null
+          semesters: {
+            archived_at: string | null
+            closed_at: string | null
+            configuration: Json
+            configuration_template_version: number | null
+            created_at: string
+            end_date: string
+            id: string
+            is_active: boolean
+            lifecycle_status: Database["public"]["Enums"]["semester_lifecycle_status"]
+            name: string
+            start_date: string
+            updated_at: string
+          } | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "semester_memberships_profile_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "startup_semesters_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       activate_semester_transition: {
@@ -2507,6 +1871,14 @@ export type Database = {
       can_read_outreach_relationship_labels: {
         Args: { candidate_id?: string }
         Returns: boolean
+      }
+      carry_forward_outreach_contacts: {
+        Args: {
+          p_contact_ids: string[]
+          p_source_semester_id: string
+          p_target_semester_id: string
+        }
+        Returns: number
       }
       commit_legacy_outreach_migration: {
         Args: { p_idempotency_key: string; p_semester_id: string }
@@ -2594,7 +1966,6 @@ export type Database = {
           details: Json
           external_message_id: string | null
           id: string
-          import_job_id: string | null
           new_owner_profile_id: string | null
           occurred_at: string
           opportunity_id: string
@@ -2610,6 +1981,38 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      mentors: {
+        Args: { "": Database["public"]["Tables"]["sessions"]["Row"] }
+        Returns: {
+          bio: string | null
+          company: string | null
+          created_at: string | null
+          email: string | null
+          expertise_tags: string[] | null
+          full_name: string | null
+          general_availability: string | null
+          id: string | null
+          is_active: boolean | null
+          linkedin_url: string | null
+          mentorship_goals: string | null
+          opening_talk: string | null
+          per_week_availability: Json | null
+          photo_url: string | null
+          preferred_format: string | null
+          role_title: string | null
+          semester_id: string | null
+          slug: string | null
+          updated_at: string | null
+          user_id: string | null
+          website_url: string | null
+        }
+        SetofOptions: {
+          from: "sessions"
+          to: "mentors"
+          isOneToOne: true
+          isSetofReturn: true
+        }
+      }
       release_inactive_owner_work: {
         Args: { p_owner_profile_id: string }
         Returns: {
@@ -2619,6 +2022,96 @@ export type Database = {
       replace_draft_session_dates: {
         Args: { p_dates: Json; p_semester_id: string }
         Returns: number
+      }
+      reset_outreach_opportunities: {
+        Args: { p_opportunity_ids: string[]; p_semester_id: string }
+        Returns: number
+      }
+      semesters:
+        | {
+            Args: { "": Database["public"]["Views"]["mentors"]["Row"] }
+            Returns: {
+              archived_at: string | null
+              closed_at: string | null
+              configuration: Json
+              configuration_template_version: number | null
+              created_at: string
+              end_date: string
+              id: string
+              is_active: boolean
+              lifecycle_status: Database["public"]["Enums"]["semester_lifecycle_status"]
+              name: string
+              start_date: string
+              updated_at: string
+            }
+            SetofOptions: {
+              from: "mentors"
+              to: "semesters"
+              isOneToOne: true
+              isSetofReturn: true
+            }
+          }
+        | {
+            Args: { "": Database["public"]["Views"]["session_dates"]["Row"] }
+            Returns: {
+              archived_at: string | null
+              closed_at: string | null
+              configuration: Json
+              configuration_template_version: number | null
+              created_at: string
+              end_date: string
+              id: string
+              is_active: boolean
+              lifecycle_status: Database["public"]["Enums"]["semester_lifecycle_status"]
+              name: string
+              start_date: string
+              updated_at: string
+            }
+            SetofOptions: {
+              from: "session_dates"
+              to: "semesters"
+              isOneToOne: true
+              isSetofReturn: true
+            }
+          }
+        | {
+            Args: { "": Database["public"]["Views"]["startups"]["Row"] }
+            Returns: {
+              archived_at: string | null
+              closed_at: string | null
+              configuration: Json
+              configuration_template_version: number | null
+              created_at: string
+              end_date: string
+              id: string
+              is_active: boolean
+              lifecycle_status: Database["public"]["Enums"]["semester_lifecycle_status"]
+              name: string
+              start_date: string
+              updated_at: string
+            }
+            SetofOptions: {
+              from: "startups"
+              to: "semesters"
+              isOneToOne: true
+              isSetofReturn: true
+            }
+          }
+      session_dates: {
+        Args: { "": Database["public"]["Tables"]["sessions"]["Row"] }
+        Returns: {
+          created_at: string | null
+          date: string | null
+          id: string | null
+          label: string | null
+          semester_id: string | null
+        }
+        SetofOptions: {
+          from: "sessions"
+          to: "session_dates"
+          isOneToOne: true
+          isSetofReturn: true
+        }
       }
       set_outreach_silence: {
         Args: {
@@ -2631,9 +2124,6 @@ export type Database = {
         Returns: {
           cadence_days: number
           contact_id: string
-          conversion_details: Json
-          converted_mentor_profile_id: string | null
-          converted_startup_semester_id: string | null
           created_at: string
           created_by: string | null
           id: string
@@ -2641,18 +2131,19 @@ export type Database = {
           latest_inbound_activity_at: string | null
           latest_outbound_activity_at: string | null
           next_follow_up_at: string | null
-          notes: string | null
           owner_profile_id: string | null
           priority: number
           referred_by: string | null
+          relationship_types: string[]
           semester_id: string
+          semester_notes: string | null
           silence_reason: string | null
           silenced_at: string | null
           silenced_by: string | null
           snoozed_until: string | null
           source_channel: Database["public"]["Enums"]["outreach_channel"] | null
-          source_import_job_id: string | null
-          stage: Database["public"]["Enums"]["outreach_stage"]
+          source_context: Json
+          stage: string
           updated_at: string
         }
         SetofOptions: {
@@ -2672,9 +2163,6 @@ export type Database = {
         Returns: {
           cadence_days: number
           contact_id: string
-          conversion_details: Json
-          converted_mentor_profile_id: string | null
-          converted_startup_semester_id: string | null
           created_at: string
           created_by: string | null
           id: string
@@ -2682,18 +2170,19 @@ export type Database = {
           latest_inbound_activity_at: string | null
           latest_outbound_activity_at: string | null
           next_follow_up_at: string | null
-          notes: string | null
           owner_profile_id: string | null
           priority: number
           referred_by: string | null
+          relationship_types: string[]
           semester_id: string
+          semester_notes: string | null
           silence_reason: string | null
           silenced_at: string | null
           silenced_by: string | null
           snoozed_until: string | null
           source_channel: Database["public"]["Enums"]["outreach_channel"] | null
-          source_import_job_id: string | null
-          stage: Database["public"]["Enums"]["outreach_stage"]
+          source_context: Json
+          stage: string
           updated_at: string
         }
         SetofOptions: {
@@ -2701,6 +2190,36 @@ export type Database = {
           to: "outreach_opportunities"
           isOneToOne: true
           isSetofReturn: false
+        }
+      }
+      startups: {
+        Args: { "": Database["public"]["Tables"]["sessions"]["Row"] }
+        Returns: {
+          created_at: string | null
+          description: string | null
+          founder_name: string | null
+          founders: Json | null
+          id: string | null
+          industry: string | null
+          is_active: boolean | null
+          logo_url: string | null
+          mentor_preferences: string | null
+          mentorship_needs: string[] | null
+          name: string | null
+          preferred_tags: string[] | null
+          semester_goals: string[] | null
+          semester_id: string | null
+          slug: string | null
+          stage: Database["public"]["Enums"]["startup_stage"] | null
+          updated_at: string | null
+          user_id: string | null
+          website: string | null
+        }
+        SetofOptions: {
+          from: "sessions"
+          to: "startups"
+          isOneToOne: true
+          isSetofReturn: true
         }
       }
       suspend_outreach_membership: {
@@ -2727,9 +2246,6 @@ export type Database = {
         Returns: {
           cadence_days: number
           contact_id: string
-          conversion_details: Json
-          converted_mentor_profile_id: string | null
-          converted_startup_semester_id: string | null
           created_at: string
           created_by: string | null
           id: string
@@ -2737,18 +2253,19 @@ export type Database = {
           latest_inbound_activity_at: string | null
           latest_outbound_activity_at: string | null
           next_follow_up_at: string | null
-          notes: string | null
           owner_profile_id: string | null
           priority: number
           referred_by: string | null
+          relationship_types: string[]
           semester_id: string
+          semester_notes: string | null
           silence_reason: string | null
           silenced_at: string | null
           silenced_by: string | null
           snoozed_until: string | null
           source_channel: Database["public"]["Enums"]["outreach_channel"] | null
-          source_import_job_id: string | null
-          stage: Database["public"]["Enums"]["outreach_stage"]
+          source_context: Json
+          stage: string
           updated_at: string
         }
         SetofOptions: {
@@ -2820,10 +2337,19 @@ export type Database = {
         | "nurture"
         | "converted"
         | "closed"
+        | "not_contacted"
+        | "replied"
+        | "conversation_scheduled"
+        | "declined"
       outreach_status: "prospect" | "contacted" | "responded" | "onboarded"
       platform_role: "super_admin"
       semester_lifecycle_status: "draft" | "active" | "closed" | "archived"
-      session_status: "pending" | "confirmed" | "declined"
+      session_status:
+        | "pending"
+        | "confirmed"
+        | "declined"
+        | "requested"
+        | "cancelled"
       startup_stage: "idea" | "mvp" | "growth"
       user_role: "mentor" | "startup" | "admin"
     }
@@ -3022,13 +2548,24 @@ export const Constants = {
         "nurture",
         "converted",
         "closed",
+        "not_contacted",
+        "replied",
+        "conversation_scheduled",
+        "declined",
       ],
       outreach_status: ["prospect", "contacted", "responded", "onboarded"],
       platform_role: ["super_admin"],
       semester_lifecycle_status: ["draft", "active", "closed", "archived"],
-      session_status: ["pending", "confirmed", "declined"],
+      session_status: [
+        "pending",
+        "confirmed",
+        "declined",
+        "requested",
+        "cancelled",
+      ],
       startup_stage: ["idea", "mvp", "growth"],
       user_role: ["mentor", "startup", "admin"],
     },
   },
 } as const
+

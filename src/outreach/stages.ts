@@ -3,14 +3,13 @@ import type { OutreachStage } from "./types.ts";
 const OUTREACH_STAGE_TRANSITIONS: Readonly<
   Record<OutreachStage, readonly OutreachStage[]>
 > = {
-  prospect: ["researching", "closed"],
-  researching: ["ready", "closed"],
-  ready: ["contacted", "closed"],
-  contacted: ["responded", "nurture", "closed"],
-  responded: ["meeting", "nurture", "closed"],
-  meeting: ["converted", "nurture", "closed"],
-  nurture: ["ready", "contacted", "closed"],
-  converted: [],
+  not_contacted: ["researching", "contacted", "declined", "closed"],
+  researching: ["contacted", "ready", "declined", "closed"],
+  contacted: ["replied", "declined", "closed"],
+  replied: ["conversation_scheduled", "ready", "declined", "closed"],
+  conversation_scheduled: ["ready", "declined", "closed"],
+  ready: ["contacted", "conversation_scheduled", "declined", "closed"],
+  declined: ["not_contacted", "closed"],
   closed: [],
 };
 
@@ -33,5 +32,5 @@ export function transitionOutreachStage(
 }
 
 export function isOpenOutreachStage(stage: OutreachStage): boolean {
-  return stage !== "converted" && stage !== "closed";
+  return stage !== "declined" && stage !== "closed";
 }

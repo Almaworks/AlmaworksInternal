@@ -318,7 +318,7 @@ function mapOpportunity(
     id: row.id,
     semesterId: row.semester_id,
     ownerProfileId: row.owner_profile_id,
-    stage: row.stage,
+    stage: row.stage as OutreachStage,
     nextFollowUpAt: row.next_follow_up_at,
     snoozedUntil: row.snoozed_until,
     isSilenced: row.is_silenced,

@@ -73,7 +73,7 @@ export function classifyFollowUp(
 ): FollowUpBucket {
   const now = parseTimestamp(nowTimestamp, "Current timestamp");
 
-  if (opportunity.stage === "closed" || opportunity.stage === "converted") {
+  if (opportunity.stage === "closed" || opportunity.stage === "declined") {
     return "closed";
   }
 

@@ -118,7 +118,7 @@ export default function MentorDirectoryPage() {
       startup_id: startupId,
       session_date_id: requestDateId,
       semester_id: activeSemesterId,
-      status: 'pending',
+      status: 'requested',
       topic: requestTopic.trim() || null,
       format: requestFormat,
       is_confirmed: false,

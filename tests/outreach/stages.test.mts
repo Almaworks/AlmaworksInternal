@@ -8,15 +8,15 @@ import {
 } from "../../src/outreach/stages.ts";
 
 test("outreach stages allow the expected forward transitions", () => {
-  assert.equal(canTransitionOutreachStage("prospect", "researching"), true);
-  assert.equal(canTransitionOutreachStage("contacted", "responded"), true);
-  assert.equal(canTransitionOutreachStage("responded", "meeting"), true);
-  assert.equal(canTransitionOutreachStage("meeting", "converted"), true);
-  assert.equal(canTransitionOutreachStage("converted", "contacted"), false);
+  assert.equal(canTransitionOutreachStage("not_contacted", "researching"), true);
+  assert.equal(canTransitionOutreachStage("contacted", "replied"), true);
+  assert.equal(canTransitionOutreachStage("replied", "conversation_scheduled"), true);
+  assert.equal(canTransitionOutreachStage("conversation_scheduled", "ready"), true);
+  assert.equal(canTransitionOutreachStage("closed", "contacted"), false);
 });
 
 test("outreach stages distinguish open work and reject terminal transitions", () => {
-  assert.equal(isOpenOutreachStage("nurture"), true);
+  assert.equal(isOpenOutreachStage("contacted"), true);
   assert.equal(isOpenOutreachStage("closed"), false);
   assert.throws(
     () => transitionOutreachStage("closed", "contacted"),

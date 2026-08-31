@@ -15,6 +15,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { AlmaworksBrand } from "@/components/AlmaworksBrand";
 import { calculateOnboardingProgress, getOnboardingChecklist } from "@/src/lifecycle/onboarding";
 import type { ProgramRole } from "@/src/lifecycle/types";
 import { createClient } from "@/utils/supabase/client";
@@ -24,11 +25,7 @@ import styles from "./onboarding-flow.module.css";
 type ParticipantRole = Extract<ProgramRole, "startup" | "mentor">;
 type WizardStep = 1 | 2 | 3 | 4;
 
-const DEFAULT_WINDOWS = [
-  { id: "tue-am", day: "Tuesday", date: "Feb 9", time: "10:00 AM – 12:00 PM" },
-  { id: "wed-pm", day: "Wednesday", date: "Feb 10", time: "1:00 – 4:00 PM" },
-  { id: "thu-pm", day: "Thursday", date: "Feb 11", time: "3:00 – 6:00 PM" },
-];
+type MeetingWindow = { id: string; meetingId: string; slot: number; day: string; date: string; time: string };
 
 export default function OnboardingFlow() {
   const [role, setRole] = useState<ParticipantRole>("startup");
@@ -39,9 +36,9 @@ export default function OnboardingFlow() {
   const [description, setDescription] = useState("");
   const [expertise, setExpertise] = useState("Product strategy, Go-to-market");
   const [teamContact, setTeamContact] = useState("");
-  const [selectedWindows, setSelectedWindows] = useState<Set<string>>(
-    new Set(DEFAULT_WINDOWS.map((window) => window.id)),
-  );
+  const [meetingWindows, setMeetingWindows] = useState<MeetingWindow[]>([]);
+  const [selectedWindows, setSelectedWindows] = useState<Set<string>>(new Set());
+  const [semesterName, setSemesterName] = useState("your semester");
   const [membershipId, setMembershipId] = useState<string | null>(null);
   const [semesterId, setSemesterId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -71,6 +68,21 @@ export default function OnboardingFlow() {
         setMembershipId(membership.id);
         setSemesterId(membership.semester_id);
         if (membership.role === "mentor" || membership.role === "startup") setRole(membership.role);
+        const [{ data: semester }, { data: meetings }, { data: availability }] = await Promise.all([
+          supabase.from("semesters").select("name").eq("id", membership.semester_id).maybeSingle(),
+          supabase.from("meetings").select("id, meeting_date, slot_1_starts_at, slot_1_ends_at, slot_2_starts_at, slot_2_ends_at").eq("semester_id", membership.semester_id).order("meeting_date"),
+          supabase.from("meeting_availability").select("meeting_id, slot, is_available").eq("semester_membership_id", membership.id),
+        ]);
+        if (semester?.name) setSemesterName(semester.name);
+        const windows = (meetings ?? []).flatMap((meeting) => ([1, 2] as const).map((slot) => {
+          const date = new Date(`${meeting.meeting_date}T12:00:00`);
+          const start = slot === 1 ? meeting.slot_1_starts_at : meeting.slot_2_starts_at;
+          const end = slot === 1 ? meeting.slot_1_ends_at : meeting.slot_2_ends_at;
+          return { id: `${meeting.id}:${slot}`, meetingId: meeting.id, slot, day: date.toLocaleDateString(undefined, { weekday: "long" }), date: date.toLocaleDateString(undefined, { month: "short", day: "numeric" }), time: `${start.slice(0, 5)} – ${end.slice(0, 5)}` };
+        }));
+        setMeetingWindows(windows);
+        const saved = new Set((availability ?? []).filter((item) => item.is_available).map((item) => `${item.meeting_id}:${item.slot}`));
+        setSelectedWindows(saved.size > 0 ? saved : new Set(windows.map((window) => window.id)));
       }
     });
   }, []);
@@ -96,20 +108,22 @@ export default function OnboardingFlow() {
       { item_key: role === "startup" ? "team_contacts" : "expertise", is_required: true, completed_at: (role === "startup" ? teamContact.trim() : expertise.trim()) ? new Date().toISOString() : null, payload: role === "startup" ? { teamContact: teamContact.trim() } : { expertise: expertise.split(",").map((item) => item.trim()).filter(Boolean) } },
       { item_key: "availability", is_required: true, completed_at: selectedWindows.size > 0 ? new Date().toISOString() : null, payload: { windows: Array.from(selectedWindows) } },
     ];
-    const progressResult = await supabase.from("onboarding_progress").upsert(rows.map((row) => ({ ...row, semester_id: semesterId, semester_membership_id: membershipId })), { onConflict: "semester_membership_id,item_key" });
+    const now = new Date().toISOString();
+    const progressResult = await supabase.from("semester_memberships").update({
+      onboarding_data: rows,
+      onboarding_started_at: now,
+      ...(finalize ? { onboarding_completed_at: now, activated_at: now, status: "active" as const } : { status: "onboarding" as const }),
+    }).eq("id", membershipId).eq("semester_id", semesterId);
     if (progressResult.error) {
       setSaveError(progressResult.error.message);
       setSaving(false);
       return false;
     }
     if (finalize && selectedWindows.size > 0) {
-      const availability = DEFAULT_WINDOWS.filter((window) => selectedWindows.has(window.id)).map((window) => {
-        const date = window.id === "tue-am" ? "2027-02-09" : window.id === "wed-pm" ? "2027-02-10" : "2027-02-11";
-        return { semester_id: semesterId, profile_id: user.id, starts_at: `${date}T09:00:00-05:00`, ends_at: `${date}T17:00:00-05:00`, timezone: "America/New_York", source: "user" };
-      });
-      const availabilityResult = await supabase.from("availability_windows").delete().eq("semester_id", semesterId).eq("profile_id", user.id);
+      const availability = meetingWindows.map((window) => ({ semester_id: semesterId, semester_membership_id: membershipId, meeting_id: window.meetingId, slot: window.slot, is_available: selectedWindows.has(window.id), source: "onboarding" }));
+      const availabilityResult = await supabase.from("meeting_availability").delete().eq("semester_id", semesterId).eq("semester_membership_id", membershipId);
       if (availabilityResult.error) { setSaveError(availabilityResult.error.message); setSaving(false); return false; }
-      const insertResult = await supabase.from("availability_windows").insert(availability);
+      const insertResult = await supabase.from("meeting_availability").insert(availability);
       if (insertResult.error) { setSaveError(insertResult.error.message); setSaving(false); return false; }
     }
     setSaving(false);
@@ -149,7 +163,7 @@ export default function OnboardingFlow() {
   return (
     <div className={styles.shell}>
       <aside className={styles.contextPanel}>
-        <div className={styles.contextBrand}><span>AW</span><strong>Almaworks</strong></div>
+        <div className={styles.contextBrand}><AlmaworksBrand tone="white" iconSize={34} /></div>
         <div className={styles.contextCopy}>
           <p className={styles.eyebrow}>Spring 2027</p>
           <h1>Let’s make your first session useful.</h1>
@@ -203,9 +217,9 @@ export default function OnboardingFlow() {
             <section>
               <p className={styles.eyebrow}>One last essential</p><h2>When are you usually free?</h2><p className={styles.lede}>We selected the program’s recommended windows. Deselect anything that doesn’t work; exact meeting times are confirmed later.</p>
               <div className={styles.windowList}>
-                {DEFAULT_WINDOWS.map((window) => {
+                {meetingWindows.map((window) => {
                   const selected = selectedWindows.has(window.id);
-                  return <button type="button" key={window.id} className={selected ? styles.windowSelected : ""} onClick={() => toggleWindow(window.id)}><span className={styles.checkBox}>{selected && <Check size={13} />}</span><span className={styles.dateBlock}><strong>{window.day}</strong><small>{window.date}</small></span><span className={styles.timeBlock}><Clock3 size={15} />{window.time}</span><span className={styles.recommended}>{window.id === "wed-pm" ? "Most popular" : ""}</span></button>;
+                  return <button type="button" key={window.id} className={selected ? styles.windowSelected : ""} onClick={() => toggleWindow(window.id)}><span className={styles.checkBox}>{selected && <Check size={13} />}</span><span className={styles.dateBlock}><strong>{window.day}</strong><small>{window.date}</small></span><span className={styles.timeBlock}><Clock3 size={15} />{window.time}</span><span className={styles.recommended}>{window.slot === 1 ? "Session 1" : "Session 2"}</span></button>;
                 })}
               </div>
               <div className={styles.defaultNote}><Sparkles size={16} /><div><strong>Defaults, not commitments</strong><p>These windows improve matching. You’ll approve each session request before it is scheduled.</p></div></div>
@@ -214,7 +228,7 @@ export default function OnboardingFlow() {
 
           {step === 4 && (
             <section className={styles.completeState}>
-              <span><Check size={28} /></span><p className={styles.eyebrow}>Essentials complete</p><h2>You’re ready for Spring 2027.</h2><p>We’ll take you to your dashboard. Optional details stay in a short checklist, so your profile can get stronger over time without blocking you today.</p>
+              <span><Check size={28} /></span><p className={styles.eyebrow}>Essentials complete</p><h2>You’re ready for {semesterName}.</h2><p>We’ll take you to your dashboard. Optional details stay in a short checklist, so your profile can get stronger over time without blocking you today.</p>
               <div className={styles.summaryCard}><div><strong>{progress.required.completed}/{progress.required.total}</strong><small>Required tasks</small></div><div><strong>{selectedWindows.size}</strong><small>Available windows</small></div><div><strong>{role === "startup" ? "Shared" : "Personal"}</strong><small>Profile access</small></div></div>
               <div className={styles.nextChecklist}><strong>Keep improving when you have a minute</strong>{checklist.filter((item) => !item.required).map((item) => <span key={item.key}><i />{item.label}</span>)}</div>
               <button className={styles.primaryButton} onClick={() => router.push(role === "mentor" ? "/dashboard/mentor" : "/dashboard/startup")}>Go to my dashboard <ArrowRight size={16} /></button>

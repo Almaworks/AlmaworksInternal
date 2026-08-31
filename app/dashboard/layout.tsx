@@ -1,11 +1,11 @@
 'use client'
 
 import { createClient } from '@/utils/supabase/client'
+import { AlmaworksBrand } from '@/components/AlmaworksBrand'
 import Link from 'next/link'
-import Image from 'next/image'
 import { useRouter, usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { CalendarDays, ChevronLeft, ChevronRight, FileUp, Inbox, LayoutDashboard, LogOut, Menu, Megaphone, Network, Search, Settings, Target, Users, X } from 'lucide-react'
+import { CalendarDays, ChevronLeft, ChevronRight, Inbox, LayoutDashboard, LogOut, Menu, Megaphone, Network, Search, Settings, Target, Users, X } from 'lucide-react'
 
 type Profile = {
   full_name: string | null
@@ -77,7 +77,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           { href: '/dashboard/admin/outreach', label: 'Outreach' },
           { href: '/dashboard/admin/mentor-needs', label: 'Mentor Needs' },
           { href: '/dashboard/admin/mentors', label: 'Mentors' },
-          { href: '/dashboard/admin/import', label: 'Import' },
           { href: '/dashboard/admin/notify', label: 'Notify' },
           { href: '/dashboard/resources', label: 'Resources' },
         ]
@@ -98,7 +97,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     Outreach: Megaphone,
     'Mentor Needs': Target,
     Mentors: Users,
-    Import: FileUp,
     Notify: Megaphone,
     Resources: Search,
     'My Schedule': CalendarDays,
@@ -129,9 +127,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <aside className={`hidden bg-[#002147] md:flex flex-col shrink-0 transition-[width] duration-200 ${sidebarCollapsed ? 'w-[4.5rem]' : 'w-56'}`} aria-label="Dashboard sidebar">
         <div className={`relative border-b border-white/10 py-5 ${sidebarCollapsed ? 'px-3' : 'px-5'}`}>
           {sidebarCollapsed ? (
-            <span className="flex h-7 w-8 items-center justify-center text-lg font-bold tracking-tight text-white" aria-label="Almaworks">A</span>
+            <AlmaworksBrand compact tone="white" iconSize={32} className="justify-center" />
           ) : (
-            <Image src="/images/logo.svg" alt="Almaworks" width={120} height={28} className="invert brightness-200" />
+            <AlmaworksBrand tone="white" iconSize={30} />
           )}
           {roleLabel && (
             <span className={`${sidebarCollapsed ? 'sr-only' : 'inline-block'} mt-1 text-[10px] font-semibold tracking-widest uppercase text-[#75AADB]/80 bg-[#75AADB]/10 px-2 py-0.5 rounded-full`}>
@@ -217,7 +215,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <button type="button" onClick={() => setMobileNavOpen(value => !value)} className="rounded-md p-2 text-white/80 hover:bg-white/10 hover:text-white" aria-label={mobileNavOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileNavOpen}>
               {mobileNavOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
             </button>
-            <Image src="/images/logo.svg" alt="Almaworks" width={112} height={26} className="invert brightness-200" />
+            <AlmaworksBrand tone="white" iconSize={28} />
           </div>
           <div className="flex items-center gap-3">
             {roleLabel && <span className="text-[10px] font-semibold uppercase tracking-widest text-[#9ac7e2]">{roleLabel}</span>}

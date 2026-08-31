@@ -1,7 +1,7 @@
 'use client'
 
 import { createClient } from '@/utils/supabase/client'
-import Image from 'next/image'
+import { AlmaworksBrand } from '@/components/AlmaworksBrand'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { Suspense, useState } from 'react'
@@ -67,14 +67,7 @@ function SignInContent() {
     <div className="min-h-screen bg-[#002147] flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-8 py-6">
-        <Image
-          src="/images/logo.svg"
-          alt="Almaworks"
-          width={140}
-          height={32}
-          priority
-          className="invert brightness-200"
-        />
+        <AlmaworksBrand tone="white" iconSize={34} priority />
         <Link
           href="/learn-more"
           className="text-[#75AADB] text-sm font-medium hover:text-white transition-colors"
@@ -87,8 +80,8 @@ function SignInContent() {
       <div className="flex-1 flex items-center justify-center px-4">
         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8">
           {/* Logo mark */}
-          <div className="w-12 h-12 rounded-xl overflow-hidden mb-6">
-            <Image src="/images/icon.svg" alt="Almaworks" width={48} height={48} />
+          <div className="mb-6">
+            <AlmaworksBrand compact iconSize={48} />
           </div>
 
           <h1 className="text-2xl font-semibold text-[#002147] mb-1">Welcome</h1>

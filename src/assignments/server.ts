@@ -17,18 +17,39 @@ export function parseCommitBody(value: unknown, headers: Headers) {
   return { semesterId: uuid(text("semesterId"), "semesterId"), startupSemesterId: uuid(text("startupSemesterId"), "startupSemesterId"), sessionDateId: uuid(text("sessionDateId"), "sessionDateId"), timeSlot: slot(text("timeSlot")), mentorProfileId: uuid(text("mentorProfileId"), "mentorProfileId"), idempotencyKey, format, topic: text("topic"), overrideTypes: Array.isArray(body.overrideTypes) && body.overrideTypes.every((x) => typeof x === "string") ? body.overrideTypes : [], overrideReason: text("overrideReason"), rankingContext: body.rankingContext && typeof body.rankingContext === "object" && !Array.isArray(body.rankingContext) ? body.rankingContext as Json : {} };
 }
 export async function loadAssignmentCandidates(client: Client, input: ReturnType<typeof parseCandidateQuery>) {
-  const [{ data: date }, { data: startup }, { data: mentors }, { data: availability }, { data: sessions }] = await Promise.all([
-    client.from("session_dates").select("id, date, semester_id").eq("id", input.sessionDateId).eq("semester_id", input.semesterId).maybeSingle(),
-    client.from("startup_semesters").select("id, startup_id, mentor_needs").eq("id", input.startupSemesterId).eq("semester_id", input.semesterId).maybeSingle(),
-    client.from("mentors").select("id, user_id, full_name, expertise_tags, capacity, preferred_format").eq("semester_id", input.semesterId).eq("is_active", true),
-    client.from("availability").select("user_id, session_date_id, is_available").eq("session_date_id", input.sessionDateId),
-    client.from("sessions").select("mentor_id, time_slot").eq("semester_id", input.semesterId),
+  const [{ data: meeting }, { data: startup }, { data: mentorTerms }, { data: availability }, { data: sessions }] = await Promise.all([
+    client.from("meetings").select("id, meeting_date, semester_id").eq("id", input.sessionDateId).eq("semester_id", input.semesterId).maybeSingle(),
+    client.from("startup_semesters").select("id, mentorship_needs").eq("id", input.startupSemesterId).eq("semester_id", input.semesterId).maybeSingle(),
+    client.from("mentor_semesters").select("id, semester_membership_id, capacity, preferred_format").eq("semester_id", input.semesterId).eq("readiness_status", "ready"),
+    client.from("meeting_availability").select("semester_membership_id, meeting_id, slot, is_available").eq("meeting_id", input.sessionDateId),
+    client.from("sessions").select("mentor_semester_id, slot").eq("semester_id", input.semesterId),
   ]);
-  if (!date || !startup) throw new AssignmentHttpError(400, "validation_error", "Slot and startup must belong to the selected semester.");
-  const needs = startup.mentor_needs as { primaryNeed?: string; secondaryNeed?: string } | null;
-  const assignedFirst = (sessions ?? []).filter((s) => s.time_slot === "3:30-4:15").map((s) => s.mentor_id);
-  const assignmentSlot = { id: `${input.sessionDateId}:${input.timeSlot}`, semesterId: input.semesterId, date: date.date, start: input.timeSlot.split("-")[0], end: input.timeSlot.split("-")[1], format: "in_person" as MeetingFormat };
-  const candidates = (mentors ?? []).map((mentor) => ({ id: mentor.user_id ?? mentor.id, name: mentor.full_name, expertise: mentor.expertise_tags, availability: (availability ?? []).filter((a) => a.user_id === mentor.user_id && a.is_available).map((a) => a.session_date_id), recentMeetingCount: 0, assignmentLoad: (sessions ?? []).filter((s) => s.mentor_id === mentor.id).length, formats: [mentor.preferred_format === "remote" ? "remote" : "in_person"] as MeetingFormat[] }));
-  return { slot: assignmentSlot, candidates: rankMentorCandidates({ primaryNeed: needs?.primaryNeed ?? null, secondaryNeed: needs?.secondaryNeed ?? null, slot: assignmentSlot, excludeMentorIds: input.timeSlot === "4:15-5:00" ? assignedFirst : [], mentors: candidates }) };
+  if (!meeting || !startup) throw new AssignmentHttpError(400, "validation_error", "Slot and startup must belong to the selected semester.");
+  const membershipIds = (mentorTerms ?? []).map((term) => term.semester_membership_id);
+  const { data: memberships } = membershipIds.length === 0
+    ? { data: [] }
+    : await client.from("semester_memberships").select("id, profile_id").in("id", membershipIds).eq("status", "active");
+  const profileIds = (memberships ?? []).map((membership) => membership.profile_id);
+  const [{ data: profiles }, { data: mentorProfiles }] = profileIds.length === 0
+    ? [{ data: [] }, { data: [] }]
+    : await Promise.all([
+      client.from("profiles").select("id, full_name, email").in("id", profileIds),
+      client.from("mentor_profiles").select("profile_id, expertise_tags").in("profile_id", profileIds),
+    ]);
+  const membershipById = new Map((memberships ?? []).map((membership) => [membership.id, membership]));
+  const profileById = new Map((profiles ?? []).map((profile) => [profile.id, profile]));
+  const mentorProfileById = new Map((mentorProfiles ?? []).map((profile) => [profile.profile_id, profile]));
+  const selectedSlot = input.timeSlot === "3:30-4:15" ? 1 : 2;
+  const assignedFirst = (sessions ?? []).filter((session) => session.slot === 1).map((session) => session.mentor_semester_id);
+  const assignmentSlot = { id: `${input.sessionDateId}:${input.timeSlot}`, semesterId: input.semesterId, date: meeting.meeting_date, start: input.timeSlot.split("-")[0], end: input.timeSlot.split("-")[1], format: "in_person" as MeetingFormat };
+  const candidates = (mentorTerms ?? []).flatMap((term) => {
+    const membership = membershipById.get(term.semester_membership_id);
+    const profile = membership && profileById.get(membership.profile_id);
+    const mentorProfile = membership && mentorProfileById.get(membership.profile_id);
+    if (!membership || !profile || !mentorProfile) return [];
+    return [{ id: term.id, name: profile.full_name ?? profile.email, expertise: mentorProfile.expertise_tags, availability: (availability ?? []).filter((row) => row.semester_membership_id === membership.id && row.slot === selectedSlot && row.is_available).map((row) => row.meeting_id), recentMeetingCount: 0, assignmentLoad: (sessions ?? []).filter((session) => session.mentor_semester_id === term.id).length, formats: [term.preferred_format === "remote" ? "remote" : "in_person"] as MeetingFormat[] }];
+  });
+  const needs = startup.mentorship_needs;
+  return { slot: assignmentSlot, candidates: rankMentorCandidates({ primaryNeed: needs[0] ?? undefined, secondaryNeed: needs[1] ?? undefined, slot: assignmentSlot, excludeMentorIds: input.timeSlot === "4:15-5:00" ? assignedFirst : [], mentors: candidates }) };
 }
-export async function commitAssignment(client: Client, input: ReturnType<typeof parseCommitBody>) { const { data, error } = await client.rpc("commit_mentor_assignment", { p_semester_id: input.semesterId, p_session_date_id: input.sessionDateId, p_time_slot: input.timeSlot, p_startup_semester_id: input.startupSemesterId, p_mentor_profile_id: input.mentorProfileId, p_idempotency_key: input.idempotencyKey, p_format: input.format, p_topic: input.topic, p_override_types: input.overrideTypes, p_override_reason: input.overrideReason, p_ranking_context: input.rankingContext }); if (error) { if (["23505", "40001", "23514"].includes(error.code ?? "")) throw new AssignmentHttpError(409, "assignment_conflict", error.message); throw new AssignmentHttpError(400, "validation_error", error.message); } return data; }
+export async function commitAssignment(client: Client, input: ReturnType<typeof parseCommitBody>) { const { data, error } = await client.rpc("commit_mentor_assignment", { p_semester_id: input.semesterId, p_session_date_id: input.sessionDateId, p_time_slot: input.timeSlot, p_startup_semester_id: input.startupSemesterId, p_mentor_profile_id: input.mentorProfileId, p_idempotency_key: input.idempotencyKey, p_format: input.format, p_topic: input.topic ?? undefined, p_override_types: input.overrideTypes, p_override_reason: input.overrideReason ?? undefined, p_ranking_context: input.rankingContext }); if (error) { if (["23505", "40001", "23514"].includes(error.code ?? "")) throw new AssignmentHttpError(409, "assignment_conflict", error.message); throw new AssignmentHttpError(400, "validation_error", error.message); } return data; }

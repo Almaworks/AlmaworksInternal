@@ -1,12 +1,11 @@
 export type OutreachStage =
-  | "prospect"
+  | "not_contacted"
   | "researching"
-  | "ready"
   | "contacted"
-  | "responded"
-  | "meeting"
-  | "nurture"
-  | "converted"
+  | "replied"
+  | "conversation_scheduled"
+  | "ready"
+  | "declined"
   | "closed";
 
 export type RelationshipLabel =

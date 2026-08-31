@@ -1,7 +1,16 @@
-import type { Database } from "@/src/db/types";
-
-export type OutreachInsert = Database["public"]["Tables"]["outreach"]["Insert"];
-export type OutreachStatus = Database["public"]["Enums"]["outreach_status"];
+export type OutreachStatus = "prospect" | "contacted" | "responded" | "onboarded";
+export type OutreachInsert = {
+  admin_id: string;
+  semester_id: string;
+  prospect_name: string;
+  prospect_email: string | null;
+  linkedin_url: string | null;
+  company: string | null;
+  expertise_tags: string[];
+  status: OutreachStatus;
+  notes: string | null;
+  last_contacted_at: string | null;
+};
 
 export type NotionOutreachSource = "current" | "deprecated" | "previous_mentors";
 

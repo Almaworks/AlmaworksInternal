@@ -27,6 +27,7 @@ export async function POST(request: Request, context: RouteContext) {
         semesterId: body.semesterId,
         importId: body.importId,
         idempotencyKey: body.idempotencyKey,
+        decisions: body.decisions,
       });
     },
   );

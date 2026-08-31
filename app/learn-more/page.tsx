@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import Image from 'next/image'
+import { AlmaworksBrand } from '@/components/AlmaworksBrand'
 
 export default function LearnMorePage() {
   return (
@@ -7,7 +7,7 @@ export default function LearnMorePage() {
       {/* Nav */}
       <nav className="flex items-center justify-between px-8 py-5 border-b border-[#002147]/10">
         <Link href="/">
-          <Image src="/images/logo.svg" alt="Almaworks" width={130} height={30} />
+          <AlmaworksBrand iconSize={32} priority />
         </Link>
         <Link
           href="/"

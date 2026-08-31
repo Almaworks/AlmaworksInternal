@@ -1,7 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "../db/types.ts";
-import { createImportPreview } from "./import-flow.ts";
 
 type Client = SupabaseClient<Database>;
 
@@ -10,18 +9,8 @@ export async function previewLegacyMigration(args: {
   userId: string;
   semesterId: string;
 }) {
-  const { data: rows, error } = await args.client
-    .from("outreach")
-    .select("*")
-    .eq("semester_id", args.semesterId)
-    .order("id", { ascending: true });
-  if (error !== null) throw new Error("Unable to read legacy outreach rows.");
-  return await createImportPreview({
-    ...args,
-    source: "legacy",
-    sourceFilename: `public.outreach:${args.semesterId}`,
-    rows: (rows ?? []).map((row) => ({ ...row })),
-  });
+  void args;
+  throw new Error("Legacy outreach rows have already been migrated. Use the current outreach import flow.");
 }
 
 export async function commitLegacyMigration(args: {

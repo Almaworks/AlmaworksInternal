@@ -257,7 +257,7 @@ export async function loadContactDetailResponse(
     );
   }
 
-  const [contactResult, relationshipsResult, labelsResult, activitiesResult] = await Promise.all([
+  const [contactResult, relationshipsResult, activitiesResult] = await Promise.all([
     client
       .from("outreach_contacts")
       .select("id, full_name, email, linkedin_url, phone, biography, expertise_tags, notes, updated_at")
@@ -268,39 +268,25 @@ export async function loadContactDetailResponse(
       .select("id, company_id, title, started_on, ended_on, is_primary")
       .eq("contact_id", options.contactId)
       .order("is_primary", { ascending: false }),
-    client
-      .from("outreach_opportunity_labels")
-      .select("relationship_label_id")
-      .eq("semester_id", options.semesterId)
-      .eq("opportunity_id", opportunityResult.data.id),
     activitiesQuery,
   ]);
   if (
     contactResult.error !== null
     || contactResult.data === null
     || relationshipsResult.error !== null
-    || labelsResult.error !== null
     || activitiesResult.error !== null
   ) databaseReadError();
 
   const companyIds = (relationshipsResult.data ?? []).map((row) => row.company_id);
-  const labelIds = (labelsResult.data ?? []).map((row) => row.relationship_label_id);
-  const [companiesResult, definitionsResult] = await Promise.all([
+  const [companiesResult] = await Promise.all([
     companyIds.length === 0
       ? Promise.resolve({ data: [], error: null })
       : client
         .from("outreach_companies")
         .select("id, name, domain, website_url, description, sector")
         .in("id", companyIds),
-    labelIds.length === 0
-      ? Promise.resolve({ data: [], error: null })
-      : client
-        .from("outreach_relationship_labels")
-        .select("id, slug, name, description, color_token")
-        .in("id", labelIds)
-        .order("name", { ascending: true }),
   ]);
-  if (companiesResult.error !== null || definitionsResult.error !== null) databaseReadError();
+  if (companiesResult.error !== null) databaseReadError();
   const companies = new Map((companiesResult.data ?? []).map((row) => [row.id, row]));
 
   const rawActivities = activitiesResult.data ?? [];
@@ -342,7 +328,13 @@ export async function loadContactDetailResponse(
       options.semesterId,
       opportunityResult.data.id,
     ),
-    labels: definitionsResult.data ?? [],
+    labels: opportunityResult.data.relationship_types.map((relationshipType) => ({
+      id: relationshipType,
+      slug: relationshipType,
+      name: relationshipType.replaceAll("_", " "),
+      description: null,
+      color_token: null,
+    })),
     activities,
     nextActivityCursor: hasNextPage && lastActivity !== undefined
       ? encodeOutreachCursor({ nextFollowUpAt: lastActivity.occurredAt, id: lastActivity.id })

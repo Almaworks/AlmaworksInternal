@@ -162,8 +162,8 @@ test("treats an expired snooze as active queue work", () => {
   );
 });
 
-test("classifies converted and closed opportunities as closed", () => {
-  assert.equal(classifyFollowUp(opportunity({ stage: "converted" }), now), "closed");
+test("classifies declined and closed opportunities as closed", () => {
+  assert.equal(classifyFollowUp(opportunity({ stage: "declined" }), now), "closed");
   assert.equal(classifyFollowUp(opportunity({ stage: "closed" }), now), "closed");
 });
 

@@ -609,13 +609,6 @@ export default function AdminDashboard() {
       return memberSortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
     })
 
-  function sessionSemesterLabel(session: Session): string {
-    const dates = session.session_dates
-    const relatedSemester = dates?.semesters
-    const relatedName = Array.isArray(relatedSemester) ? relatedSemester[0]?.name : relatedSemester?.name
-    return dates?.semester_name ?? relatedName ?? 'Spring 2026'
-  }
-
   // ── Schedule ───────────────────────────────────────────────────────────────
 
   async function assignForWeek() {
@@ -1031,7 +1024,7 @@ export default function AdminDashboard() {
                         Status <SortIcon field="is_active" />
                       </th>
                       <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
-                        Sessions
+                        Semesters
                       </th>
                       <th className="px-5 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
                         Action
@@ -1040,24 +1033,16 @@ export default function AdminDashboard() {
                   </thead>
                   <tbody>
                     {(() => {
-                      const mentorByEmail = new Map(mentors.filter(m => m.email).map(m => [m.email!.toLowerCase(), m]))
-                      const startupByFounderEmail = new Map<string, typeof startups[0]>()
-                      for (const s of startups) for (const f of s.founders ?? []) if (f.email) startupByFounderEmail.set(f.email.toLowerCase(), s)
-
-                      function getMemberSessions(member: Member) {
-                        if (member.role === 'mentor') {
-                          const mentor = mentorByEmail.get(member.email.toLowerCase())
-                          return mentor ? sessions.filter(s => s.mentor_id === mentor.id) : []
-                        }
-                        if (member.role === 'startup') {
-                          const startup = startupByFounderEmail.get(member.email.toLowerCase())
-                          return startup ? sessions.filter(s => s.startup_id === startup.id) : []
-                        }
-                        return []
+                      function getMemberSemesters(member: Member) {
+                        return [...new Set(
+                          cohort.members
+                            .filter(membership => membership.profileId === member.id)
+                            .map(membership => membership.semesterName),
+                        )].sort().reverse()
                       }
 
                       return filteredMembers.flatMap(m => {
-                        const memberSessions = getMemberSessions(m)
+                        const memberSemesters = getMemberSemesters(m)
                         const isEditing = editingMember?.id === m.id
                         const rows = [
                           <tr key={m.id} className={`transition-colors ${isEditing ? 'bg-[#002147]/3' : 'hover:bg-gray-50/60 border-b border-gray-50'}`}>
@@ -1079,17 +1064,14 @@ export default function AdminDashboard() {
                               </span>
                             </td>
                             <td className="px-5 py-3.5">
-                              {memberSessions.length > 0 ? (
-                                <div className="flex flex-col gap-0.5">
-                                  {memberSessions.slice(0, 2).map(s => (
-                                    <button key={s.id} onClick={() => openEditSession(s)}
-                                      className="text-left text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#002147]/8 text-[#002147] hover:bg-[#002147]/15 transition-colors whitespace-nowrap w-fit">
-                                      {sessionSemesterLabel(s)}
-                                    </button>
+                              {memberSemesters.length > 0 ? (
+                                <div className="flex flex-wrap gap-1">
+                                  {memberSemesters.map(semesterName => (
+                                    <span key={semesterName}
+                                      className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#002147]/8 text-[#002147] whitespace-nowrap">
+                                      {semesterName}
+                                    </span>
                                   ))}
-                                  {memberSessions.length > 2 && (
-                                    <span className="text-[10px] text-gray-400 px-2">+{memberSessions.length - 2} more</span>
-                                  )}
                                 </div>
                               ) : (
                                 <span className="text-xs text-gray-300">—</span>
@@ -1159,24 +1141,6 @@ export default function AdminDashboard() {
                                       </button>
                                     </div>
                                   </form>
-                                  {memberSessions.length > 0 && (
-                                    <div className="border-t border-gray-100 pt-3">
-                                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Sessions</p>
-                                      <div className="space-y-1.5">
-                                        {memberSessions.map(s => (
-                                          <div key={s.id} className="flex items-center justify-between gap-2 px-3 py-2 bg-white rounded-lg border border-gray-100">
-                                            <div>
-                                              <p className="text-xs font-medium text-[#002147]">{sessionSemesterLabel(s)}</p>
-                                            </div>
-                                            <button onClick={() => openEditSession(s)}
-                                              className="px-2.5 py-1 text-[10px] font-medium border border-gray-200 text-gray-500 hover:text-[#002147] hover:border-[#002147]/30 rounded-lg transition-colors shrink-0">
-                                              Edit session
-                                            </button>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  )}
                                 </div>
                               </td>
                             </tr>

@@ -153,8 +153,8 @@ test("stage updates require a supported stage and optimistic version", () => {
     semesterId,
     opportunityId,
     updatedAt,
-    stage: "meeting",
-  }), { semesterId, opportunityId, updatedAt, stage: "meeting" });
+    stage: "conversation_scheduled",
+  }), { semesterId, opportunityId, updatedAt, stage: "conversation_scheduled" });
 });
 
 test("stage updates reject an unsupported stage", () => {
@@ -208,6 +208,17 @@ test("import preview rejects more than 250 rows before authorization", async () 
   );
 });
 
+test("outreach import preview accepts CSV only", () => {
+  assert.throws(
+    () => parseImportPreviewBody({
+      semesterId,
+      source: "excel",
+      rows: [{ name: "Ada Lovelace" }],
+    }),
+    (error: unknown) => error instanceof Error && error.message.includes("source"),
+  );
+});
+
 test("import commit requires a non-empty Idempotency-Key header", async () => {
   for (const headerValue of [null, "   "]) {
     const headers = new Headers({ "content-type": "application/json" });
@@ -229,6 +240,40 @@ test("import commit requires a non-empty Idempotency-Key header", async () => {
       "Idempotency-Key",
     );
   }
+});
+
+test("import commit carries reviewed row decisions", () => {
+  const headers = new Headers({ "Idempotency-Key": "reviewed-import-1" });
+
+  assert.deepEqual(parseImportCommitBody({
+    semesterId,
+    importId: opportunityId,
+    decisions: [
+      { rowNumber: 1, decision: "create" },
+      { rowNumber: 2, decision: "merge", matchedContactId: opportunityId },
+      { rowNumber: 3, decision: "exclude" },
+    ],
+  }, headers), {
+    semesterId,
+    importId: opportunityId,
+    idempotencyKey: "reviewed-import-1",
+    decisions: [
+      { rowNumber: 1, decision: "create" },
+      { rowNumber: 2, decision: "merge", matchedContactId: opportunityId },
+      { rowNumber: 3, decision: "exclude" },
+    ],
+  });
+});
+
+test("import commit rejects merge decisions without a contact", () => {
+  assert.throws(
+    () => parseImportCommitBody({
+      semesterId,
+      importId: opportunityId,
+      decisions: [{ rowNumber: 1, decision: "merge" }],
+    }, new Headers({ "Idempotency-Key": "reviewed-import-2" })),
+    (error: unknown) => error instanceof Error && error.message.includes("matchedContactId"),
+  );
 });
 
 test("stale command conflicts map to a stable versioned 409 response", async () => {
