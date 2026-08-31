@@ -1,7 +1,26 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { resolveAdminRouteAccess } from "../../src/auth/admin-route.ts";
+import {
+  resolveAdminRouteAccess,
+  shouldDeferAdminAuthorization,
+} from "../../src/auth/admin-route.ts";
+
+test("approved admin paths defer to the authoritative layout regardless of legacy role", () => {
+  for (const role of ["mentor", "startup", "admin", null] as const) {
+    assert.equal(shouldDeferAdminAuthorization("/dashboard/admin", { role, status: "approved" }), true);
+    assert.equal(shouldDeferAdminAuthorization("/dashboard/admin/schedule", { role, status: "approved" }), true);
+  }
+
+  assert.equal(
+    shouldDeferAdminAuthorization("/dashboard/admin-tools", { role: "admin", status: "approved" }),
+    false,
+  );
+  assert.equal(
+    shouldDeferAdminAuthorization("/dashboard/admin", { role: "admin", status: "pending" }),
+    false,
+  );
+});
 
 test("a platform super-admin grant allows access even when the legacy profile role is stale", () => {
   assert.equal(resolveAdminRouteAccess({

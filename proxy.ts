@@ -2,6 +2,8 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
+import { shouldDeferAdminAuthorization } from '@/src/auth/admin-route'
+
 export async function proxy(req: NextRequest) {
   let res = NextResponse.next({ request: req })
 
@@ -118,9 +120,14 @@ export async function proxy(req: NextRequest) {
 
     const profile = await getProfile()
 
-    if (!profile || profile.status !== 'approved' || !profile.role) {
+    if (!profile || profile.status !== 'approved') {
       return NextResponse.redirect(new URL('/pending', req.url))
     }
+
+    // The server layout owns authoritative platform/semester admin checks.
+    if (shouldDeferAdminAuthorization(pathname, profile)) return res
+
+    if (!profile.role) return NextResponse.redirect(new URL('/pending', req.url))
 
     const onboardingState = await getOnboardingState(profile)
     if (pathname === '/dashboard/onboarding') {
@@ -135,10 +142,6 @@ export async function proxy(req: NextRequest) {
     }
 
     // Role-route guard
-    if (pathname.startsWith('/dashboard/admin') && profile.role !== 'admin') {
-      const dest = profile.role === 'mentor' ? '/dashboard/mentor' : '/dashboard/startup'
-      return NextResponse.redirect(new URL(dest, req.url))
-    }
     if (pathname.startsWith('/dashboard/mentor') && profile.role !== 'mentor' && profile.role !== 'admin') {
       return NextResponse.redirect(new URL('/dashboard/startup', req.url))
     }

@@ -15,6 +15,14 @@ export type AdminRouteAccessInput = {
   };
 };
 
+export function shouldDeferAdminAuthorization(
+  pathname: string,
+  profile: AdminRouteProfile | null,
+): boolean {
+  const isAdminPath = pathname === "/dashboard/admin" || pathname.startsWith("/dashboard/admin/");
+  return isAdminPath && profile?.status === "approved";
+}
+
 export function resolveAdminRouteAccess(input: AdminRouteAccessInput): string | null {
   if (!input.authenticated) return "/";
   if (!input.profile || input.profile.status !== "approved") return "/pending";
