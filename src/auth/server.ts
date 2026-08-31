@@ -13,9 +13,12 @@ export class AuthorizationError extends Error {
   }
 }
 
-interface AuthorizedContext {
+export interface AuthenticatedRlsContext {
   user: User;
   userClient: SupabaseClient<Database>;
+}
+
+interface AuthorizedContext extends AuthenticatedRlsContext {
   adminClient: SupabaseClient<Database>;
 }
 
@@ -80,21 +83,20 @@ export class MembershipSuspensionError extends Error {
   }
 }
 
-function getSupabaseEnvironment() {
+function getPublicSupabaseEnvironment() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !anonKey || !serviceRoleKey) {
+  if (!url || !anonKey) {
     throw new AuthorizationError("Missing Supabase server environment variables.", 500);
   }
-  return { url, anonKey, serviceRoleKey };
+  return { url, anonKey };
 }
 
-export async function requireAuthenticatedUser(request: Request): Promise<AuthorizedContext> {
+export async function requireAuthenticatedUserWithRls(request: Request): Promise<AuthenticatedRlsContext> {
   const token = readBearerToken(request.headers.get("authorization"));
   if (!token) throw new AuthorizationError("Missing bearer token.", 401);
 
-  const { url, anonKey, serviceRoleKey } = getSupabaseEnvironment();
+  const { url, anonKey } = getPublicSupabaseEnvironment();
   const authOptions = { persistSession: false, autoRefreshToken: false };
   const userClient = createClient<Database>(url, anonKey, {
     global: { headers: { Authorization: `Bearer ${token}` } },
@@ -106,6 +108,19 @@ export async function requireAuthenticatedUser(request: Request): Promise<Author
   return {
     user: data.user,
     userClient,
+  };
+}
+
+export async function requireAuthenticatedUser(request: Request): Promise<AuthorizedContext> {
+  const context = await requireAuthenticatedUserWithRls(request);
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceRoleKey) {
+    throw new AuthorizationError("Missing Supabase server environment variables.", 500);
+  }
+  const { url } = getPublicSupabaseEnvironment();
+  const authOptions = { persistSession: false, autoRefreshToken: false };
+  return {
+    ...context,
     adminClient: createClient<Database>(url, serviceRoleKey, { auth: authOptions }),
   };
 }

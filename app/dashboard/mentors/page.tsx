@@ -4,6 +4,7 @@ import { createClient } from '@/utils/supabase/client'
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { mentorDirectoryScheduleEntry } from '@/src/assignments/schedule-navigation'
+import { authenticatedFetch } from '@/src/auth/authenticated-fetch'
 
 type MentorCard = {
   id: string
@@ -28,6 +29,7 @@ export default function MentorDirectoryPage() {
 
   // For request-a-mentor flow
   const [userRole, setUserRole] = useState<string | null>(null)
+  const [canManageAdmin, setCanManageAdmin] = useState(false)
   const [startupId, setStartupId] = useState<string | null>(null)
   const [activeSemesterId, setActiveSemesterId] = useState<string | null>(null)
   const [sessionDates, setSessionDates] = useState<SessionDate[]>([])
@@ -52,6 +54,22 @@ export default function MentorDirectoryPage() {
         .eq('id', user.id)
         .single()
       setUserRole(profile?.role ?? null)
+      try {
+        const capabilityResponse = await authenticatedFetch('/api/auth/capabilities')
+        const capabilityPayload: unknown = await capabilityResponse.json().catch(() => null)
+        setCanManageAdmin(
+          capabilityResponse.ok
+          && typeof capabilityPayload === 'object'
+          && capabilityPayload !== null
+          && 'data' in capabilityPayload
+          && typeof capabilityPayload.data === 'object'
+          && capabilityPayload.data !== null
+          && 'canManageAdmin' in capabilityPayload.data
+          && capabilityPayload.data.canManageAdmin === true,
+        )
+      } catch {
+        setCanManageAdmin(false)
+      }
 
       // Fetch mentors
       const { data: mentorData } = await supabase
@@ -96,7 +114,7 @@ export default function MentorDirectoryPage() {
       }
     }
     void init()
-  }, [supabase]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [supabase])
 
   const allTags = useMemo(() =>
     [...new Set(mentors.flatMap(m => m.expertise_tags ?? []))].sort()
@@ -111,7 +129,7 @@ export default function MentorDirectoryPage() {
     })
   }, [mentors, search, tagFilter])
 
-  const scheduleEntry = mentorDirectoryScheduleEntry(userRole)
+  const scheduleEntry = mentorDirectoryScheduleEntry(canManageAdmin)
 
   async function submitRequest() {
     if (!requestMentor || !startupId || !activeSemesterId || !requestDateId) return

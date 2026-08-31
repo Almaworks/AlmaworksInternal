@@ -16,6 +16,7 @@ import {
   assignmentRefreshFeedback,
   buildHistoricalScheduleStartupColumns,
   buildScheduleStartupColumns,
+  legacySessionEditPolicy,
   type HistoricalScheduleStartupColumn,
   type ScheduleStartupColumn,
 } from '@/src/assignments/picker'
@@ -234,6 +235,8 @@ function AdminDashboardContent() {
   const [assignmentFeedback, setAssignmentFeedback] = useState<string | null>(null)
   const [assignmentRefreshRetryRequired, setAssignmentRefreshRetryRequired] = useState(false)
   const [assignmentRefreshRetrying, setAssignmentRefreshRetrying] = useState(false)
+  const [auditedSessionIds, setAuditedSessionIds] = useState<ReadonlySet<string>>(new Set())
+  const [sessionEditBlockedMessage, setSessionEditBlockedMessage] = useState<string | null>(null)
 
   // Session date wizard
   const [showDateWizard, setShowDateWizard] = useState(false)
@@ -285,15 +288,16 @@ function AdminDashboardContent() {
 
   async function loadAll(): Promise<{ ok: true } | { ok: false; error: string }> {
     try {
-      const [usersRes, membersRes, mentorsRes, startupsRes, sessionsRes, semesterRes] = await Promise.all([
+      const [usersRes, membersRes, mentorsRes, startupsRes, sessionsRes, semesterRes, assignmentAuditRes] = await Promise.all([
         supabase.from('profiles').select('id, email, full_name, created_at').eq('status', 'pending').order('created_at'),
         supabase.from('profiles').select('id, email, full_name, role, is_active, created_at').eq('status', 'approved').order('full_name'),
         supabase.from('mentors').select('id, full_name, company, role_title, linkedin_url, bio, expertise_tags, is_active, slug, email, general_availability, preferred_format, per_week_availability, opening_talk, semester_id, semesters(name)').order('full_name'),
         supabase.from('startups').select('id, user_id, is_active, name, industry, stage, founder_name, founders, slug, description, preferred_tags, mentorship_needs, semester_id, semesters(name)').order('name'),
         supabase.from('sessions').select('id, mentor_id, startup_id, status, topic, time_slot, format, startup_absent, substitute_name, is_confirmed, session_dates(date, label, semester_id, semesters(name)), mentors(full_name, slug), startups(name, slug)').order('time_slot'),
         supabase.from('semesters').select('id, name').eq('is_active', true).maybeSingle(),
+        supabase.from('mentor_assignment_audit').select('session_id'),
       ])
-      const initialError = [usersRes, membersRes, mentorsRes, startupsRes, sessionsRes, semesterRes].find(result => result.error !== null)?.error
+      const initialError = [usersRes, membersRes, mentorsRes, startupsRes, sessionsRes, semesterRes, assignmentAuditRes].find(result => result.error !== null)?.error
       if (initialError) return { ok: false, error: initialError.message }
 
       type MentorRow = Omit<Mentor, 'semester_name'> & { semesters: { name: string } | { name: string }[] | null }
@@ -372,6 +376,7 @@ function AdminDashboardContent() {
       setMentors(loadedMentors)
       setStartups(loadedStartups)
       setSessions(loadedSessions)
+      setAuditedSessionIds(new Set((assignmentAuditRes.data ?? []).map(row => row.session_id)))
       setActiveSemesterId(semId)
       setActiveSemesterName(semData?.name ?? null)
       setSessionDates(dates)
@@ -781,6 +786,12 @@ function AdminDashboardContent() {
   }
 
   function openEditSession(s: Session) {
+    const policy = legacySessionEditPolicy(s.id, auditedSessionIds)
+    if (!policy.canEdit) {
+      setSessionEditBlockedMessage(policy.explanation)
+      return
+    }
+    setSessionEditBlockedMessage(null)
     setEditingSession(s)
     setEditMentorId(s.mentor_id)
     setEditStartupId(s.startup_id ?? '')
@@ -794,6 +805,12 @@ function AdminDashboardContent() {
 
   async function updateSession() {
     if (!editingSession) return
+    const policy = legacySessionEditPolicy(editingSession.id, auditedSessionIds)
+    if (!policy.canEdit) {
+      setEditingSession(null)
+      setSessionEditBlockedMessage(policy.explanation)
+      return
+    }
     setEditSaving(true)
     try {
       const { error } = await supabase.from('sessions').update({
@@ -822,6 +839,12 @@ function AdminDashboardContent() {
 
   async function deleteSession() {
     if (!editingSession) return
+    const policy = legacySessionEditPolicy(editingSession.id, auditedSessionIds)
+    if (!policy.canEdit) {
+      setEditingSession(null)
+      setSessionEditBlockedMessage(policy.explanation)
+      return
+    }
     if (!confirm('Delete this session?')) return
     setEditSaving(true)
     try {
@@ -945,6 +968,13 @@ function AdminDashboardContent() {
       </div>
 
       {/* ── Pending Users ── */}
+      {sessionEditBlockedMessage && (
+        <div role="status" className="mb-5 flex items-start justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <p>{sessionEditBlockedMessage}</p>
+          <button type="button" onClick={() => setSessionEditBlockedMessage(null)} className="text-xs font-semibold text-amber-900 hover:underline">Dismiss</button>
+        </div>
+      )}
+
       {tab === 'users' && (
         <div>
           <p className="text-sm text-gray-500 mb-4">
@@ -1335,7 +1365,7 @@ function AdminDashboardContent() {
             {/* Header row */}
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3 flex-wrap">
-                <p className="text-sm text-gray-500">Choose an empty slot for ranked assignment. Existing sessions use the legacy editor.</p>
+                <p className="text-sm text-gray-500">Choose an empty slot for ranked assignment. Only unaudited legacy sessions use the compatibility editor.</p>
                 <div className="flex items-center gap-2 text-[10px] font-medium">
                   <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">Online</span>
                   <span className="px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">In-person</span>
@@ -1517,6 +1547,7 @@ function AdminDashboardContent() {
                           {colStartups.map(st => {
                             const cellKey = st.startupId ? `${row.date}__${row.slot}__${st.startupId}` : null
                             const cell = cellKey ? cellMap.get(cellKey) : undefined
+                            const editPolicy = cell ? legacySessionEditPolicy(cell.id, auditedSessionIds) : null
                             const formatBg =
                               (cell?.format === 'in-person' || cell?.format === 'in_person') ? 'bg-green-50 text-green-800 border border-green-200 hover:bg-green-100' :
                               cell?.format === 'online' ? 'bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100' :
@@ -1526,8 +1557,10 @@ function AdminDashboardContent() {
                                 {cell ? (
                                   <button
                                     onClick={() => openEditSession(cell)}
-                                    aria-label={`Edit existing session for ${st.name} using the legacy session editor`}
-                                    className={`w-full px-2 py-1.5 rounded-lg text-[11px] font-medium text-left transition-colors ${formatBg}`}
+                                    disabled={editPolicy?.canEdit === false}
+                                    title={editPolicy?.explanation ?? undefined}
+                                    aria-label={editPolicy?.canEdit === false ? `Ranked assignment for ${st.name} is audit protected and cannot use legacy edit or delete controls` : `Edit existing session for ${st.name} using the legacy session editor`}
+                                    className={`w-full px-2 py-1.5 rounded-lg text-[11px] font-medium text-left transition-colors disabled:cursor-not-allowed disabled:border-amber-200 disabled:bg-amber-50 disabled:text-amber-800 ${formatBg}`}
                                     style={!cell.is_confirmed ? {
                                       backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(0,0,0,0.05) 5px, rgba(0,0,0,0.05) 10px)',
                                     } : undefined}
@@ -1538,6 +1571,9 @@ function AdminDashboardContent() {
                                     )}
                                     {!cell.is_confirmed && (
                                       <span className="block text-[9px] font-normal opacity-70">unconfirmed</span>
+                                    )}
+                                    {editPolicy?.canEdit === false && (
+                                      <span className="block text-[9px] font-semibold">audit protected</span>
                                     )}
                                   </button>
                                 ) : st.linked ? (

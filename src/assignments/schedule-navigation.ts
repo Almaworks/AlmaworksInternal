@@ -25,8 +25,8 @@ export function isDashboardNavigationActive(pathname: string, href: string): boo
   return pathname === href;
 }
 
-export function mentorDirectoryScheduleEntry(role: string | null): ScheduleDirectoryEntry | null {
-  return role === "admin"
+export function mentorDirectoryScheduleEntry(canManageAdmin: boolean): ScheduleDirectoryEntry | null {
+  return canManageAdmin
     ? { href: ADMIN_SCHEDULE_HREF, label: "Assign mentors" }
     : null;
 }

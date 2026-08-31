@@ -7,6 +7,8 @@ import { useRouter, usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { CalendarDays, ChevronLeft, ChevronRight, FileUp, Inbox, LayoutDashboard, LogOut, Menu, Megaphone, Network, Search, Settings, Target, Users, X } from 'lucide-react'
 import { isDashboardNavigationActive } from '@/src/assignments/schedule-navigation'
+import { resolveDashboardPersona } from '@/src/auth/admin-capability'
+import { authenticatedFetch } from '@/src/auth/authenticated-fetch'
 
 type Profile = {
   full_name: string | null
@@ -23,6 +25,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter()
   const pathname = usePathname()
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [canManageAdmin, setCanManageAdmin] = useState(false)
   const [viewAs, setViewAs] = useState<ViewAs>('admin')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -59,6 +62,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         return
       }
       setProfile(data)
+      try {
+        const response = await authenticatedFetch('/api/auth/capabilities')
+        const payload: unknown = await response.json().catch(() => null)
+        const canManage = response.ok
+          && typeof payload === 'object'
+          && payload !== null
+          && 'data' in payload
+          && typeof payload.data === 'object'
+          && payload.data !== null
+          && 'canManageAdmin' in payload.data
+          && payload.data.canManageAdmin === true
+        setCanManageAdmin(canManage)
+      } catch {
+        setCanManageAdmin(false)
+      }
     })
   }, [supabase])
 
@@ -67,7 +85,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     router.push('/')
   }
 
-  const effectiveRole = profile?.role === 'admin' ? viewAs : profile?.role
+  const effectiveRole = resolveDashboardPersona(profile?.role ?? null, canManageAdmin, viewAs)
   const isOnboarding = pathname === '/dashboard/onboarding'
 
   const navItems =
@@ -89,10 +107,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           { href: '/dashboard/mentor/inbox', label: 'Inbox' },
           { href: '/dashboard/mentors', label: 'Mentor Directory' },
         ]
-      : [
+      : effectiveRole === 'startup'
+      ? [
           { href: '/dashboard/startup', label: 'Dashboard' },
           { href: '/dashboard/mentors', label: 'Mentors' },
         ]
+      : []
 
   const navIcons = {
     Overview: LayoutDashboard,
@@ -153,7 +173,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
 
         {/* Admin view switcher */}
-        {profile?.role === 'admin' && (
+        {canManageAdmin && (
           <div className={`${sidebarCollapsed ? 'sr-only' : ''} px-3 pt-3 pb-1`}>
             <p className="px-1 text-[9px] font-semibold tracking-widest uppercase text-white/30 mb-1.5">View as</p>
             <div className="flex rounded-lg overflow-hidden border border-white/10">

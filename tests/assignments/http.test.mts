@@ -206,7 +206,7 @@ test("candidate route returns semester-scoped startup context, selected slot, an
   assert.equal(excluded?.mentor.id, ids.firstSlotMentor);
   assert.equal(excluded?.eligible, false);
   assert.equal(excluded?.exclusionReason, "Mentor already assigned to the first slot; excluded from second slot.");
-  assert.deepEqual(excluded?.reasons, ["primary expertise match", "available", "format fit", "workload tie-break", "excluded from second slot"]);
+  assert.deepEqual(excluded?.reasons, ["preferred expertise match", "available", "format fit", "workload tie-break", "excluded from second slot"]);
 });
 
 test("candidate route rejects a stale slot or startup mapping", async () => {
@@ -369,6 +369,25 @@ test("candidate format aliases are canonicalized and two startup needs remain pr
   assert.ok(payload.data.candidates.find((candidate) => candidate.mentor.id === ids.firstSlotMentor)?.reasons.includes("secondary expertise match"));
 });
 
+test("Mentor Needs remain primary and secondary when preferred expertise is also present", async () => {
+  const data = enrichedData([]);
+  data.startup = {
+    ...data.startup!,
+    mentorshipNeeds: ["Enterprise sales", "Pricing"],
+    preferredExpertiseTags: ["Fundraising strategy"],
+  };
+  data.mentors[0] = { ...data.mentors[0]!, expertise: ["Enterprise sales"], capacity: 4 } as unknown as (typeof data.mentors)[number];
+  data.mentors[1] = { ...data.mentors[1]!, expertise: ["Fundraising strategy"], capacity: 4 } as unknown as (typeof data.mentors)[number];
+
+  const response = await routesFor(createSource({ loadCandidateData: async () => data })).getCandidates(candidateRequest());
+  const payload = await response.json() as { data: { candidates: Array<{ mentor: { id: string }; reasons: string[] }> } };
+
+  assert.ok(payload.data.candidates.find((candidate) => candidate.mentor.id === ids.mentor)?.reasons.includes("primary expertise match"));
+  assert.equal(payload.data.candidates.find((candidate) => candidate.mentor.id === ids.firstSlotMentor)?.reasons.includes("primary expertise match"), false);
+  assert.equal(payload.data.candidates.find((candidate) => candidate.mentor.id === ids.firstSlotMentor)?.reasons.includes("secondary expertise match"), false);
+  assert.equal(payload.data.candidates.find((candidate) => candidate.mentor.id === ids.firstSlotMentor)?.reasons.includes("preferred expertise match"), true);
+});
+
 test("candidate route rejects an unsupported optional format", async () => {
   const response = await routesFor(createSource()).getCandidates(candidateRequest(`${new URL(candidateRequest().url).searchParams}&format=telephone`));
 
@@ -462,6 +481,34 @@ test("Supabase candidate source maps lifecycle mentors and the selected schedule
 
   assert.equal(result.startupScheduleId, "schedule-startup-selected");
   assert.deepEqual(result.mentors, [{ id: "schedule-mentor-1", scheduleMentorIds: ["schedule-mentor-1", "schedule-mentor-z"], profileId: ids.mentor, name: "Lifecycle mentor", expertise: ["Enterprise sales"], preferredFormat: "online", capacity: 3 }]);
+});
+
+test("Supabase candidate source matches RPC startup bridge ordering after resolving team rows", async () => {
+  const source = createSupabaseAssignmentDataSource(fakeSupabase({
+    session_dates: { rows: [{ id: ids.date, date: "2026-09-04", semester_id: ids.semester }], single: { id: ids.date, date: "2026-09-04", semester_id: ids.semester } },
+    startup_semesters: { rows: [], single: { id: ids.startup, semester_id: ids.semester, company_snapshot: null, goals: [], mentor_need_context: null, mentor_need_no_preference: false, mentorship_needs: [], preferred_expertise_tags: [], stage: "mvp" } },
+    semester_memberships: { rows: [
+      { id: "team-z", profile_id: "startup-profile-a", semester_id: ids.semester, role: "startup", status: "active" },
+      { id: "team-a", profile_id: "startup-profile-z", semester_id: ids.semester, role: "startup", status: "active" },
+    ] },
+    mentor_semesters: { rows: [] },
+    mentor_profiles: { rows: [] },
+    mentors: { rows: [] },
+    startup_team_memberships: { rows: [
+      { id: "team-z", startup_semester_id: ids.startup, semester_membership_id: "team-z", semester_id: ids.semester, is_primary_contact: false },
+      { id: "team-a", startup_semester_id: ids.startup, semester_membership_id: "team-a", semester_id: ids.semester, is_primary_contact: false },
+    ] },
+    startups: { rows: [
+      { id: "schedule-startup-a", user_id: "startup-profile-a", semester_id: ids.semester, is_active: true },
+      { id: "schedule-startup-z", user_id: "startup-profile-z", semester_id: ids.semester, is_active: true },
+    ] },
+    availability: { rows: [] },
+    sessions: { rows: [] },
+  }));
+
+  const result = await source.loadCandidateData({ semesterId: ids.semester, startupSemesterId: ids.startup, sessionDateId: ids.date, timeSlot: "3:30-4:15", format: "online" });
+
+  assert.equal(result.startupScheduleId, "schedule-startup-a");
 });
 
 test("duplicate legacy mentor rows count profile-wide capacity and recency", async () => {

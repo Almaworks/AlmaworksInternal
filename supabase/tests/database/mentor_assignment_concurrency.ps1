@@ -9,6 +9,7 @@ $docker = (Get-Command docker -ErrorAction Stop).Source
 $semesterId = "b1000000-0000-0000-0000-000000000001"
 $adminId = "b2000000-0000-0000-0000-000000000001"
 $mentorId = "b2000000-0000-0000-0000-000000000011"
+$duplicateMentorScheduleId = "b7000000-0000-0000-0000-000000000099"
 $startupOneId = "b2000000-0000-0000-0000-000000000021"
 $startupTwoId = "b2000000-0000-0000-0000-000000000022"
 $testDirectory = Join-Path ([IO.Path]::GetTempPath()) "almaworks-task2-assignment-concurrency"
@@ -103,10 +104,24 @@ delete from public.semester_memberships where semester_id = '$semesterId';
 delete from public.startup_organizations where id in ('b5000000-0000-0000-0000-000000000001', 'b5000000-0000-0000-0000-000000000002');
 delete from public.semesters where id = '$semesterId';
 delete from auth.users where id in ('$adminId', '$mentorId', '$startupOneId', '$startupTwoId');
+do `$body`$
+begin
+  if not exists (
+    select 1 from pg_catalog.pg_constraint
+    where conrelid = 'public.mentors'::regclass
+      and conname = 'mentors_user_id_semester_id_key'
+  ) then
+    alter table public.mentors
+      add constraint mentors_user_id_semester_id_key unique (user_id, semester_id);
+  end if;
+end;
+`$body`$;
 "@
 
 $capacityA = $null
 $capacityB = $null
+$duplicateSlotA = $null
+$duplicateSlotB = $null
 $alternateA = $null
 $alternateB = $null
 
@@ -147,8 +162,11 @@ insert into public.startup_team_memberships (semester_id, startup_semester_id, s
 values
   ('$semesterId', 'b6000000-0000-0000-0000-000000000001', 'b3000000-0000-0000-0000-000000000021', true),
   ('$semesterId', 'b6000000-0000-0000-0000-000000000002', 'b3000000-0000-0000-0000-000000000022', true);
-insert into public.mentors (id, user_id, semester_id, full_name, expertise_tags)
-values ('b7000000-0000-0000-0000-000000000011', '$mentorId', '$semesterId', 'Task 2 mentor', array['Product strategy']);
+alter table public.mentors drop constraint if exists mentors_user_id_semester_id_key;
+insert into public.mentors (id, user_id, semester_id, full_name, expertise_tags, is_active)
+values
+  ('b7000000-0000-0000-0000-000000000011', '$mentorId', '$semesterId', 'Task 2 mentor', array['Product strategy'], true),
+  ('$duplicateMentorScheduleId', '$mentorId', '$semesterId', 'Task 2 duplicate legacy mentor', array['Product strategy'], false);
 insert into public.startups (id, user_id, semester_id, name, preferred_tags)
 values
   ('b8000000-0000-0000-0000-000000000001', '$startupOneId', '$semesterId', 'Task 2 startup one', array['Product strategy']),
@@ -158,7 +176,13 @@ values
   ('b9000000-0000-0000-0000-000000000001', '$semesterId', '2027-01-08', 'Week 1'),
   ('b9000000-0000-0000-0000-000000000002', '$semesterId', '2027-01-15', 'Week 2');
 create function public.task2_assignment_sleep() returns trigger language plpgsql as `$body`$
-begin perform pg_catalog.pg_sleep(3); return new; end;
+begin
+  if current_setting('application_name') in ('task2_duplicate_slot_a', 'task2_alternate_a') then
+    new.mentor_id := '$duplicateMentorScheduleId';
+  end if;
+  perform pg_catalog.pg_sleep(3);
+  return new;
+end;
 `$body`$;
 create trigger task2_assignment_sleep before insert on public.sessions
 for each row execute function public.task2_assignment_sleep();
@@ -187,7 +211,32 @@ select public.commit_mentor_assignment('$semesterId', 'b9000000-0000-0000-0000-0
 delete from public.mentor_assignment_audit where semester_id = '$semesterId';
 delete from public.mentor_assignment_requests where semester_id = '$semesterId';
 delete from public.sessions where semester_id = '$semesterId';
-update public.mentor_semesters set capacity = 2 where semester_id = '$semesterId';
+update public.mentor_semesters set capacity = 4 where semester_id = '$semesterId';
+"@ | Out-Null
+
+  $duplicateSlotA = New-PsqlProcess -ApplicationName "task2_duplicate_slot_a" -FileStem "task2_duplicate_slot_a" -Sql @"
+set role authenticated;
+select set_config('request.jwt.claim.sub', '$adminId', false);
+select public.commit_mentor_assignment('$semesterId', 'b9000000-0000-0000-0000-000000000001', '3:30-4:15', 'b6000000-0000-0000-0000-000000000001', '$mentorId', 'duplicate-slot-a');
+"@
+  Wait-ForCondition -Description "duplicate-profile slot assignment A to reach the post-check session trigger" -Condition {
+    (Invoke-Psql -Sql "select count(*) from pg_catalog.pg_stat_activity where application_name = 'task2_duplicate_slot_a' and wait_event = 'PgSleep'") -eq "1"
+  }
+  $duplicateSlotB = New-PsqlProcess -ApplicationName "task2_duplicate_slot_b" -FileStem "task2_duplicate_slot_b" -Sql @"
+set role authenticated;
+select set_config('request.jwt.claim.sub', '$adminId', false);
+select public.commit_mentor_assignment('$semesterId', 'b9000000-0000-0000-0000-000000000001', '3:30-4:15', 'b6000000-0000-0000-0000-000000000002', '$mentorId', 'duplicate-slot-b');
+"@
+  Wait-ForCondition -Description "duplicate-profile slot assignment B to wait for the profile lock" -Condition {
+    (Invoke-Psql -Sql "select count(*) from pg_catalog.pg_stat_activity where application_name = 'task2_duplicate_slot_b' and wait_event_type = 'Lock'") -eq "1"
+  }
+  Assert-ProcessOutcome -Process $duplicateSlotA -FileStem "task2_duplicate_slot_a" -ExpectedError ""
+  Assert-ProcessOutcome -Process $duplicateSlotB -FileStem "task2_duplicate_slot_b" -ExpectedError "Mentor is already assigned in this slot"
+
+  Invoke-Psql -Sql @"
+delete from public.mentor_assignment_audit where semester_id = '$semesterId';
+delete from public.mentor_assignment_requests where semester_id = '$semesterId';
+delete from public.sessions where semester_id = '$semesterId';
 "@ | Out-Null
 
   $alternateA = New-PsqlProcess -ApplicationName "task2_alternate_a" -FileStem "task2_alternate_a" -Sql @"
@@ -211,12 +260,12 @@ select public.commit_mentor_assignment('$semesterId', 'b9000000-0000-0000-0000-0
 
   $finalState = Invoke-Psql -Sql "select count(*) from public.sessions where semester_id = '$semesterId'"
   if ($finalState -ne "1") { throw "Unsafe alternate-slot final state: $finalState sessions (expected 1)." }
-  Write-Output "PASS: capacity and alternate-slot races serialize; one competing call is rejected in each case."
+  Write-Output "PASS: capacity, duplicate-profile mentor-slot, and duplicate-profile alternate-slot races serialize; one competing call is rejected in each case."
 } finally {
   try {
-    Invoke-Psql -Sql "select pg_terminate_backend(pid) from pg_catalog.pg_stat_activity where application_name in ('task2_capacity_a','task2_capacity_b','task2_alternate_a','task2_alternate_b') and pid <> pg_backend_pid()" | Out-Null
+    Invoke-Psql -Sql "select pg_terminate_backend(pid) from pg_catalog.pg_stat_activity where application_name in ('task2_capacity_a','task2_capacity_b','task2_duplicate_slot_a','task2_duplicate_slot_b','task2_alternate_a','task2_alternate_b') and pid <> pg_backend_pid()" | Out-Null
   } catch { }
-  foreach ($process in @($capacityA, $capacityB, $alternateA, $alternateB)) {
+  foreach ($process in @($capacityA, $capacityB, $duplicateSlotA, $duplicateSlotB, $alternateA, $alternateB)) {
     if ($null -ne $process -and -not $process.HasExited) { $process.WaitForExit(3000) | Out-Null }
   }
   try { Invoke-Psql -Sql $cleanupSql | Out-Null } catch { }

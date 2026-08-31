@@ -60,6 +60,17 @@ export interface PickerCommitPayload {
   };
 }
 
+const AUDIT_PROTECTED_EXPLANATION = "This ranked assignment is audit-protected. Replace and delete controls will be available after an atomic assignment-management workflow is added.";
+
+export function legacySessionEditPolicy(
+  sessionId: string,
+  auditedSessionIds: ReadonlySet<string>,
+): { canEdit: boolean; explanation: string | null } {
+  return auditedSessionIds.has(sessionId)
+    ? { canEdit: false, explanation: AUDIT_PROTECTED_EXPLANATION }
+    : { canEdit: true, explanation: null };
+}
+
 const normalized = (value: string): string => value.trim().toLocaleLowerCase();
 
 export function filterCandidates(candidates: readonly PickerCandidate[], search: string, expertise: string): PickerCandidate[] {

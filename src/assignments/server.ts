@@ -196,11 +196,13 @@ function normalizedFormat(value: string | null): MeetingFormat {
 }
 
 function needsForRanking(startup: NonNullable<CandidateSourceData["startup"]>) {
-  const uniqueNeeds = [...startup.preferredExpertiseTags, ...startup.mentorshipNeeds]
-    .filter((need, index, needs) => need.trim().length > 0 && needs.indexOf(need) === index);
+  const mentorshipNeeds = startup.mentorshipNeeds.filter((need) => need.trim().length > 0);
   return {
-    primaryNeed: uniqueNeeds[0] ?? null,
-    secondaryNeed: uniqueNeeds[1] ?? null,
+    primaryNeed: mentorshipNeeds[0] ?? null,
+    secondaryNeed: mentorshipNeeds[1] ?? null,
+    supplementalNeeds: startup.preferredExpertiseTags.filter((need) => (
+      need.trim().length > 0 && !mentorshipNeeds.includes(need)
+    )),
   };
 }
 
@@ -456,11 +458,13 @@ export function createSupabaseAssignmentDataSource(client: Client): AssignmentDa
       );
       const startupScheduleId = (teamsResult.data ?? [])
         .filter((team) => team.semester_id === input.semesterId && team.startup_semester_id === input.startupSemesterId)
-        .sort((left, right) => Number(right.is_primary_contact) - Number(left.is_primary_contact) || left.id.localeCompare(right.id))
-        .map((team) => startupProfileByMembership.get(team.semester_membership_id))
-        .filter((profileId): profileId is string => profileId !== undefined)
-        .map((profileId) => activeScheduleStartupsByProfile.get(profileId)?.id)
-        .find((id): id is string => id !== undefined) ?? null;
+        .flatMap((team) => {
+          const profileId = startupProfileByMembership.get(team.semester_membership_id);
+          const startupId = profileId === undefined ? undefined : activeScheduleStartupsByProfile.get(profileId)?.id;
+          return startupId === undefined ? [] : [{ startupId, isPrimaryContact: team.is_primary_contact }];
+        })
+        .sort((left, right) => Number(right.isPrimaryContact) - Number(left.isPrimaryContact) || left.startupId.localeCompare(right.startupId))[0]
+        ?.startupId ?? null;
       return {
         sessionDate,
         sessionDates,

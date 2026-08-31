@@ -13,6 +13,7 @@ import {
   type PickerFormat,
   type PickerTimeSlot,
 } from "@/src/assignments/picker";
+import { authenticatedFetch } from "@/src/auth/authenticated-fetch";
 
 import styles from "./assignment-picker.module.css";
 
@@ -167,7 +168,7 @@ export default function MentorAssignmentPicker({ open, target, onClose, onCommit
     setSelectedMentorId(null);
     setOverrideAcknowledged(false);
     setOverrideReason("");
-    void fetch(`/api/admin/assignments/candidates?${query.toString()}`, { signal: abortController.signal })
+    void authenticatedFetch(`/api/admin/assignments/candidates?${query.toString()}`, { signal: abortController.signal })
       .then(async (response) => {
         const payload: unknown = await response.json().catch(() => null);
         if (!response.ok) throw new Error(responseError(payload, "Unable to load mentor candidates."));
@@ -264,7 +265,7 @@ export default function MentorAssignmentPicker({ open, target, onClose, onCommit
     setSubmitError(null);
     const idempotencyKey = window.crypto.randomUUID();
     try {
-      const response = await fetch("/api/admin/assignments/commit", {
+      const response = await authenticatedFetch("/api/admin/assignments/commit", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

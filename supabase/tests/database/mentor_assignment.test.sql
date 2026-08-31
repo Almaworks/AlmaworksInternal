@@ -1,6 +1,6 @@
 begin;
 
-select plan(69);
+select plan(71);
 
 select has_table('public', 'mentor_assignment_requests', 'assignment requests table exists');
 select has_table('public', 'mentor_assignment_audit', 'assignment audit table exists');
@@ -222,6 +222,64 @@ select throws_ok(
   '23505', 'Second slot must use a different mentor unless overridden',
   'the first-slot mentor is excluded from the startup second slot'
 );
+
+set local role postgres;
+alter table public.mentors drop constraint if exists mentors_user_id_semester_id_key;
+insert into public.mentors (id, user_id, semester_id, full_name, expertise_tags, is_active)
+values (
+  'a7000000-0000-0000-0000-000000000099',
+  'a2000000-0000-0000-0000-000000000011',
+  'a1000000-0000-0000-0000-000000000001',
+  'Mentor One duplicate legacy row', array['Product strategy'], false
+);
+insert into public.sessions (
+  id, mentor_id, startup_id, session_date_id, semester_id, status, time_slot, format,
+  startup_absent, is_confirmed
+) values (
+  'aa000000-0000-0000-0000-000000000099',
+  'a7000000-0000-0000-0000-000000000099',
+  'a8000000-0000-0000-0000-000000000001',
+  'a9000000-0000-0000-0000-000000000002',
+  'a1000000-0000-0000-0000-000000000001',
+  'confirmed', '3:30-4:15', 'online', false, true
+);
+set local role authenticated;
+
+select throws_ok(
+  $$select public.commit_mentor_assignment(
+    'a1000000-0000-0000-0000-000000000001', 'a9000000-0000-0000-0000-000000000002',
+    '3:30-4:15', 'a6000000-0000-0000-0000-000000000002', 'a2000000-0000-0000-0000-000000000011',
+    'duplicate-profile-slot', 'online', null, '{}', null, '{}'
+  )$$,
+  '23505', 'Mentor is already assigned in this slot',
+  'mentor-slot conflicts include every duplicate legacy mentor row for the selected profile'
+);
+set local role postgres;
+delete from public.mentor_assignment_audit where idempotency_key = 'duplicate-profile-slot';
+delete from public.mentor_assignment_requests where idempotency_key = 'duplicate-profile-slot';
+delete from public.sessions where id <> 'aa000000-0000-0000-0000-000000000099' and topic is null
+  and mentor_id = 'a7000000-0000-0000-0000-000000000011'
+  and session_date_id = 'a9000000-0000-0000-0000-000000000002';
+set local role authenticated;
+
+select throws_ok(
+  $$select public.commit_mentor_assignment(
+    'a1000000-0000-0000-0000-000000000001', 'a9000000-0000-0000-0000-000000000002',
+    '4:15-5:00', 'a6000000-0000-0000-0000-000000000001', 'a2000000-0000-0000-0000-000000000011',
+    'duplicate-profile-second-slot', 'online', null, '{}', null, '{}'
+  )$$,
+  '23505', 'Second slot must use a different mentor unless overridden',
+  'second-slot exclusion includes every duplicate legacy mentor row for the selected profile'
+);
+set local role postgres;
+delete from public.mentor_assignment_audit where idempotency_key = 'duplicate-profile-second-slot';
+delete from public.mentor_assignment_requests where idempotency_key = 'duplicate-profile-second-slot';
+delete from public.sessions where id <> 'aa000000-0000-0000-0000-000000000099' and topic is null
+  and mentor_id = 'a7000000-0000-0000-0000-000000000011'
+  and session_date_id = 'a9000000-0000-0000-0000-000000000002';
+delete from public.sessions where id = 'aa000000-0000-0000-0000-000000000099';
+delete from public.mentors where id = 'a7000000-0000-0000-0000-000000000099';
+set local role authenticated;
 
 select throws_ok(
   $$select public.commit_mentor_assignment(

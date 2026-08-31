@@ -9,6 +9,7 @@ import {
   canSubmitAssignment,
   deriveStartupNeeds,
   filterCandidates,
+  legacySessionEditPolicy,
   selectCandidate,
   selectVisibleCandidate,
   type PickerCandidate,
@@ -228,5 +229,18 @@ test("refresh failure feedback reports a saved assignment and requests retry eve
   }), {
     message: "Canonical Alpha's mentor was assigned for 2026-09-04, 4:15-5:00.",
     retryRequired: false,
+  });
+});
+
+test("only unaudited sessions may use the legacy edit and delete workflow", () => {
+  const audited = new Set(["audited-session"]);
+
+  assert.deepEqual(legacySessionEditPolicy("legacy-session", audited), {
+    canEdit: true,
+    explanation: null,
+  });
+  assert.deepEqual(legacySessionEditPolicy("audited-session", audited), {
+    canEdit: false,
+    explanation: "This ranked assignment is audit-protected. Replace and delete controls will be available after an atomic assignment-management workflow is added.",
   });
 });
