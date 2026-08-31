@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireActiveSemesterAdmin } from '@/src/program/canonical-access'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -136,8 +137,7 @@ export async function POST(req: Request) {
     const { data: authData, error: authErr } = await userClient.auth.getUser()
     if (authErr || !authData.user) return NextResponse.json({ error: 'Invalid auth token.' }, { status: 401 })
 
-    const { data: profile } = await userClient.from('profiles').select('role').eq('id', authData.user.id).single()
-    if (profile?.role !== 'admin') return NextResponse.json({ error: 'Admin access required.' }, { status: 403 })
+    await requireActiveSemesterAdmin(userClient, authData.user.id)
 
     // Parse body
     const body = await req.json() as NotifyRequest
@@ -193,6 +193,9 @@ export async function POST(req: Request) {
     const sent = results.filter(r => r.ok).length
     return NextResponse.json({ sent, dry_run: false, results })
   } catch (err) {
+    if (err instanceof Error && err.message === 'Semester administrator access required.') {
+      return NextResponse.json({ error: err.message }, { status: 403 })
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Unexpected server error.' },
       { status: 500 },

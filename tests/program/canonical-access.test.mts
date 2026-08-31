@@ -1,0 +1,63 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { createClient } from "@supabase/supabase-js";
+
+import {
+  loadCanonicalAccess,
+  requireActiveSemesterAdmin,
+} from "../../src/program/canonical-access.ts";
+
+type CapturedRequest = { body: string | null; url: URL };
+
+function recordingClient(responses: readonly unknown[]) {
+  const requests: CapturedRequest[] = [];
+  let index = 0;
+  const client = createClient("https://example.supabase.co", "test-key", {
+    global: {
+      fetch: async (input, init) => {
+        const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+        requests.push({ body: typeof init?.body === "string" ? init.body : null, url });
+        return new Response(JSON.stringify(responses[index++] ?? []), {
+          headers: { "Content-Type": "application/json" },
+          status: 200,
+        });
+      },
+    },
+  });
+  return { client, requests };
+}
+
+test("role-aware access derives global admin from platform roles and cohort role from active membership", async () => {
+  const { client, requests } = recordingClient([
+    { email: "admin@example.com", full_name: "Admin", is_active: true, status: "approved" },
+    [{ role: "super_admin" }],
+    [{ role: "mentor", status: "active", semester_id: "semester-1", semester: { is_active: true, name: "Fall 2026" } }],
+  ]);
+
+  const access = await loadCanonicalAccess(client, "profile-1");
+
+  assert.equal(access?.role, "admin");
+  assert.equal(access?.membershipRole, "mentor");
+  assert.equal(access?.semesterId, "semester-1");
+  assert.equal(requests[0].url.pathname, "/rest/v1/profiles");
+  assert.equal(requests[0].url.searchParams.get("select"), "email,full_name,is_active,status");
+  assert.equal(requests[1].url.pathname, "/rest/v1/platform_roles");
+  assert.equal(requests[1].url.searchParams.get("profile_id"), "eq.profile-1");
+  assert.equal(requests[2].url.pathname, "/rest/v1/semester_memberships");
+  assert.equal(requests[2].url.searchParams.get("semester.order"), "is_active.desc");
+});
+
+test("active-semester authorization verifies can_manage_semester for the authenticated profile", async () => {
+  const { client, requests } = recordingClient([{ id: "semester-1" }, true]);
+
+  const semesterId = await requireActiveSemesterAdmin(client, "profile-1");
+
+  assert.equal(semesterId, "semester-1");
+  assert.equal(requests[0].url.pathname, "/rest/v1/semesters");
+  assert.equal(requests[0].url.searchParams.get("is_active"), "eq.true");
+  assert.equal(requests[1].url.pathname, "/rest/v1/rpc/can_manage_semester");
+  assert.deepEqual(JSON.parse(requests[1].body ?? "null"), {
+    candidate_id: "profile-1",
+    target_semester_id: "semester-1",
+  });
+});

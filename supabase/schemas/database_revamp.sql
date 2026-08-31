@@ -147,7 +147,7 @@ create table public.startup_team_memberships (
   semester_membership_id uuid not null,
   is_primary_contact boolean not null default false,
   created_at timestamptz not null default now(),
-  unique (semester_id, startup_semester_id, semester_membership_id),
+  unique (startup_semester_id, semester_membership_id),
   foreign key (semester_id, startup_semester_id) references public.startup_semesters(semester_id, id) on delete cascade,
   foreign key (semester_id, semester_membership_id) references public.semester_memberships(semester_id, id) on delete cascade
 );

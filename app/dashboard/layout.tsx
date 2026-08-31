@@ -4,8 +4,9 @@ import { createClient } from '@/utils/supabase/client'
 import { AlmaworksBrand } from '@/components/AlmaworksBrand'
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { CalendarDays, ChevronLeft, ChevronRight, Inbox, LayoutDashboard, LogOut, Menu, Megaphone, Network, Search, Settings, Target, Users, X } from 'lucide-react'
+import { loadCanonicalAccess } from '@/src/program/canonical-access'
 
 type Profile = {
   full_name: string | null
@@ -18,7 +19,7 @@ type ViewAs = 'admin' | 'mentor' | 'startup'
 const SIDEBAR_STORAGE_KEY = 'almaworks-dashboard-sidebar-collapsed'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
   const router = useRouter()
   const pathname = usePathname()
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -47,19 +48,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         router.replace('/')
         return
       }
-      const { data } = await supabase
-        .from('profiles')
-        .select('full_name, email, role, is_active')
-        .eq('id', user.id)
-        .single()
-      if ((data as typeof data & { is_active?: boolean })?.is_active === false) {
+      const access = await loadCanonicalAccess(supabase, user.id)
+      if (access?.is_active === false) {
         await supabase.auth.signOut()
         window.location.href = '/?error=account_inactive'
         return
       }
-      setProfile(data)
+      setProfile(access ? { email: access.email, full_name: access.full_name, role: access.role } : null)
     })
-  }, [supabase])
+  }, [router, supabase])
 
   async function signOut() {
     await supabase.auth.signOut()

@@ -2,23 +2,20 @@
 
 import { createClient } from '@/utils/supabase/client'
 import { useRouter } from 'next/navigation'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
+import { loadCanonicalAccess } from '@/src/program/canonical-access'
 
 export default function DashboardRoot() {
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
   const router = useRouter()
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) { router.push('/'); return }
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role, status')
-        .eq('id', user.id)
-        .single()
-      if (!profile || profile.status !== 'approved') { router.push('/pending'); return }
-      if (profile.role === 'admin') router.push('/dashboard/admin')
-      else if (profile.role === 'mentor') router.push('/dashboard/mentor')
+      const access = await loadCanonicalAccess(supabase, user.id)
+      if (!access || access.status !== 'approved' || !access.role) { router.push('/pending'); return }
+      if (access.role === 'admin') router.push('/dashboard/admin')
+      else if (access.role === 'mentor') router.push('/dashboard/mentor')
       else router.push('/dashboard/startup')
     })
   }, [supabase, router])

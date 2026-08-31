@@ -6,12 +6,16 @@ import {
   createMentorRecords,
   createStartupRecords,
   moveFounderMembership,
+  setUserRoleRecords,
+  updateStartupRecords,
   updateMentorRecords,
 } from "../../src/program/server/canonical-admin.ts";
 
-type RequestRecord = { body: string | null; method: string; path: string };
+type RequestRecord = { body: string | null; method: string; path: string; url: URL };
 
-function recordingClient(responses: readonly unknown[]) {
+type TestResponse = { body: unknown; status: number };
+
+function recordingClient(responses: readonly (unknown | TestResponse)[]) {
   const requests: RequestRecord[] = [];
   let index = 0;
   const client = createClient("https://example.supabase.co", "service-key", {
@@ -22,10 +26,15 @@ function recordingClient(responses: readonly unknown[]) {
           body: typeof init?.body === "string" ? init.body : null,
           method: init?.method ?? "GET",
           path: url.pathname,
+          url,
         });
-        return new Response(JSON.stringify(responses[index++] ?? []), {
+        const configured = responses[index++] ?? [];
+        const response = configured && typeof configured === "object" && "status" in configured && "body" in configured
+          ? configured as TestResponse
+          : { body: configured, status: 200 };
+        return new Response(JSON.stringify(response.body), {
           headers: { "Content-Type": "application/json" },
-          status: 200,
+          status: response.status,
         });
       },
     },
@@ -134,15 +143,12 @@ test("founder assignment creates canonical semester and team memberships", async
     "/rest/v1/semester_memberships",
     "/rest/v1/startup_team_memberships",
   ]);
+  assert.equal(requests[2].url.searchParams.get("on_conflict"), "startup_semester_id,semester_membership_id");
 });
 
-test("founder move targets membership rows and never rewrites founder JSON", async () => {
+test("founder move is one atomic canonical command", async () => {
   const { client, requests } = recordingClient([
-    { semester_id: "semester-1" },
-    { semester_id: "semester-1" },
-    { id: "membership-1" },
-    [],
-    [],
+    { moved_membership_id: "team-1" },
   ]);
 
   await moveFounderMembership(client, {
@@ -152,11 +158,84 @@ test("founder move targets membership rows and never rewrites founder JSON", asy
   });
 
   assert.deepEqual(requests.map((request) => request.path), [
-    "/rest/v1/startup_semesters",
-    "/rest/v1/startup_semesters",
-    "/rest/v1/semester_memberships",
-    "/rest/v1/startup_team_memberships",
-    "/rest/v1/startup_team_memberships",
+    "/rest/v1/rpc/move_startup_team_membership",
   ]);
-  assert.ok(requests.every((request) => !request.path.endsWith("/startups")));
+  assert.deepEqual(JSON.parse(requests[0].body ?? "null"), {
+    p_from_startup_semester_id: "startup-term-1",
+    p_profile_id: "profile-1",
+    p_to_startup_semester_id: "startup-term-2",
+  });
+});
+
+test("founder move failure cannot leave a source membership deleted", async () => {
+  const { client, requests } = recordingClient([{
+    body: { code: "23505", message: "destination membership conflicts" },
+    status: 409,
+  }]);
+
+  await assert.rejects(() => moveFounderMembership(client, {
+    fromStartupSemesterId: "startup-term-1",
+    profileId: "profile-1",
+    toStartupSemesterId: "startup-term-2",
+  }), /destination membership conflicts/u);
+
+  assert.deepEqual(requests.map((request) => request.path), [
+    "/rest/v1/rpc/move_startup_team_membership",
+  ]);
+});
+
+test("role transition creates missing mentor records without overwriting existing mentor fields", async () => {
+  const { client, requests } = recordingClient([
+    { id: "membership-1" },
+    [],
+    [],
+    [],
+  ]);
+
+  await setUserRoleRecords(client, {
+    profileId: "profile-1",
+    role: "mentor",
+    semesterId: "semester-1",
+  });
+
+  assert.deepEqual(requests.map((request) => request.path), [
+    "/rest/v1/semester_memberships",
+    "/rest/v1/platform_roles",
+    "/rest/v1/mentor_profiles",
+    "/rest/v1/mentor_semesters",
+  ]);
+  assert.deepEqual(JSON.parse(requests[2].body ?? "null"), { profile_id: "profile-1" });
+  assert.deepEqual(JSON.parse(requests[3].body ?? "null"), {
+    readiness_status: "not_started",
+    semester_id: "semester-1",
+    semester_membership_id: "membership-1",
+  });
+  assert.match(requests[2].url.searchParams.get("on_conflict") ?? "", /profile_id/u);
+});
+
+test("startup updates are one server-owned atomic command", async () => {
+  const { client, requests } = recordingClient([{ startup_semester_id: "startup-term-1" }]);
+
+  await updateStartupRecords(client, {
+    description: "Updated",
+    industry: "Software",
+    name: "Canonical Co",
+    preferredTags: ["Sales"],
+    mentorshipNeeds: ["Growth"],
+    slug: "canonical-co",
+    stage: "seed",
+    startupSemesterId: "startup-term-1",
+  });
+
+  assert.deepEqual(requests.map((request) => request.path), ["/rest/v1/rpc/update_startup_records"]);
+  assert.deepEqual(JSON.parse(requests[0].body ?? "null"), {
+    p_description: "Updated",
+    p_industry: "Software",
+    p_mentorship_needs: ["Growth"],
+    p_name: "Canonical Co",
+    p_preferred_expertise_tags: ["Sales"],
+    p_slug: "canonical-co",
+    p_stage: "seed",
+    p_startup_semester_id: "startup-term-1",
+  });
 });

@@ -37,6 +37,7 @@ revoke execute on function public.has_semester_role(uuid,public.user_role[],uuid
 revoke execute on function public.import_prior_semester_memberships(uuid,uuid,uuid[]) from public,anon;
 revoke execute on function public.is_super_admin(uuid) from public,anon;
 revoke execute on function public.log_outreach_activity(uuid,public.outreach_activity_kind,timestamptz,public.outreach_channel,text,jsonb,timestamptz,public.outreach_stage,timestamptz) from public,anon;
+revoke execute on function public.move_startup_team_membership(uuid,uuid,uuid) from public,anon;
 revoke execute on function public.mentors_view_write() from public,anon;
 revoke execute on function public.release_inactive_owner_work(uuid) from public,anon;
 revoke execute on function public.replace_draft_session_dates(uuid,jsonb) from public,anon;
@@ -46,6 +47,7 @@ revoke execute on function public.set_outreach_snooze(uuid,timestamptz,text,time
 revoke execute on function public.startups_view_write() from public,anon;
 revoke execute on function public.suspend_outreach_membership(uuid,uuid,text,timestamptz) from public,anon;
 revoke execute on function public.transfer_outreach_owner(uuid,uuid,text,timestamptz) from public,anon;
+revoke execute on function public.update_startup_records(uuid,text,text,text,text,text,text[],text[]) from public,anon;
 revoke execute on function public.validate_outreach_owner_membership() from public,anon;
 
 grant execute on function public.activate_semester_transition(uuid,uuid), public.bulk_set_membership_activity(uuid,uuid[],boolean),
@@ -57,4 +59,8 @@ grant execute on function public.activate_semester_transition(uuid,uuid), public
   public.release_inactive_owner_work(uuid), public.replace_draft_session_dates(uuid,jsonb), public.reset_outreach_opportunities(uuid,uuid[]),
   public.set_outreach_silence(uuid,boolean,text,timestamptz,timestamptz), public.set_outreach_snooze(uuid,timestamptz,text,timestamptz),
   public.suspend_outreach_membership(uuid,uuid,text,timestamptz), public.transfer_outreach_owner(uuid,uuid,text,timestamptz)
+to authenticated;
+
+grant execute on function public.move_startup_team_membership(uuid,uuid,uuid),
+  public.update_startup_records(uuid,text,text,text,text,text,text[],text[])
 to authenticated;

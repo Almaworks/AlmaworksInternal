@@ -157,6 +157,101 @@ begin
 end;
 $$;
 
+create or replace function public.move_startup_team_membership(
+  p_from_startup_semester_id uuid,
+  p_profile_id uuid,
+  p_to_startup_semester_id uuid
+) returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_semester_id uuid;
+  v_to_semester_id uuid;
+  v_membership_id uuid;
+  v_team_membership_id uuid;
+begin
+  if p_from_startup_semester_id = p_to_startup_semester_id then
+    raise exception 'Source and destination startups must differ' using errcode = '22023';
+  end if;
+  select semester_id into v_semester_id from public.startup_semesters where id = p_from_startup_semester_id;
+  select semester_id into v_to_semester_id from public.startup_semesters where id = p_to_startup_semester_id;
+  if v_semester_id is null or v_to_semester_id is null or v_semester_id <> v_to_semester_id then
+    raise exception 'Founders can only move between startups in the same semester' using errcode = '22023';
+  end if;
+  if auth.uid() is null or not public.can_manage_semester(v_semester_id, auth.uid()) then
+    raise exception 'Semester administrator access required' using errcode = '42501';
+  end if;
+  select id into v_membership_id
+  from public.semester_memberships
+  where semester_id = v_semester_id and profile_id = p_profile_id and role = 'startup';
+  if v_membership_id is null or not exists (
+    select 1 from public.startup_team_memberships
+    where startup_semester_id = p_from_startup_semester_id
+      and semester_membership_id = v_membership_id
+  ) then
+    raise exception 'Source founder membership not found' using errcode = 'P0002';
+  end if;
+
+  insert into public.startup_team_memberships (
+    semester_id, startup_semester_id, semester_membership_id, is_primary_contact
+  ) values (
+    v_semester_id, p_to_startup_semester_id, v_membership_id, false
+  )
+  on conflict (startup_semester_id, semester_membership_id)
+  do update set semester_id = excluded.semester_id
+  returning id into v_team_membership_id;
+
+  delete from public.startup_team_memberships
+  where startup_semester_id = p_from_startup_semester_id
+    and semester_membership_id = v_membership_id;
+  return v_team_membership_id;
+end;
+$$;
+
+create or replace function public.update_startup_records(
+  p_startup_semester_id uuid,
+  p_name text,
+  p_slug text,
+  p_industry text,
+  p_description text,
+  p_stage text,
+  p_preferred_expertise_tags text[],
+  p_mentorship_needs text[]
+) returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_semester_id uuid;
+  v_organization_id uuid;
+begin
+  select semester_id, startup_organization_id
+  into v_semester_id, v_organization_id
+  from public.startup_semesters
+  where id = p_startup_semester_id;
+  if v_semester_id is null then
+    raise exception 'Startup semester not found' using errcode = 'P0002';
+  end if;
+  if auth.uid() is null or not public.can_manage_semester(v_semester_id, auth.uid()) then
+    raise exception 'Semester administrator access required' using errcode = '42501';
+  end if;
+  update public.startup_organizations
+  set name = p_name, slug = p_slug, industry = p_industry,
+      description = p_description, updated_at = now()
+  where id = v_organization_id;
+  update public.startup_semesters
+  set stage = p_stage,
+      preferred_expertise_tags = coalesce(p_preferred_expertise_tags, '{}'),
+      mentorship_needs = coalesce(p_mentorship_needs, '{}'),
+      updated_at = now()
+  where id = p_startup_semester_id;
+  return p_startup_semester_id;
+end;
+$$;
+
 create or replace function public.mentors_view_write() returns trigger language plpgsql security definer set search_path = '' as $$
 declare v_membership_id uuid; v_profile_id uuid;
 begin

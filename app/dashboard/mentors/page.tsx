@@ -50,7 +50,7 @@ export default function MentorDirectoryPage() {
         .from('semester_memberships')
         .select('id, role, semester_id, semester:semesters!inner(is_active)')
         .eq('profile_id', user.id)
-        .eq('semesters.is_active', true)
+        .eq('semester.is_active', true)
         .maybeSingle()
       setUserRole(membership?.role ?? null)
 

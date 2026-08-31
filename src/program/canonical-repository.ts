@@ -181,8 +181,8 @@ export async function loadMentorDirectory(client: ProgramClient) {
   const result = await client
     .from("mentor_semesters")
     .select(MENTOR_DIRECTORY_SELECT)
-    .eq("semester_memberships.role", "mentor")
-    .order("full_name", { referencedTable: "semester_memberships.profiles" });
+    .eq("membership.role", "mentor")
+    .order("full_name", { referencedTable: "membership.profile" });
   failIfError(result.error);
   return ((result.data ?? []) as unknown as MentorSemesterRow[]).map(mapMentor);
 }
@@ -224,7 +224,7 @@ export async function loadMentorProfile(client: ProgramClient, mentorSemesterId:
     .from("mentor_semesters")
     .select(MENTOR_DIRECTORY_SELECT)
     .eq("id", mentorSemesterId)
-    .eq("semester_memberships.role", "mentor")
+    .eq("membership.role", "mentor")
     .maybeSingle();
   failIfError(result.error);
   return result.data ? mapMentor(result.data as unknown as MentorSemesterRow) : null;
@@ -234,7 +234,7 @@ export async function loadStartupDirectory(client: ProgramClient) {
   const result = await client
     .from("startup_semesters")
     .select(STARTUP_DIRECTORY_SELECT)
-    .order("name", { referencedTable: "startup_organizations" });
+    .order("name", { referencedTable: "organization" });
   failIfError(result.error);
   return ((result.data ?? []) as unknown as StartupSemesterRow[]).map(mapStartup);
 }
@@ -302,7 +302,7 @@ export async function loadMentorAvailability(
     .from("meeting_availability")
     .select("meeting_id, slot, is_available, meeting:meetings(meeting_date, label)")
     .eq("semester_membership_id", membershipResult.data.id)
-    .order("meeting_date", { referencedTable: "meetings" })
+    .order("meeting_date", { referencedTable: "meeting" })
     .order("slot");
   failIfError(result.error);
   return result.data ?? [];
@@ -312,8 +312,8 @@ export async function loadMentorInbox(client: ProgramClient, profileId: string) 
   const mentorResult = await client
     .from("mentor_semesters")
     .select("id, membership:semester_memberships!inner(profile_id, status)")
-    .eq("semester_memberships.profile_id", profileId)
-    .eq("semester_memberships.status", "active")
+    .eq("membership.profile_id", profileId)
+    .eq("membership.status", "active")
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -335,10 +335,94 @@ export async function loadMentorInbox(client: ProgramClient, profileId: string) 
     `)
     .eq("mentor_semester_id", mentorResult.data.id)
     .eq("status", "requested")
-    .order("meeting_date", { referencedTable: "meetings" })
+    .order("meeting_date", { referencedTable: "meeting" })
     .order("slot");
   failIfError(result.error);
   return result.data ?? [];
+}
+
+export async function loadMentorSessions(
+  client: ProgramClient,
+  mentorSemesterId: string,
+  semesterId: string,
+) {
+  const result = await client
+    .from("sessions")
+    .select(`
+      id,
+      status,
+      topic,
+      slot,
+      format,
+      meeting:meetings!inner(meeting_date,label,semester_id),
+      startup:startup_semesters!inner(
+        organization:startup_organizations!inner(name)
+      )
+    `)
+    .eq("mentor_semester_id", mentorSemesterId)
+    .eq("meeting.semester_id", semesterId)
+    .order("meeting_date", { referencedTable: "meeting" });
+  failIfError(result.error);
+  return result.data ?? [];
+}
+
+type FounderTeamRow = {
+  startup_semester_id: string;
+  startup: Related<{
+    organization: Related<{ name: string }>;
+    semester: Related<{ is_active: boolean; name: string }>;
+    semester_id?: string;
+  }>;
+};
+
+export async function loadFounderHistory(client: ProgramClient, profileId: string) {
+  const profileResult = await client.from("profiles").select("email,full_name").eq("id", profileId).maybeSingle();
+  failIfError(profileResult.error);
+  if (!profileResult.data) return null;
+
+  const membershipResult = await client
+    .from("semester_memberships")
+    .select("id")
+    .eq("profile_id", profileId)
+    .eq("role", "startup");
+  failIfError(membershipResult.error);
+  const membershipIds = (membershipResult.data ?? []).map((membership) => membership.id);
+  if (membershipIds.length === 0) return { profile: profileResult.data, participations: [], sessions: [] };
+
+  const teamResult = await client
+    .from("startup_team_memberships")
+    .select(`
+      startup_semester_id,
+      startup:startup_semesters!inner(
+        semester_id,
+        semester:semesters!inner(name,is_active),
+        organization:startup_organizations!inner(name)
+      )
+    `)
+    .in("semester_membership_id", membershipIds);
+  failIfError(teamResult.error);
+  const participations = ((teamResult.data ?? []) as unknown as FounderTeamRow[]).map((row) => {
+    const startup = one(row.startup);
+    const semester = one(startup?.semester ?? null);
+    return {
+      isActive: semester?.is_active ?? false,
+      semesterId: startup?.semester_id ?? "",
+      semesterName: semester?.name ?? "Unknown semester",
+      startupName: one(startup?.organization ?? null)?.name ?? "Unnamed startup",
+      startupSemesterId: row.startup_semester_id,
+    };
+  }).sort((a, b) => Number(b.isActive) - Number(a.isActive) || b.semesterName.localeCompare(a.semesterName) || a.startupName.localeCompare(b.startupName));
+
+  const startupSemesterIds = participations.map((participation) => participation.startupSemesterId);
+  if (startupSemesterIds.length === 0) return { profile: profileResult.data, participations, sessions: [] };
+  const sessionResult = await client
+    .from("sessions")
+    .select("id,startup_semester_id,slot,status,meeting:meetings!inner(meeting_date,label),mentor:mentor_semesters(membership:semester_memberships(profile:profiles(full_name)))")
+    .in("startup_semester_id", startupSemesterIds)
+    .order("meeting_date", { referencedTable: "meeting" })
+    .order("slot");
+  failIfError(sessionResult.error);
+  return { profile: profileResult.data, participations, sessions: sessionResult.data ?? [] };
 }
 
 export type CreateSessionRequestInput = {

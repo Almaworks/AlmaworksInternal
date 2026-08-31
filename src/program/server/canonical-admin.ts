@@ -187,7 +187,7 @@ export async function assignFounderMembership(
     semester_id: term.semester_id,
     semester_membership_id: membership.id,
     startup_semester_id: input.startupSemesterId,
-  }, { onConflict: "semester_id,startup_semester_id,semester_membership_id" });
+  }, { onConflict: "startup_semester_id,semester_membership_id" });
   if (teamResult.error) throw new Error(teamResult.error.message);
 }
 
@@ -217,35 +217,78 @@ export async function moveFounderMembership(
   client: AdminClient,
   input: { fromStartupSemesterId: string; profileId: string; toStartupSemesterId: string },
 ) {
-  const [fromResult, toResult] = await Promise.all([
-    client.from("startup_semesters").select("semester_id").eq("id", input.fromStartupSemesterId).single(),
-    client.from("startup_semesters").select("semester_id").eq("id", input.toStartupSemesterId).single(),
-  ]);
-  const fromTerm = requireData(fromResult.data, fromResult.error, "Source startup not found.");
-  const toTerm = requireData(toResult.data, toResult.error, "Destination startup not found.");
-  if (fromTerm.semester_id !== toTerm.semester_id) {
-    throw new Error("Founders can only move between startups in the same semester.");
-  }
+  const result = await client.rpc("move_startup_team_membership", {
+    p_from_startup_semester_id: input.fromStartupSemesterId,
+    p_profile_id: input.profileId,
+    p_to_startup_semester_id: input.toStartupSemesterId,
+  });
+  if (result.error) throw new Error(result.error.message);
+}
 
+export async function setUserRoleRecords(
+  client: AdminClient,
+  input: { profileId: string; role: "admin" | "mentor" | "startup"; semesterId: string },
+) {
   const membershipResult = await client
     .from("semester_memberships")
+    .upsert({
+      profile_id: input.profileId,
+      role: input.role,
+      semester_id: input.semesterId,
+      status: "active",
+    }, { onConflict: "semester_id,profile_id" })
     .select("id")
-    .eq("semester_id", toTerm.semester_id)
-    .eq("profile_id", input.profileId)
     .single();
-  const membership = requireData(membershipResult.data, membershipResult.error, "Founder membership not found.");
+  const membership = requireData(membershipResult.data, membershipResult.error, "Unable to set semester role.");
 
-  const removeResult = await client
-    .from("startup_team_memberships")
-    .delete()
-    .eq("startup_semester_id", input.fromStartupSemesterId)
-    .eq("semester_membership_id", membership.id);
-  if (removeResult.error) throw new Error(removeResult.error.message);
+  if (input.role === "admin") {
+    const platformResult = await client.from("platform_roles").upsert({
+      profile_id: input.profileId,
+      role: "super_admin",
+    }, { onConflict: "profile_id,role" });
+    if (platformResult.error) throw new Error(platformResult.error.message);
+  } else {
+    const platformResult = await client.from("platform_roles").delete()
+      .eq("profile_id", input.profileId)
+      .eq("role", "super_admin");
+    if (platformResult.error) throw new Error(platformResult.error.message);
+  }
 
-  const addResult = await client.from("startup_team_memberships").upsert({
-    semester_id: toTerm.semester_id,
+  if (input.role !== "mentor") return;
+  const profileResult = await client.from("mentor_profiles").upsert({
+    profile_id: input.profileId,
+  }, { ignoreDuplicates: true, onConflict: "profile_id" });
+  if (profileResult.error) throw new Error(profileResult.error.message);
+
+  const termResult = await client.from("mentor_semesters").upsert({
+    readiness_status: "not_started",
+    semester_id: input.semesterId,
     semester_membership_id: membership.id,
-    startup_semester_id: input.toStartupSemesterId,
-  }, { onConflict: "semester_id,startup_semester_id,semester_membership_id" });
-  if (addResult.error) throw new Error(addResult.error.message);
+  }, { ignoreDuplicates: true, onConflict: "semester_id,semester_membership_id" });
+  if (termResult.error) throw new Error(termResult.error.message);
+}
+
+export type UpdateStartupRecordsInput = {
+  description: string | null;
+  industry: string | null;
+  mentorshipNeeds: string[];
+  name: string;
+  preferredTags: string[];
+  slug: string;
+  stage: string | null;
+  startupSemesterId: string;
+};
+
+export async function updateStartupRecords(client: AdminClient, input: UpdateStartupRecordsInput) {
+  const result = await client.rpc("update_startup_records", {
+    p_description: input.description,
+    p_industry: input.industry,
+    p_mentorship_needs: input.mentorshipNeeds,
+    p_name: input.name,
+    p_preferred_expertise_tags: input.preferredTags,
+    p_slug: input.slug,
+    p_stage: input.stage,
+    p_startup_semester_id: input.startupSemesterId,
+  });
+  if (result.error) throw new Error(result.error.message);
 }

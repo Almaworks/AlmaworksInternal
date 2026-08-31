@@ -215,22 +215,24 @@ export default function AdminDashboard() {
     if (!editingStartup) return
     setEsSaving(true)
     setEsError(null)
-    const [organizationResult, termResult] = await Promise.all([
-      supabase.from('startup_organizations').update({
-        name: esName.trim(),
-        slug: esSlug.trim(),
-        industry: esIndustry.trim() || null,
+    const { data: { session } } = await supabase.auth.getSession()
+    const response = await fetch('/api/admin/startups/update', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}) },
+      body: JSON.stringify({
         description: esDescription.trim() || null,
-      }).eq('id', editingStartup.organization_id),
-      supabase.from('startup_semesters').update({
+        industry: esIndustry.trim() || null,
+        mentorshipNeeds: esMentorshipNeeds,
+        name: esName.trim(),
+        preferredTags: esTagsArr,
+        slug: esSlug.trim(),
         stage: esStage || null,
-        preferred_expertise_tags: esTagsArr,
-        mentorship_needs: esMentorshipNeeds,
-      }).eq('id', editingStartup.id),
-    ])
-    const error = organizationResult.error ?? termResult.error
+        startupSemesterId: editingStartup.id,
+      }),
+    })
+    const result = await response.json() as { error?: string }
     setEsSaving(false)
-    if (error) { setEsError(error.message); return }
+    if (!response.ok) { setEsError(result.error ?? 'Unable to update startup.'); return }
     setEditingStartup(null)
     await loadAll()
   }
@@ -368,10 +370,7 @@ export default function AdminDashboard() {
           email: pendingUser?.email ?? '',
         }),
       })
-    } else {
-      // Fallback: direct client update (no mentor row sync)
-      await supabase.from('profiles').update({ status: 'approved', role }).eq('id', userId)
-    }
+    } else alert('Your session expired. Sign in again to approve this user.')
     setPendingUsers(prev => prev.filter(u => u.id !== userId))
     setApproving(null)
   }
@@ -423,13 +422,7 @@ export default function AdminDashboard() {
       setAddName('')
       setAddEmail('')
       setAddRole('')
-      // Refresh members list
-      const { data } = await supabase
-        .from('profiles')
-        .select('id, email, full_name, role, is_active, created_at')
-        .eq('status', 'approved')
-        .order('full_name')
-      setMembers((data as Member[]) ?? [])
+      await loadAll()
     }
     setAddLoading(false)
   }
@@ -672,19 +665,23 @@ export default function AdminDashboard() {
     }
     setAssigning(true)
     try {
-      const { error } = await supabase.from('sessions').insert({
-        mentor_semester_id: assignMentorId,
-        startup_semester_id: assignStartupId,
-        meeting_id: selectedSessionDateId,
-        semester_id: activeSemesterId,
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch('/api/admin/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}) },
+        body: JSON.stringify({
+        mentorSemesterId: assignMentorId,
+        startupSemesterId: assignStartupId,
+        meetingId: selectedSessionDateId,
+        semesterId: activeSemesterId,
         slot: assignTimeSlot === '4:15-5:00' ? 2 : 1,
         format: assignFormat,
-        startup_absent: assignStartupAbsent,
-        substitute_name: assignStartupAbsent && assignSubstituteName.trim() ? assignSubstituteName.trim() : null,
+        startupAbsent: assignStartupAbsent,
+        substituteName: assignStartupAbsent && assignSubstituteName.trim() ? assignSubstituteName.trim() : null,
         topic: assignTopic.trim() ? assignTopic.trim() : null,
-        status: 'confirmed',
-      } as never)
-      if (error) throw error
+        }),
+      })
+      if (!response.ok) throw new Error(((await response.json()) as { error?: string }).error ?? 'Assignment failed.')
       await refreshSessions()
       setAssignTopic('')
       setAssignSubstituteName('')
@@ -716,17 +713,23 @@ export default function AdminDashboard() {
     if (!editingSession) return
     setEditSaving(true)
     try {
-      const { error } = await supabase.from('sessions').update({
-        mentor_semester_id: editMentorId,
-        startup_semester_id: editStartupId,
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch('/api/admin/sessions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}) },
+        body: JSON.stringify({
+        sessionId: editingSession.id,
+        mentorSemesterId: editMentorId,
+        startupSemesterId: editStartupId,
         slot: editTimeSlot === '4:15-5:00' ? 2 : 1,
         format: editFormat,
         topic: editTopic.trim() || null,
         status: editIsConfirmed ? 'confirmed' : 'requested',
-        startup_absent: editStartupAbsent,
-        substitute_name: editStartupAbsent && editSubstituteName.trim() ? editSubstituteName.trim() : null,
-      } as never).eq('id', editingSession.id)
-      if (error) throw error
+        startupAbsent: editStartupAbsent,
+        substituteName: editStartupAbsent && editSubstituteName.trim() ? editSubstituteName.trim() : null,
+        }),
+      })
+      if (!response.ok) throw new Error(((await response.json()) as { error?: string }).error ?? 'Update failed.')
       await refreshSessions()
       setEditingSession(null)
     } catch (e) {
@@ -741,8 +744,12 @@ export default function AdminDashboard() {
     if (!confirm('Delete this session?')) return
     setEditSaving(true)
     try {
-      const { error } = await supabase.from('sessions').delete().eq('id', editingSession.id)
-      if (error) throw error
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch(`/api/admin/sessions?sessionId=${encodeURIComponent(editingSession.id)}`, {
+        method: 'DELETE',
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
+      if (!response.ok) throw new Error(((await response.json()) as { error?: string }).error ?? 'Delete failed.')
       setSessions(prev => prev.filter(s => s.id !== editingSession.id))
       setEditingSession(null)
     } catch (e) {
@@ -1805,7 +1812,7 @@ export default function AdminDashboard() {
                 <select value={assignMentorId} onChange={e => setAssignMentorId(e.target.value)}
                   className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
                   <option value="">Select mentor…</option>
-                  {mentors.filter(m => m.is_active).map(m => (
+                  {mentors.filter(m => m.is_active && m.semester_id === activeSemesterId).map(m => (
                     <option key={m.id} value={m.id}>{m.full_name}{m.company ? ` · ${m.company}` : ''}</option>
                   ))}
                 </select>
@@ -1816,7 +1823,7 @@ export default function AdminDashboard() {
                   disabled={assignStartupAbsent}
                   className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40 disabled:opacity-40">
                   <option value="">Select startup…</option>
-                  {startups.map(s => (
+                  {startups.filter(s => s.semester_id === activeSemesterId).map(s => (
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </select>
@@ -1950,7 +1957,7 @@ export default function AdminDashboard() {
                 <select value={editMentorId} onChange={e => setEditMentorId(e.target.value)}
                   className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
                   <option value="">Select mentor…</option>
-                  {mentors.map(m => (
+                  {mentors.filter(m => m.semester_id === editingSession.session_dates?.semester_id).map(m => (
                     <option key={m.id} value={m.id}>{m.full_name}</option>
                   ))}
                 </select>
@@ -1961,7 +1968,7 @@ export default function AdminDashboard() {
                   disabled={editStartupAbsent}
                   className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40 disabled:opacity-40">
                   <option value="">None</option>
-                  {startups.map(s => (
+                  {startups.filter(s => s.semester_id === editingSession.session_dates?.semester_id).map(s => (
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </select>

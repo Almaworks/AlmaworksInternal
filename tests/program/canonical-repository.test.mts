@@ -3,10 +3,12 @@ import test from "node:test";
 import { createClient } from "@supabase/supabase-js";
 import {
   createSessionRequest,
+  loadFounderHistory,
   loadMentorAvailability,
   loadMentorDirectory,
   loadMentorInbox,
   loadMentorProfile,
+  loadMentorSessions,
   loadStartupDirectory,
   loadStartupProfile,
 } from "../../src/program/canonical-repository.ts";
@@ -51,6 +53,9 @@ test("mentor directory is read from canonical term, membership, identity, and bi
   assert.match(select, /profiles/u);
   assert.match(select, /mentor_profiles/u);
   assert.doesNotMatch(select, /(^|\W)mentors($|\W)/u);
+  assert.equal(requests[0].url.searchParams.get("membership.role"), "eq.mentor");
+  assert.equal(requests[0].url.searchParams.get("membership.profile.order"), "full_name.asc");
+  assert.equal(requests[0].url.searchParams.get("semester_memberships.role"), null);
 });
 
 test("startup directory is read from canonical cohort, organization, and team membership tables", async () => {
@@ -65,10 +70,12 @@ test("startup directory is read from canonical cohort, organization, and team me
   assert.match(select, /startup_team_memberships/u);
   assert.match(select, /semester_memberships/u);
   assert.match(select, /profiles/u);
+  assert.equal(requests[0].url.searchParams.get("organization.order"), "name.asc");
+  assert.equal(requests[0].url.searchParams.get("startup_organizations.order"), null);
 });
 
 test("mentor profile maps canonical identity, biography, and semester participation into the existing UI contract", async () => {
-  const { client } = recordingClient([[{
+  const { client, requests } = recordingClient([[{
     id: "mentor-term-1",
     semester_id: "semester-1",
     general_availability: "Friday afternoons",
@@ -121,6 +128,7 @@ test("mentor profile maps canonical identity, biography, and semester participat
     slug: "ada-mentor-mentor-t",
     website_url: null,
   });
+  assert.equal(requests[0].url.searchParams.get("membership.role"), "eq.mentor");
 });
 
 test("startup profile derives founders from canonical team memberships instead of durable legacy JSON", async () => {
@@ -172,6 +180,8 @@ test("mentor availability resolves the semester membership before reading canoni
   assert.equal(requests[0].url.searchParams.get("semester_id"), "eq.semester-1");
   assert.equal(requests[1].url.searchParams.get("semester_membership_id"), "eq.membership-1");
   assert.match(requests[1].url.searchParams.get("select") ?? "", /meetings/u);
+  assert.equal(requests[1].url.searchParams.get("meeting.order"), "meeting_date.asc");
+  assert.equal(requests[1].url.searchParams.get("order"), "slot.asc");
 });
 
 test("mentor inbox filters sessions by canonical mentor-semester identity and embeds meeting and startup organization", async () => {
@@ -183,12 +193,27 @@ test("mentor inbox filters sessions by canonical mentor-semester identity and em
     "/rest/v1/mentor_semesters",
     "/rest/v1/sessions",
   ]);
+  assert.equal(requests[0].url.searchParams.get("membership.profile_id"), "eq.profile-1");
+  assert.equal(requests[0].url.searchParams.get("membership.status"), "eq.active");
   assert.equal(requests[1].url.searchParams.get("mentor_semester_id"), "eq.mentor-term-1");
   assert.equal(requests[1].url.searchParams.get("status"), "eq.requested");
   const select = requests[1].url.searchParams.get("select") ?? "";
   assert.match(select, /meetings/u);
   assert.match(select, /startup_semesters/u);
   assert.match(select, /startup_organizations/u);
+  assert.equal(requests[1].url.searchParams.get("meeting.order"), "meeting_date.asc");
+});
+
+test("mentor schedule uses its meeting alias for semester filtering and chronological ordering", async () => {
+  const { client, requests } = recordingClient([[]]);
+
+  await loadMentorSessions(client, "mentor-term-1", "semester-1");
+
+  assert.equal(requests[0].url.pathname, "/rest/v1/sessions");
+  assert.equal(requests[0].url.searchParams.get("mentor_semester_id"), "eq.mentor-term-1");
+  assert.equal(requests[0].url.searchParams.get("meeting.semester_id"), "eq.semester-1");
+  assert.equal(requests[0].url.searchParams.get("meeting.order"), "meeting_date.asc");
+  assert.equal(requests[0].url.searchParams.get("meetings.semester_id"), null);
 });
 
 test("session requests write only canonical foreign keys and slot state", async () => {
@@ -217,4 +242,23 @@ test("session requests write only canonical foreign keys and slot state", async 
     status: "requested",
     topic: "Fundraising",
   });
+});
+
+test("founder history aggregates every startup semester and orders the active cohort first", async () => {
+  const { client, requests } = recordingClient([
+    { email: "founder@example.com", full_name: "Founder" },
+    [{ id: "membership-old" }, { id: "membership-active" }],
+    [
+      { startup_semester_id: "startup-old", startup: { organization: { name: "Old Co" }, semester: { is_active: false, name: "Spring 2026" } } },
+      { startup_semester_id: "startup-active", startup: { organization: { name: "Current Co" }, semester: { is_active: true, name: "Fall 2026" } } },
+    ],
+    [],
+  ]);
+
+  const history = await loadFounderHistory(client, "profile-1");
+
+  assert.deepEqual(history?.participations.map((item) => item.startupSemesterId), ["startup-active", "startup-old"]);
+  assert.equal(requests[2].url.searchParams.get("semester_membership_id"), "in.(membership-old,membership-active)");
+  assert.equal(requests[3].url.searchParams.get("startup_semester_id"), "in.(startup-active,startup-old)");
+  assert.equal(requests[3].url.searchParams.get("meeting.order"), "meeting_date.asc");
 });

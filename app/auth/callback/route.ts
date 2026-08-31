@@ -43,20 +43,26 @@ export async function GET(request: NextRequest) {
   // This is more reliable than re-using the @supabase/ssr server client after
   // exchangeCodeForSession, which may not propagate the new session to its
   // internal auth headers in all library versions.
-  let profile: { role: string; status: string; is_active: boolean } | null = null
+  let profile: { status: string; is_active: boolean } | null = null
+  let role: 'admin' | 'mentor' | 'startup' | null = null
   try {
-    const res = await fetch(
-      `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/profiles?id=eq.${session.user.id}&select=role,status,is_active&limit=1`,
-      {
-        headers: {
-          apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-          Authorization: `Bearer ${session.access_token}`,
-          Accept: 'application/json',
-        },
-      }
-    )
+    const headers = {
+      apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      Authorization: `Bearer ${session.access_token}`,
+      Accept: 'application/json',
+    }
+    const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/profiles?id=eq.${session.user.id}&select=status,is_active&limit=1`, { headers })
     const rows = await res.json()
     profile = Array.isArray(rows) && rows.length > 0 ? rows[0] : null
+    if (profile?.status === 'approved') {
+      const [platformResponse, membershipResponse] = await Promise.all([
+        fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/platform_roles?profile_id=eq.${session.user.id}&role=eq.super_admin&select=role&limit=1`, { headers }),
+        fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/semester_memberships?profile_id=eq.${session.user.id}&status=in.(onboarding,active)&select=role,semester:semesters!inner(is_active)&semester.is_active=eq.true&limit=1`, { headers }),
+      ])
+      const platformRows = await platformResponse.json() as { role: string }[]
+      const membershipRows = await membershipResponse.json() as { role: 'admin' | 'mentor' | 'startup' }[]
+      role = platformRows.some(row => row.role === 'super_admin') ? 'admin' : membershipRows[0]?.role ?? null
+    }
   } catch {
     // Network error — fall through to /dashboard for client-side retry
   }
@@ -65,10 +71,10 @@ export async function GET(request: NextRequest) {
 
   if (profile?.is_active === false) {
     dest = '/?error=account_inactive'
-  } else if (profile?.status === 'approved' && profile.role) {
+  } else if (profile?.status === 'approved' && role) {
     dest =
-      profile.role === 'admin' ? '/dashboard/admin' :
-      profile.role === 'mentor' ? '/dashboard/mentor' :
+      role === 'admin' ? '/dashboard/admin' :
+      role === 'mentor' ? '/dashboard/mentor' :
       '/dashboard/startup'
   } else if (profile === null) {
     // Profile fetch failed — redirect to /dashboard so the client-side

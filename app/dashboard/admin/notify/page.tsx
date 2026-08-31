@@ -147,7 +147,7 @@ export default function AdminNotifyPage() {
           )
         )
       `)
-      .eq('meetings.meeting_date', sessionDate)
+      .eq('meeting.meeting_date', sessionDate)
       .order('slot')
     setSessions(((data as unknown as CanonicalSessionRow[]) ?? []).map(mapCanonicalSession))
     setLoadingSessions(false)

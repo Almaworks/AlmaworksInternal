@@ -33,7 +33,7 @@ export async function POST(request: Request) {
     const profileResult = await context.adminClient.from('profiles').select('id').ilike('email', email.trim()).maybeSingle()
     if (profileResult.error || !profileResult.data) return NextResponse.json({ error: 'Founder not found.' }, { status: 404 })
 
-    await moveFounderMembership(context.adminClient, {
+    await moveFounderMembership(context.userClient, {
       fromStartupSemesterId: fromStartupId,
       profileId: profileResult.data.id,
       toStartupSemesterId: toStartupId,

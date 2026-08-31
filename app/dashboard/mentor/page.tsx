@@ -1,9 +1,9 @@
 'use client'
 
 import { createClient } from '@/utils/supabase/client'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import SessionCalendar, { type CalSession } from '@/components/SessionCalendar'
-import { loadMentorAvailability } from '@/src/program/canonical-repository'
+import { loadMentorAvailability, loadMentorSessions } from '@/src/program/canonical-repository'
 
 type SessionDate = {
   id: string
@@ -33,20 +33,22 @@ type Semester = {
 }
 
 export default function MentorDashboard() {
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
   const [sessionDates, setSessionDates] = useState<SessionDate[]>([])
   const [availability, setAvailability] = useState<Record<string, boolean>>({})
   const [sessions, setSessions] = useState<Session[]>([])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [membershipId, setMembershipId] = useState<string | null>(null)
+  const [profileId, setProfileId] = useState<string | null>(null)
+  const [membershipTerms, setMembershipTerms] = useState<Record<string, string>>({})
   const [mentorTerms, setMentorTerms] = useState<Record<string, string>>({})
 
   const [semesters, setSemesters] = useState<Semester[]>([])
   const [selectedSemesterId, setSelectedSemesterId] = useState<string | null>(null)
   const [loadedSessionsFor, setLoadedSessionsFor] = useState<string | null>(null)
   const mentorId = selectedSemesterId ? mentorTerms[selectedSemesterId] ?? null : null
+  const membershipId = selectedSemesterId ? membershipTerms[selectedSemesterId] ?? null : null
   const sessionQueryKey = mentorId && selectedSemesterId
     ? `${mentorId}:${selectedSemesterId}`
     : null
@@ -57,6 +59,7 @@ export default function MentorDashboard() {
     async function loadInit() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
+      setProfileId(user.id)
 
       const { data: membershipRows } = await supabase
         .from('semester_memberships')
@@ -74,47 +77,44 @@ export default function MentorDashboard() {
       const activeSem = allSems.find(s => s.is_active)
       const defaultId = activeSem?.id ?? allSems[0]?.id ?? null
       setSelectedSemesterId(defaultId)
-
-      // Active semester's session dates (for availability checkboxes)
-      if (activeSem) {
-        const { data: dates } = await supabase
-          .from('meetings')
-          .select('id, meeting_date, label')
-          .eq('semester_id', activeSem.id)
-          .order('meeting_date')
-        setSessionDates((dates ?? []).map((row) => ({ id: row.id, date: row.meeting_date, label: row.label })))
-      }
-
-      const avail = activeSem ? await loadMentorAvailability(supabase, user.id, activeSem.id) : []
-      const map: Record<string, boolean> = {}
-      for (const row of (avail as Availability[]) ?? []) {
-        map[row.meeting_id] = (map[row.meeting_id] ?? false) || row.is_available
-      }
-      setAvailability(map)
+      setMembershipTerms(Object.fromEntries((membershipRows ?? []).map((row) => [row.semester_id, row.id])))
 
       const { data: mentorRows } = await supabase
         .from('mentor_semesters')
         .select('id, semester_id, membership:semester_memberships!inner(profile_id)')
-        .eq('semester_memberships.profile_id', user.id)
+        .eq('membership.profile_id', user.id)
       const terms = Object.fromEntries((mentorRows ?? []).map((row) => [row.semester_id, row.id]))
       setMentorTerms(terms)
-      const activeMembership = (membershipRows ?? []).find((row) => row.semester_id === activeSem?.id)
-      setMembershipId(activeMembership?.id ?? null)
     }
     loadInit()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!profileId || !selectedSemesterId) {
+      return
+    }
+    let cancelled = false
+    void Promise.all([
+      supabase.from('meetings').select('id, meeting_date, label').eq('semester_id', selectedSemesterId).order('meeting_date'),
+      loadMentorAvailability(supabase, profileId, selectedSemesterId),
+    ]).then(([dateResult, availabilityRows]) => {
+      if (cancelled) return
+      setSessionDates((dateResult.data ?? []).map((row) => ({ id: row.id, date: row.meeting_date, label: row.label })))
+      const map: Record<string, boolean> = {}
+      for (const row of availabilityRows as Availability[]) {
+        map[row.meeting_id] = (map[row.meeting_id] ?? false) || row.is_available
+      }
+      setAvailability(map)
+    })
+    return () => { cancelled = true }
+  }, [profileId, selectedSemesterId, supabase])
 
   // Re-fetch sessions whenever mentor or selected semester changes
   useEffect(() => {
     if (!mentorId || !selectedSemesterId) return
     const queryKey = `${mentorId}:${selectedSemesterId}`
-    supabase
-      .from('sessions')
-      .select('id, status, topic, slot, format, meeting:meetings!inner(meeting_date, label, semester_id), startup:startup_semesters!inner(organization:startup_organizations!inner(name))')
-      .eq('mentor_semester_id', mentorId)
-      .eq('meetings.semester_id', selectedSemesterId)
-      .order('meeting_date', { referencedTable: 'meetings' })
-      .then(({ data }) => {
+    void loadMentorSessions(supabase, mentorId, selectedSemesterId)
+      .then((data) => {
         setSessions((data as unknown as Session[]) ?? [])
         setLoadedSessionsFor(queryKey)
       })
@@ -261,7 +261,7 @@ export default function MentorDashboard() {
             <div className="pt-2 flex items-center gap-3">
               <button
                 onClick={saveAvailability}
-                disabled={saving}
+                disabled={saving || !membershipId}
                 className="px-5 py-2.5 bg-[#002147] text-white text-sm font-medium rounded-full hover:bg-[#002147]/90 disabled:opacity-60 transition-colors"
               >
                 {saving ? 'Saving…' : 'Save availability'}

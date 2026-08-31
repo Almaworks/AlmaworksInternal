@@ -102,7 +102,7 @@ export default function StartupDashboard() {
         .from('outreach_opportunities')
         .select('id, stage, contact:outreach_contacts!inner(full_name, linkedin_url, expertise_tags, background_notes)')
         .in('stage', ['replied', 'ready'])
-        .order('full_name', { referencedTable: 'outreach_contacts' })
+        .order('full_name', { referencedTable: 'contact' })
 
       const mentorEntries: DirectoryEntry[] = (mentorRows as Mentor[]).map(m => ({
         kind: 'mentor',
@@ -170,8 +170,8 @@ export default function StartupDashboard() {
       .from('sessions')
       .select('id, status, topic, slot, format, meeting:meetings!inner(meeting_date, label, semester_id), mentor:mentor_semesters!inner(membership:semester_memberships!inner(profile:profiles!inner(full_name, mentor_profile:mentor_profiles(company))))')
       .eq('startup_semester_id', startup.id)
-      .eq('meetings.semester_id', selectedSemesterId)
-      .order('meeting_date', { referencedTable: 'meetings' })
+      .eq('meeting.semester_id', selectedSemesterId)
+      .order('meeting_date', { referencedTable: 'meeting' })
       .then(({ data }) => {
         setSessions((data as unknown as Session[]) ?? [])
         setLoadedSessionsFor(queryKey)

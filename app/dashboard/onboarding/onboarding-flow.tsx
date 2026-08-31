@@ -52,11 +52,10 @@ export default function OnboardingFlow() {
       setEmail(user.email ?? "");
       const { data } = await supabase
         .from("profiles")
-        .select("full_name, role")
+        .select("full_name")
         .eq("id", user.id)
         .maybeSingle();
       if (data?.full_name) setName(data.full_name);
-      if (data?.role === "mentor" || data?.role === "startup") setRole(data.role);
       const { data: membership } = await supabase
         .from("semester_memberships")
         .select("id, semester_id, status, role")
