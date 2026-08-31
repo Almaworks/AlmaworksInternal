@@ -399,17 +399,37 @@ function fakeSupabase(
 ): SupabaseClient<Database> {
   const from = (table: string) => {
     const result = tables[table] ?? { rows: [], single: null, error: null };
+    const equalityPredicates: Array<{ column: string; value: unknown }> = [];
+    const matchesEqualityPredicates = (row: unknown): boolean => (
+      typeof row === "object"
+      && row !== null
+      && equalityPredicates.every(({ column, value }) => (
+        column in row && (row as Record<string, unknown>)[column] === value
+      ))
+    );
     const builder = {
       select: () => builder,
-      eq: () => builder,
+      eq: (column: string, value: unknown) => {
+        equalityPredicates.push({ column, value });
+        return builder;
+      },
       in: () => builder,
       order: () => builder,
       limit: () => builder,
-      maybeSingle: async () => ({ data: result.single ?? null, error: result.error ?? null }),
+      maybeSingle: async () => {
+        const single = result.single ?? null;
+        return {
+          data: single !== null && matchesEqualityPredicates(single) ? single : null,
+          error: result.error ?? null,
+        };
+      },
       then: <TResult1 = { data: unknown[]; error: { code?: string; message: string } | null }, TResult2 = never>(
         onfulfilled?: ((value: { data: unknown[]; error: { code?: string; message: string } | null }) => TResult1 | PromiseLike<TResult1>) | null,
         onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
-      ) => Promise.resolve({ data: result.rows, error: result.error ?? null }).then(onfulfilled, onrejected),
+      ) => Promise.resolve({
+        data: result.rows.filter(matchesEqualityPredicates),
+        error: result.error ?? null,
+      }).then(onfulfilled, onrejected),
     };
     return builder;
   };
@@ -465,7 +485,7 @@ test("duplicate legacy mentor rows count profile-wide capacity and recency", asy
     startup_team_memberships: { rows: [{ id: "team-membership", startup_semester_id: ids.startup, semester_membership_id: "startup-membership", semester_id: ids.semester, is_primary_contact: true }] },
     startups: { rows: [{ id: "schedule-startup-selected", user_id: "startup-profile", semester_id: ids.semester, is_active: true }] },
     availability: { rows: [] },
-    sessions: { rows: [{ mentor_id: "schedule-mentor-z", startup_id: "schedule-startup-selected", session_date_id: priorDateId, time_slot: "3:30-4:15", status: "confirmed" }] },
+    sessions: { rows: [{ mentor_id: "schedule-mentor-z", startup_id: "schedule-startup-selected", session_date_id: priorDateId, time_slot: "3:30-4:15", status: "confirmed", semester_id: ids.semester }] },
   }));
   const response = await routesFor(source).getCandidates(candidateRequest());
   const payload = await response.json() as { data: { candidates: Array<{ mentor: { id: string; assignmentLoad: number; recentMeetingCount: number }; requiredOverrideTypes: string[] }> } };

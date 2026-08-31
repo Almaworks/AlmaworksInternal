@@ -401,7 +401,7 @@ export function createSupabaseAssignmentDataSource(client: Client): AssignmentDa
         client.from("startup_semesters").select("id, semester_id, company_snapshot, goals, mentor_need_context, mentor_need_no_preference, mentorship_needs, preferred_expertise_tags, stage").eq("id", input.startupSemesterId).eq("semester_id", input.semesterId).maybeSingle(),
         client.from("semester_memberships").select("id, profile_id, semester_id, role, status").eq("semester_id", input.semesterId),
         client.from("mentor_semesters").select("semester_membership_id, semester_id, capacity, preferred_format").eq("semester_id", input.semesterId),
-        client.from("mentors").select("id, user_id, full_name, semester_id, is_active").eq("semester_id", input.semesterId).eq("is_active", true),
+        client.from("mentors").select("id, user_id, full_name, semester_id, is_active").eq("semester_id", input.semesterId),
         client.from("startup_team_memberships").select("id, startup_semester_id, semester_membership_id, semester_id, is_primary_contact").eq("semester_id", input.semesterId),
         client.from("startups").select("id, user_id, semester_id, is_active").eq("semester_id", input.semesterId).eq("is_active", true),
         client.from("availability").select("user_id, session_date_id, is_available").eq("session_date_id", input.sessionDateId),
