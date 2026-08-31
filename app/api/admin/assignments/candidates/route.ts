@@ -1,3 +1,11 @@
-import { requireSemesterAdmin, AuthorizationError } from "@/src/auth/server";
-import { AssignmentHttpError, loadAssignmentCandidates, parseCandidateQuery } from "@/src/assignments/server";
-export async function GET(request: Request) { try { const query = parseCandidateQuery(new URL(request.url)); const { userClient } = await requireSemesterAdmin(request, query.semesterId); return Response.json({ data: await loadAssignmentCandidates(userClient, query) }); } catch (error) { const status = error instanceof AuthorizationError ? error.status : error instanceof AssignmentHttpError ? error.status : 500; return Response.json({ error: { code: error instanceof AssignmentHttpError ? error.code : status === 401 ? "unauthenticated" : status === 403 ? "forbidden" : "internal_error", message: error instanceof Error ? error.message : "Unexpected error" } }, { status }); } }
+import { requireSemesterAdmin } from "@/src/auth/server";
+import { createAssignmentRoutes, createSupabaseAssignmentDataSource } from "@/src/assignments/server";
+
+const routes = createAssignmentRoutes({
+  authorize: async (request, semesterId) => {
+    const { userClient } = await requireSemesterAdmin(request, semesterId);
+    return createSupabaseAssignmentDataSource(userClient);
+  },
+});
+
+export const GET = routes.getCandidates;
