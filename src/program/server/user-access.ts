@@ -1,4 +1,5 @@
 import {
+  KnownDatabaseRejectionError,
   type SetSemesterMemberAccessInput,
 } from "./canonical-admin.ts";
 
@@ -40,25 +41,49 @@ export async function synchronizeAuthEmailAndSemesterAccess({
   input: SetSemesterMemberAccessInput & { email: string };
   setAccess: SetAccess;
 }) {
-  const lookup = await authAdmin.getUserById(input.profileId);
+  return synchronizeAuthEmailAndDatabaseMutation({
+    authAdmin,
+    email: input.email,
+    mutateDatabase: () => setAccess(input),
+    profileId: input.profileId,
+  });
+}
+
+export async function synchronizeAuthEmailAndDatabaseMutation<T>({
+  authAdmin,
+  email,
+  mutateDatabase,
+  profileId,
+}: {
+  authAdmin: AuthEmailAdmin;
+  email: string;
+  mutateDatabase: () => Promise<T>;
+  profileId: string;
+}): Promise<T> {
+  const lookup = await authAdmin.getUserById(profileId);
   if (lookup.error) throw new Error(lookup.error.message);
   const previousEmail = lookup.data.user?.email ?? null;
-  const emailChanged = previousEmail?.toLowerCase() !== input.email.toLowerCase();
+  const emailChanged = previousEmail?.toLowerCase() !== email.toLowerCase();
   if (emailChanged) {
-    const authUpdate = await authAdmin.updateUserById(input.profileId, { email: input.email });
+    const authUpdate = await authAdmin.updateUserById(profileId, { email });
     if (authUpdate.error) throw new Error(authUpdate.error.message);
   }
 
   try {
-    return await setAccess(input);
+    return await mutateDatabase();
   } catch (cause) {
+    if (!(cause instanceof KnownDatabaseRejectionError)) {
+      throw new ReconciliationRequiredError(
+        `${message(cause)} The database outcome is unknown; Auth was not rolled back.`,
+      );
+    }
     if (!emailChanged) throw cause;
     if (previousEmail === null) {
       throw new ReconciliationRequiredError(
         `${message(cause)} Auth email changed, but the prior Auth email is unavailable for rollback.`,
       );
     }
-    const rollback = await authAdmin.updateUserById(input.profileId, { email: previousEmail });
+    const rollback = await authAdmin.updateUserById(profileId, { email: previousEmail });
     if (rollback.error) {
       throw new ReconciliationRequiredError(
         `${message(cause)} Auth email rollback also failed: ${rollback.error.message}`,
@@ -66,6 +91,21 @@ export async function synchronizeAuthEmailAndSemesterAccess({
     }
     throw cause;
   }
+}
+
+export async function updateExistingSemesterMemberIdentity({
+  authorizeTarget,
+  authAdmin,
+  input,
+  setAccess,
+}: {
+  authorizeTarget: (input: { profileId: string; semesterId: string }) => Promise<unknown>;
+  authAdmin: AuthEmailAdmin;
+  input: SetSemesterMemberAccessInput & { email: string };
+  setAccess: SetAccess;
+}) {
+  await authorizeTarget({ profileId: input.profileId, semesterId: input.semesterId });
+  return synchronizeAuthEmailAndSemesterAccess({ authAdmin, input, setAccess });
 }
 
 export async function provisionSemesterMemberAccess({
@@ -77,10 +117,31 @@ export async function provisionSemesterMemberAccess({
   input: SetSemesterMemberAccessInput;
   setAccess: SetAccess;
 }) {
+  return provisionAuthBackedDatabaseMutation({
+    authAdmin,
+    mutateDatabase: () => setAccess(input),
+    profileId: input.profileId,
+  });
+}
+
+export async function provisionAuthBackedDatabaseMutation<T>({
+  authAdmin,
+  mutateDatabase,
+  profileId,
+}: {
+  authAdmin: AuthDeleteAdmin;
+  mutateDatabase: () => Promise<T>;
+  profileId: string;
+}): Promise<T> {
   try {
-    return await setAccess(input);
+    return await mutateDatabase();
   } catch (cause) {
-    const rollback = await authAdmin.deleteUser(input.profileId);
+    if (!(cause instanceof KnownDatabaseRejectionError)) {
+      throw new ReconciliationRequiredError(
+        `${message(cause)} The database outcome is unknown; Auth user cleanup was not attempted.`,
+      );
+    }
+    const rollback = await authAdmin.deleteUser(profileId);
     if (rollback.error) {
       throw new ReconciliationRequiredError(
         `${message(cause)} Auth user cleanup also failed: ${rollback.error.message}`,

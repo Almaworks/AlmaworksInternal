@@ -252,6 +252,177 @@ begin
 end;
 $$;
 
+create or replace function public.authorize_semester_member_identity_update(
+  p_profile_id uuid,
+  p_semester_id uuid
+) returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_membership_id uuid;
+begin
+  if auth.uid() is null or not public.can_manage_semester(p_semester_id, auth.uid()) then
+    raise exception 'Semester administrator access required' using errcode = '42501';
+  end if;
+  select id into v_membership_id
+  from public.semester_memberships
+  where semester_id = p_semester_id and profile_id = p_profile_id;
+  if v_membership_id is null then
+    raise exception 'Semester member not found' using errcode = 'P0002';
+  end if;
+  if public.is_super_admin(p_profile_id) and not public.is_super_admin(auth.uid()) then
+    raise exception 'Platform super-administrator access required for this identity' using errcode = '42501';
+  end if;
+  return v_membership_id;
+end;
+$$;
+
+create or replace function public.create_mentor_records(
+  p_profile_id uuid,
+  p_semester_id uuid,
+  p_email text,
+  p_full_name text,
+  p_biography text,
+  p_company text,
+  p_expertise_tags text[],
+  p_is_active boolean,
+  p_linkedin_url text,
+  p_title text,
+  p_general_availability text,
+  p_opening_talk text,
+  p_preferred_format text
+) returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_existing_role public.user_role;
+  v_membership_id uuid;
+  v_mentor_semester_id uuid;
+begin
+  if auth.uid() is null or not public.can_manage_semester(p_semester_id, auth.uid()) then
+    raise exception 'Semester administrator access required' using errcode = '42501';
+  end if;
+  if public.is_super_admin(p_profile_id) and not public.is_super_admin(auth.uid()) then
+    raise exception 'Platform super-administrator access required for this identity' using errcode = '42501';
+  end if;
+  select role into v_existing_role
+  from public.semester_memberships
+  where semester_id = p_semester_id and profile_id = p_profile_id;
+  if v_existing_role is not null and v_existing_role <> 'mentor' then
+    raise exception 'Existing semester membership has an incompatible role' using errcode = '23514';
+  end if;
+
+  insert into public.profiles (id, email, full_name, status, is_active)
+  values (p_profile_id, trim(p_email), nullif(trim(p_full_name), ''), 'approved', true)
+  on conflict (id) do update
+  set email = excluded.email,
+      full_name = excluded.full_name,
+      status = 'approved',
+      is_active = true,
+      updated_at = now();
+
+  insert into public.semester_memberships (semester_id, profile_id, role, status, activated_at)
+  values (p_semester_id, p_profile_id, 'mentor', case when p_is_active then 'active' else 'onboarding' end,
+          case when p_is_active then now() else null end)
+  on conflict (semester_id, profile_id) do update
+  set status = excluded.status,
+      activated_at = excluded.activated_at,
+      updated_at = now()
+  returning id into v_membership_id;
+
+  insert into public.mentor_profiles (profile_id, biography, company, expertise_tags, linkedin_url, title)
+  values (p_profile_id, p_biography, p_company, coalesce(p_expertise_tags, '{}'), p_linkedin_url, p_title)
+  on conflict (profile_id) do update
+  set biography = excluded.biography,
+      company = excluded.company,
+      expertise_tags = excluded.expertise_tags,
+      linkedin_url = excluded.linkedin_url,
+      title = excluded.title,
+      updated_at = now();
+
+  insert into public.mentor_semesters (
+    semester_id, semester_membership_id, general_availability, opening_talk,
+    preferred_format, readiness_status
+  ) values (
+    p_semester_id, v_membership_id, p_general_availability, p_opening_talk,
+    p_preferred_format, case when p_is_active then 'ready' else 'not_started' end
+  )
+  on conflict (semester_id, semester_membership_id) do update
+  set general_availability = excluded.general_availability,
+      opening_talk = excluded.opening_talk,
+      preferred_format = excluded.preferred_format,
+      readiness_status = excluded.readiness_status,
+      updated_at = now()
+  returning id into v_mentor_semester_id;
+  return v_mentor_semester_id;
+end;
+$$;
+
+create or replace function public.update_mentor_records(
+  p_mentor_semester_id uuid,
+  p_patch jsonb
+) returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_membership_id uuid;
+  v_profile_id uuid;
+  v_semester_id uuid;
+begin
+  select term.semester_id, term.semester_membership_id, membership.profile_id
+  into v_semester_id, v_membership_id, v_profile_id
+  from public.mentor_semesters term
+  join public.semester_memberships membership on membership.id = term.semester_membership_id
+  where term.id = p_mentor_semester_id and membership.role = 'mentor';
+  if v_profile_id is null then
+    raise exception 'Mentor semester not found' using errcode = 'P0002';
+  end if;
+  if auth.uid() is null or not public.can_manage_semester(v_semester_id, auth.uid()) then
+    raise exception 'Semester administrator access required' using errcode = '42501';
+  end if;
+  if public.is_super_admin(v_profile_id) and not public.is_super_admin(auth.uid()) then
+    raise exception 'Platform super-administrator access required for this identity' using errcode = '42501';
+  end if;
+
+  update public.profiles
+  set email = case when p_patch ? 'email' then nullif(trim(p_patch ->> 'email'), '') else email end,
+      full_name = case when p_patch ? 'full_name' then nullif(trim(p_patch ->> 'full_name'), '') else full_name end,
+      updated_at = now()
+  where id = v_profile_id;
+
+  update public.mentor_profiles
+  set biography = case when p_patch ? 'biography' then p_patch ->> 'biography' else biography end,
+      company = case when p_patch ? 'company' then p_patch ->> 'company' else company end,
+      expertise_tags = case when p_patch ? 'expertise_tags' then coalesce(array(select jsonb_array_elements_text(p_patch -> 'expertise_tags')), '{}') else expertise_tags end,
+      linkedin_url = case when p_patch ? 'linkedin_url' then p_patch ->> 'linkedin_url' else linkedin_url end,
+      title = case when p_patch ? 'title' then p_patch ->> 'title' else title end,
+      updated_at = now()
+  where profile_id = v_profile_id;
+
+  update public.mentor_semesters
+  set general_availability = case when p_patch ? 'general_availability' then p_patch ->> 'general_availability' else general_availability end,
+      opening_talk = case when p_patch ? 'opening_talk' then p_patch ->> 'opening_talk' else opening_talk end,
+      preferred_format = case when p_patch ? 'preferred_format' then p_patch ->> 'preferred_format' else preferred_format end,
+      updated_at = now()
+  where id = p_mentor_semester_id;
+
+  if p_patch ? 'is_active' then
+    update public.semester_memberships
+    set status = case when (p_patch ->> 'is_active')::boolean then 'active' else 'suspended' end,
+        activated_at = case when (p_patch ->> 'is_active')::boolean then coalesce(activated_at, now()) else activated_at end,
+        updated_at = now()
+    where id = v_membership_id;
+  end if;
+  return p_mentor_semester_id;
+end;
+$$;
+
 create or replace function public.set_semester_member_access(
   p_profile_id uuid,
   p_semester_id uuid,
@@ -266,10 +437,40 @@ set search_path = ''
 as $$
 declare
   v_existing_email text;
+  v_existing_role public.user_role;
   v_membership_id uuid;
 begin
   if auth.uid() is null or not public.can_manage_semester(p_semester_id, auth.uid()) then
     raise exception 'Semester administrator access required' using errcode = '42501';
+  end if;
+
+  select membership.id, membership.role
+  into v_membership_id, v_existing_role
+  from public.semester_memberships membership
+  where membership.semester_id = p_semester_id
+    and membership.profile_id = p_profile_id;
+
+  if not p_approve and v_membership_id is null then
+    raise exception 'Semester member not found' using errcode = 'P0002';
+  end if;
+
+  if public.is_super_admin(p_profile_id) and not public.is_super_admin(auth.uid()) then
+    raise exception 'Platform super-administrator access required for this identity' using errcode = '42501';
+  end if;
+
+  if v_membership_id is not null
+     and v_existing_role is distinct from p_role
+     and (
+       exists (
+         select 1 from public.mentor_semesters
+         where semester_membership_id = v_membership_id
+       )
+       or exists (
+         select 1 from public.startup_team_memberships
+         where semester_membership_id = v_membership_id
+       )
+     ) then
+    raise exception 'Role transition requires explicit data migration' using errcode = '23514';
   end if;
 
   select email into v_existing_email from public.profiles where id = p_profile_id;

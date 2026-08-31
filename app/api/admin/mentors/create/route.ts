@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { AuthorizationError, requireSemesterAdmin } from '@/src/auth/server'
 import { createMentorRecords } from '@/src/program/server/canonical-admin'
+import { provisionAuthBackedDatabaseMutation, ReconciliationRequiredError } from '@/src/program/server/user-access'
 
 type CreateMentorPayload = {
   semesterId: string
@@ -23,10 +24,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Missing required fields.' }, { status: 400 })
     }
 
-    const { adminClient } = await requireSemesterAdmin(req, payload.semesterId)
+    const { adminClient, userClient } = await requireSemesterAdmin(req, payload.semesterId)
+    const existingProfile = await userClient.from('profiles').select('id').eq('email', email).maybeSingle()
+    if (existingProfile.error) {
+      return NextResponse.json({ error: existingProfile.error.message }, { status: 400 })
+    }
+    if (existingProfile.data) {
+      return NextResponse.json({ error: 'A user with this email already exists.' }, { status: 409 })
+    }
     const redirectTo = `${new URL(req.url).origin}/auth/callback`
     const { data: linkData, error: linkErr } = await adminClient.auth.admin.generateLink({
-      type: 'magiclink',
+      type: 'invite',
       email,
       options: {
         redirectTo,
@@ -38,36 +46,31 @@ export async function POST(req: Request) {
     }
 
     const userId = linkData.user.id
-    const profileRes = await adminClient.from('profiles').upsert(
-      {
-        id: userId,
+    const mentorId = await provisionAuthBackedDatabaseMutation({
+      authAdmin: adminClient.auth.admin,
+      mutateDatabase: () => createMentorRecords(userClient, {
+        biography: payload.bio,
+        company: payload.company,
         email,
-        full_name: fullName,
-        status: 'approved',
-        is_active: true,
-      } as never,
-      { onConflict: 'id' },
-    )
-    if (profileRes.error) {
-      return NextResponse.json({ error: profileRes.error.message }, { status: 400 })
-    }
-
-    const mentorId = await createMentorRecords(adminClient, {
-      biography: payload.bio,
-      company: payload.company,
-      expertiseTags: payload.expertiseTags ?? [],
-      isActive: payload.isActive,
-      linkedinUrl: payload.linkedinUrl,
-      preferredFormat: null,
+        expertiseTags: payload.expertiseTags ?? [],
+        fullName,
+        isActive: payload.isActive,
+        linkedinUrl: payload.linkedinUrl,
+        preferredFormat: null,
+        profileId: userId,
+        semesterId: payload.semesterId,
+        title: payload.roleTitle,
+      }),
       profileId: userId,
-      semesterId: payload.semesterId,
-      title: payload.roleTitle,
     })
 
     return NextResponse.json({ ok: true, mentorId, magicLink: linkData.properties.action_link })
   } catch (err) {
     if (err instanceof AuthorizationError) {
       return NextResponse.json({ error: err.message }, { status: err.status })
+    }
+    if (err instanceof ReconciliationRequiredError) {
+      return NextResponse.json({ error: err.message, reconciliationRequired: true }, { status: 500 })
     }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Unexpected server error.' },

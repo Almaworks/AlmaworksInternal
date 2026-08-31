@@ -57,3 +57,43 @@ test("platform super-admin changes require an existing platform super-admin", ()
   assert.match(body, /delete from public\.platform_roles/u);
   assert.match(security, /revoke execute on function public\.set_platform_super_admin\(uuid,boolean\) from public,anon/u);
 });
+
+test("member identity preflight requires target membership and protects super-admin identities", () => {
+  const body = functionBody("authorize_semester_member_identity_update");
+  assert.match(body, /can_manage_semester\(p_semester_id, auth\.uid\(\)\)/u);
+  assert.match(body, /from public\.semester_memberships/u);
+  assert.match(body, /profile_id = p_profile_id/u);
+  assert.match(body, /is_super_admin\(p_profile_id\)[\s\S]*is_super_admin\(auth\.uid\(\)\)/u);
+  assert.match(security, /revoke execute on function public\.authorize_semester_member_identity_update\(uuid,uuid\) from public,anon/u);
+});
+
+test("existing member updates cannot insert arbitrary targets or corrupt dependent semester data", () => {
+  const body = functionBody("set_semester_member_access");
+  assert.match(body, /if not p_approve and v_membership_id is null/u);
+  assert.match(body, /semester member not found/u);
+  assert.match(body, /mentor_semesters/u);
+  assert.match(body, /startup_team_memberships/u);
+  assert.match(body, /role transition requires explicit data migration/u);
+  assert.match(body, /is_super_admin\(p_profile_id\)[\s\S]*is_super_admin\(auth\.uid\(\)\)/u);
+});
+
+test("mentor create and update commands are authorized single transactions", () => {
+  const createBody = functionBody("create_mentor_records");
+  assert.match(createBody, /can_manage_semester\(p_semester_id, auth\.uid\(\)\)/u);
+  assert.match(createBody, /insert into public\.profiles/u);
+  assert.match(createBody, /insert into public\.semester_memberships/u);
+  assert.match(createBody, /insert into public\.mentor_profiles/u);
+  assert.match(createBody, /insert into public\.mentor_semesters/u);
+  assert.match(createBody, /existing semester membership has an incompatible role/u);
+  assert.match(createBody, /is_super_admin\(p_profile_id\)[\s\S]*is_super_admin\(auth\.uid\(\)\)/u);
+
+  const updateBody = functionBody("update_mentor_records");
+  assert.match(updateBody, /can_manage_semester\(v_semester_id, auth\.uid\(\)\)/u);
+  assert.match(updateBody, /update public\.profiles/u);
+  assert.match(updateBody, /update public\.mentor_profiles/u);
+  assert.match(updateBody, /update public\.mentor_semesters/u);
+  assert.match(updateBody, /update public\.semester_memberships/u);
+  assert.match(updateBody, /is_super_admin\(v_profile_id\)[\s\S]*is_super_admin\(auth\.uid\(\)\)/u);
+  assert.match(security, /revoke execute on function public\.create_mentor_records\(uuid,uuid,text,text,text,text,text\[\],boolean,text,text,text,text,text\) from public,anon/u);
+  assert.match(security, /revoke execute on function public\.update_mentor_records\(uuid,jsonb\) from public,anon/u);
+});

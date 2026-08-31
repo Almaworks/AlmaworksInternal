@@ -2,6 +2,52 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 type AdminClient = SupabaseClient;
 
+export class KnownDatabaseRejectionError extends Error {
+  readonly outcome = "rejected";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "KnownDatabaseRejectionError";
+  }
+}
+
+export class AmbiguousDatabaseOutcomeError extends Error {
+  readonly outcome = "unknown";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "AmbiguousDatabaseOutcomeError";
+  }
+}
+
+function errorMessage(cause: unknown, fallback: string) {
+  return cause instanceof Error ? cause.message : fallback;
+}
+
+async function runUuidRpc(
+  client: AdminClient,
+  name: string,
+  args: Record<string, unknown>,
+  fallback: string,
+) {
+  let result: { data: unknown; error: { code?: string; message: string } | null };
+  try {
+    result = await client.rpc(name, args);
+  } catch (cause) {
+    throw new AmbiguousDatabaseOutcomeError(errorMessage(cause, fallback));
+  }
+  if (result.error) {
+    if (!result.error.code?.trim()) {
+      throw new AmbiguousDatabaseOutcomeError(result.error.message);
+    }
+    throw new KnownDatabaseRejectionError(result.error.message);
+  }
+  if (typeof result.data !== "string" || result.data.length === 0) {
+    throw new AmbiguousDatabaseOutcomeError(`${fallback} The database returned no operation identifier.`);
+  }
+  return result.data;
+}
+
 function requireData<T>(data: T | null, error: { message: string } | null, message: string): T {
   if (error) throw new Error(error.message);
   if (!data) throw new Error(message);
@@ -12,6 +58,8 @@ export type CreateMentorRecordsInput = {
   biography: string | null;
   company: string | null;
   expertiseTags: string[];
+  email: string;
+  fullName: string;
   generalAvailability?: string | null;
   isActive: boolean;
   linkedinUrl: string | null;
@@ -23,41 +71,21 @@ export type CreateMentorRecordsInput = {
 };
 
 export async function createMentorRecords(client: AdminClient, input: CreateMentorRecordsInput) {
-  const membershipResult = await client
-    .from("semester_memberships")
-    .upsert({
-      profile_id: input.profileId,
-      role: "mentor",
-      semester_id: input.semesterId,
-      status: input.isActive ? "active" : "onboarding",
-    }, { onConflict: "semester_id,profile_id" })
-    .select("id")
-    .single();
-  const membership = requireData(membershipResult.data, membershipResult.error, "Unable to create mentor membership.");
-
-  const profileResult = await client.from("mentor_profiles").upsert({
-    biography: input.biography,
-    company: input.company,
-    expertise_tags: input.expertiseTags,
-    linkedin_url: input.linkedinUrl,
-    profile_id: input.profileId,
-    title: input.title,
-  }, { onConflict: "profile_id" });
-  if (profileResult.error) throw new Error(profileResult.error.message);
-
-  const termResult = await client
-    .from("mentor_semesters")
-    .upsert({
-      general_availability: input.generalAvailability ?? null,
-      opening_talk: input.openingTalk ?? null,
-      preferred_format: input.preferredFormat,
-      readiness_status: input.isActive ? "ready" : "not_started",
-      semester_id: input.semesterId,
-      semester_membership_id: membership.id,
-    }, { onConflict: "semester_id,semester_membership_id" })
-    .select("id")
-    .single();
-  return requireData(termResult.data, termResult.error, "Unable to create mentor semester.").id;
+  return runUuidRpc(client, "create_mentor_records", {
+    p_biography: input.biography,
+    p_company: input.company,
+    p_email: input.email,
+    p_expertise_tags: input.expertiseTags,
+    p_full_name: input.fullName,
+    p_general_availability: input.generalAvailability ?? null,
+    p_is_active: input.isActive,
+    p_linkedin_url: input.linkedinUrl,
+    p_opening_talk: input.openingTalk ?? null,
+    p_preferred_format: input.preferredFormat,
+    p_profile_id: input.profileId,
+    p_semester_id: input.semesterId,
+    p_title: input.title,
+  }, "Unable to create mentor records.");
 }
 
 export type UpdateMentorRecordsInput = {
@@ -76,50 +104,22 @@ export type UpdateMentorRecordsInput = {
 };
 
 export async function updateMentorRecords(client: AdminClient, input: UpdateMentorRecordsInput) {
-  const termResult = await client
-    .from("mentor_semesters")
-    .select("semester_membership_id, membership:semester_memberships!inner(profile_id)")
-    .eq("id", input.mentorSemesterId)
-    .single();
-  const term = requireData(termResult.data, termResult.error, "Mentor semester not found.");
-  const membership = Array.isArray(term.membership) ? term.membership[0] : term.membership;
-  if (!membership?.profile_id) throw new Error("Mentor profile identity not found.");
-
-  const identityFields: Record<string, unknown> = {};
-  if (input.email !== undefined) identityFields.email = input.email;
-  if (input.fullName !== undefined) identityFields.full_name = input.fullName;
-  if (Object.keys(identityFields).length > 0) {
-    const result = await client.from("profiles").update(identityFields).eq("id", membership.profile_id);
-    if (result.error) throw new Error(result.error.message);
-  }
-
-  const biographyFields: Record<string, unknown> = {};
-  if (input.biography !== undefined) biographyFields.biography = input.biography;
-  if (input.company !== undefined) biographyFields.company = input.company;
-  if (input.expertiseTags !== undefined) biographyFields.expertise_tags = input.expertiseTags;
-  if (input.linkedinUrl !== undefined) biographyFields.linkedin_url = input.linkedinUrl;
-  if (input.title !== undefined) biographyFields.title = input.title;
-  if (Object.keys(biographyFields).length > 0) {
-    const result = await client.from("mentor_profiles").update(biographyFields).eq("profile_id", membership.profile_id);
-    if (result.error) throw new Error(result.error.message);
-  }
-
-  const semesterFields: Record<string, unknown> = {};
-  if (input.generalAvailability !== undefined) semesterFields.general_availability = input.generalAvailability;
-  if (input.openingTalk !== undefined) semesterFields.opening_talk = input.openingTalk;
-  if (input.preferredFormat !== undefined) semesterFields.preferred_format = input.preferredFormat;
-  if (Object.keys(semesterFields).length > 0) {
-    const result = await client.from("mentor_semesters").update(semesterFields).eq("id", input.mentorSemesterId);
-    if (result.error) throw new Error(result.error.message);
-  }
-
-  if (input.isActive !== undefined) {
-    const result = await client
-      .from("semester_memberships")
-      .update({ status: input.isActive ? "active" : "suspended" })
-      .eq("id", term.semester_membership_id);
-    if (result.error) throw new Error(result.error.message);
-  }
+  const patch: Record<string, unknown> = {};
+  if (input.biography !== undefined) patch.biography = input.biography;
+  if (input.company !== undefined) patch.company = input.company;
+  if (input.email !== undefined) patch.email = input.email;
+  if (input.expertiseTags !== undefined) patch.expertise_tags = input.expertiseTags;
+  if (input.fullName !== undefined) patch.full_name = input.fullName;
+  if (input.generalAvailability !== undefined) patch.general_availability = input.generalAvailability;
+  if (input.isActive !== undefined) patch.is_active = input.isActive;
+  if (input.linkedinUrl !== undefined) patch.linkedin_url = input.linkedinUrl;
+  if (input.openingTalk !== undefined) patch.opening_talk = input.openingTalk;
+  if (input.preferredFormat !== undefined) patch.preferred_format = input.preferredFormat;
+  if (input.title !== undefined) patch.title = input.title;
+  return runUuidRpc(client, "update_mentor_records", {
+    p_mentor_semester_id: input.mentorSemesterId,
+    p_patch: patch,
+  }, "Unable to update mentor records.");
 }
 
 export type CreateStartupRecordsInput = {
@@ -238,16 +238,24 @@ export async function setSemesterMemberAccess(
   client: AdminClient,
   input: SetSemesterMemberAccessInput,
 ) {
-  const result = await client.rpc("set_semester_member_access", {
+  return runUuidRpc(client, "set_semester_member_access", {
     p_approve: input.approve,
     p_email: input.email,
     p_full_name: input.fullName,
     p_profile_id: input.profileId,
     p_role: input.role,
     p_semester_id: input.semesterId,
-  });
-  if (result.error) throw new Error(result.error.message);
-  return result.data;
+  }, "Unable to update semester member access.");
+}
+
+export async function authorizeSemesterMemberIdentityUpdate(
+  client: AdminClient,
+  input: { profileId: string; semesterId: string },
+) {
+  return runUuidRpc(client, "authorize_semester_member_identity_update", {
+    p_profile_id: input.profileId,
+    p_semester_id: input.semesterId,
+  }, "Unable to authorize member identity update.");
 }
 
 export type UpdateStartupRecordsInput = {

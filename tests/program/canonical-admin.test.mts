@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createClient } from "@supabase/supabase-js";
 import {
+  AmbiguousDatabaseOutcomeError,
+  authorizeSemesterMemberIdentityUpdate,
   assignFounderMembership,
   createMentorRecords,
   createStartupRecords,
+  KnownDatabaseRejectionError,
   moveFounderMembership,
   setSemesterMemberAccess,
   updateStartupRecords,
@@ -29,6 +32,7 @@ function recordingClient(responses: readonly (unknown | TestResponse)[]) {
           url,
         });
         const configured = responses[index++] ?? [];
+        if (configured instanceof Error) throw configured;
         const response = configured && typeof configured === "object" && "status" in configured && "body" in configured
           ? configured as TestResponse
           : { body: configured, status: 200 };
@@ -44,15 +48,15 @@ function recordingClient(responses: readonly (unknown | TestResponse)[]) {
 
 test("mentor creation owns the membership, durable profile, and semester record on the server", async () => {
   const { client, requests } = recordingClient([
-    { id: "membership-1" },
-    [],
-    { id: "mentor-term-1" },
+    "mentor-term-1",
   ]);
 
   const mentorSemesterId = await createMentorRecords(client, {
     biography: "Advisor",
     company: "Alma Labs",
     expertiseTags: ["Sales"],
+    email: "mentor@example.com",
+    fullName: "Mentor Name",
     isActive: true,
     linkedinUrl: null,
     preferredFormat: "online",
@@ -62,12 +66,22 @@ test("mentor creation owns the membership, durable profile, and semester record 
   });
 
   assert.equal(mentorSemesterId, "mentor-term-1");
-  assert.deepEqual(requests.map((request) => request.path), [
-    "/rest/v1/semester_memberships",
-    "/rest/v1/mentor_profiles",
-    "/rest/v1/mentor_semesters",
-  ]);
-  assert.ok(requests.every((request) => !request.path.endsWith("/mentors")));
+  assert.deepEqual(requests.map((request) => request.path), ["/rest/v1/rpc/create_mentor_records"]);
+  assert.deepEqual(JSON.parse(requests[0].body ?? "null"), {
+    p_biography: "Advisor",
+    p_company: "Alma Labs",
+    p_email: "mentor@example.com",
+    p_expertise_tags: ["Sales"],
+    p_full_name: "Mentor Name",
+    p_general_availability: null,
+    p_is_active: true,
+    p_linkedin_url: null,
+    p_opening_talk: null,
+    p_preferred_format: "online",
+    p_profile_id: "profile-1",
+    p_semester_id: "semester-1",
+    p_title: "CEO",
+  });
 });
 
 test("startup creation writes the durable organization before its cohort record", async () => {
@@ -95,11 +109,7 @@ test("startup creation writes the durable organization before its cohort record"
 
 test("mentor updates split identity, biography, term, and activity across canonical owners", async () => {
   const { client, requests } = recordingClient([
-    { semester_membership_id: "membership-1", membership: { profile_id: "profile-1" } },
-    [],
-    [],
-    [],
-    [],
+    "mentor-term-1",
   ]);
 
   await updateMentorRecords(client, {
@@ -117,13 +127,37 @@ test("mentor updates split identity, biography, term, and activity across canoni
     title: "Partner",
   });
 
-  assert.deepEqual(requests.map((request) => request.path), [
-    "/rest/v1/mentor_semesters",
-    "/rest/v1/profiles",
-    "/rest/v1/mentor_profiles",
-    "/rest/v1/mentor_semesters",
-    "/rest/v1/semester_memberships",
-  ]);
+  assert.deepEqual(requests.map((request) => request.path), ["/rest/v1/rpc/update_mentor_records"]);
+  assert.deepEqual(JSON.parse(requests[0].body ?? "null"), {
+    p_mentor_semester_id: "mentor-term-1",
+    p_patch: {
+      biography: "Updated biography",
+      company: "Updated company",
+      email: "mentor@example.com",
+      expertise_tags: ["Finance"],
+      full_name: "Updated Mentor",
+      general_availability: "Fridays",
+      is_active: false,
+      linkedin_url: null,
+      opening_talk: null,
+      preferred_format: "online",
+      title: "Partner",
+    },
+  });
+});
+
+test("member identity preflight verifies the exact target before Auth mutation", async () => {
+  const { client, requests } = recordingClient(["membership-1"]);
+  const result = await authorizeSemesterMemberIdentityUpdate(client, {
+    profileId: "profile-1",
+    semesterId: "semester-1",
+  });
+  assert.equal(result, "membership-1");
+  assert.deepEqual(requests.map((request) => request.path), ["/rest/v1/rpc/authorize_semester_member_identity_update"]);
+  assert.deepEqual(JSON.parse(requests[0].body ?? "null"), {
+    p_profile_id: "profile-1",
+    p_semester_id: "semester-1",
+  });
 });
 
 test("founder assignment creates canonical semester and team memberships", async () => {
@@ -223,8 +257,22 @@ test("semester role command reports an authorization failure without fallback wr
     profileId: "profile-1",
     role: "admin",
     semesterId: "semester-1",
-  }), /Semester administrator access required/u);
+  }), (error: unknown) => error instanceof KnownDatabaseRejectionError
+    && /Semester administrator access required/u.test(error.message));
   assert.deepEqual(requests.map((request) => request.path), ["/rest/v1/rpc/set_semester_member_access"]);
+});
+
+test("unknown RPC transport outcome is marked ambiguous instead of rejected", async () => {
+  const { client } = recordingClient([new TypeError("connection reset")]);
+  await assert.rejects(() => setSemesterMemberAccess(client, {
+    approve: false,
+    email: "member@example.com",
+    fullName: "Member",
+    profileId: "profile-1",
+    role: "mentor",
+    semesterId: "semester-1",
+  }), (error: unknown) => error instanceof AmbiguousDatabaseOutcomeError
+    && /connection reset/u.test(error.message));
 });
 
 test("startup updates are one server-owned atomic command", async () => {

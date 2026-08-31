@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server'
 
 import { AuthorizationError, requireAuthenticatedUser } from '@/src/auth/server'
 import { requireSemesterAdmin } from '@/src/program/canonical-access'
-import { setSemesterMemberAccess } from '@/src/program/server/canonical-admin'
-import { ReconciliationRequiredError, synchronizeAuthEmailAndSemesterAccess } from '@/src/program/server/user-access'
+import { authorizeSemesterMemberIdentityUpdate, setSemesterMemberAccess } from '@/src/program/server/canonical-admin'
+import { ReconciliationRequiredError, updateExistingSemesterMemberIdentity } from '@/src/program/server/user-access'
 
 type UpdateUserPayload = { userId: string; fullName: string; email: string; role: 'mentor' | 'startup' | 'admin'; semesterId: string }
 
@@ -17,7 +17,8 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: 'userId, semesterId, email, fullName, and a valid role are required.' }, { status: 400 })
     }
     const semesterId = await requireSemesterAdmin(userClient, user.id, payload.semesterId)
-    await synchronizeAuthEmailAndSemesterAccess({
+    await updateExistingSemesterMemberIdentity({
+      authorizeTarget: (target) => authorizeSemesterMemberIdentityUpdate(userClient, target),
       authAdmin: adminClient.auth.admin,
       input: { approve: false, email, fullName, profileId: payload.userId, role: payload.role, semesterId },
       setAccess: (accessInput) => setSemesterMemberAccess(userClient, accessInput),
