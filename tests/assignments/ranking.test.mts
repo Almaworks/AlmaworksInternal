@@ -6,14 +6,14 @@ const slot: AssignmentSlot = { id: "slot-2", semesterId: "sem", date: "2026-09-0
 const mentor = (id: string, overrides: Partial<MentorCandidate> = {}): MentorCandidate => ({ id, name: id, expertise: [], availability: [], recentMeetingCount: 0, assignmentLoad: 0, formats: ["in_person"], ...overrides });
 
 test("ranks primary expertise above secondary and unrelated matches", () => {
-  const result = rankMentorCandidates({ primaryNeed: "Fundraising strategy", secondaryNeed: "Enterprise sales", slot, mentors: [mentor("other"), mentor("secondary", { expertise: ["Enterprise sales"] }), mentor("primary", { expertise: ["Fundraising strategy"] })] });
+  const result = rankMentorCandidates({ primaryNeed: "Fundraising strategy", secondaryNeed: "Enterprise sales", slot, mentors: [mentor("other", { availability: [slot.id] }), mentor("secondary", { expertise: ["Enterprise sales"], availability: [slot.id] }), mentor("primary", { expertise: ["Fundraising strategy"], availability: [slot.id] })] });
   assert.deepEqual(result.map((x) => x.mentor.id), ["primary", "secondary", "other"]);
 });
 
 test("secondary expertise ranks above an unrelated mentor", () => {
   const result = rankMentorCandidates({ primaryNeed: "Fundraising strategy", secondaryNeed: "Enterprise sales", slot, mentors: [
-    mentor("unrelated", { expertise: ["Operations"] }),
-    mentor("secondary", { expertise: ["Enterprise sales"] }),
+    mentor("unrelated", { expertise: ["Operations"], availability: [slot.id] }),
+    mentor("secondary", { expertise: ["Enterprise sales"], availability: [slot.id] }),
   ] });
   assert.equal(result[0].mentor.id, "secondary");
   assert.ok(result[0].reasons.includes("secondary expertise match"));
