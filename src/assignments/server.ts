@@ -64,6 +64,7 @@ export interface CandidateSourceData {
   } | null;
   mentors: Array<{
     id: string;
+    scheduleMentorIds: string[];
     profileId: string;
     name: string;
     expertise: string[];
@@ -236,7 +237,9 @@ export function buildCandidateContext(input: CandidateQuery, data: CandidateSour
       && session.timeSlot === "3:30-4:15"
     )).map((session) => session.mentorScheduleId)
     : [];
-  const profileIdByScheduleId = new Map(data.mentors.map((mentor) => [mentor.id, mentor.profileId]));
+  const profileIdByScheduleId = new Map(data.mentors.flatMap((mentor) => (
+    mentor.scheduleMentorIds.map((scheduleMentorId) => [scheduleMentorId, mentor.profileId] as const)
+  )));
   const excludeMentorIds = firstSlotMentorIds
     .map((mentorScheduleId) => profileIdByScheduleId.get(mentorScheduleId))
     .filter((profileId): profileId is string => profileId !== undefined);
@@ -251,12 +254,12 @@ export function buildCandidateContext(input: CandidateQuery, data: CandidateSour
     )) ? [] : [sessionDate.date],
     recentMeetingCount: activeSessions.filter((session) => {
       const historicalDate = data.sessionDates.find((date) => date.id === session.sessionDateId)?.date;
-      return session.mentorScheduleId === mentor.id
+      return mentor.scheduleMentorIds.includes(session.mentorScheduleId)
         && session.startupScheduleId === data.startupScheduleId
         && historicalDate !== undefined
         && historicalDate < sessionDate.date;
     }).length,
-    assignmentLoad: activeSessions.filter((session) => session.mentorScheduleId === mentor.id).length,
+    assignmentLoad: activeSessions.filter((session) => mentor.scheduleMentorIds.includes(session.mentorScheduleId)).length,
     formats: [normalizedFormat(mentor.preferredFormat)],
   }));
   const neededExpertise = [...startup.mentorshipNeeds, ...startup.preferredExpertiseTags];
@@ -282,16 +285,16 @@ export function buildCandidateContext(input: CandidateQuery, data: CandidateSour
         && availability.sessionDateId === input.sessionDateId
         && !availability.isAvailable
       ));
-      const capacityExhausted = activeSessions.filter((session) => session.mentorScheduleId === mentor.id).length >= mentor.capacity;
+      const capacityExhausted = activeSessions.filter((session) => mentor.scheduleMentorIds.includes(session.mentorScheduleId)).length >= mentor.capacity;
       const expertiseMatched = neededExpertise.length === 0 || mentor.expertise.some((tag) => neededExpertise.includes(tag));
       const sameStartupOtherSlot = activeSessions.some((session) => (
-        session.mentorScheduleId === mentor.id
+        mentor.scheduleMentorIds.includes(session.mentorScheduleId)
         && session.startupScheduleId === data.startupScheduleId
         && session.sessionDateId === input.sessionDateId
         && session.timeSlot !== input.timeSlot
       ));
       const mentorSlotConflict = activeSessions.some((session) => (
-        session.mentorScheduleId === mentor.id
+        mentor.scheduleMentorIds.includes(session.mentorScheduleId)
         && session.sessionDateId === input.sessionDateId
         && session.timeSlot === input.timeSlot
       ));
@@ -428,12 +431,16 @@ export function createSupabaseAssignmentDataSource(client: Client): AssignmentDa
       const sessionDate = sessionDates.find((date) => date.id === input.sessionDateId) ?? null;
       const mentorProfileById = new Map((mentorProfilesResult.data ?? []).map((profile) => [profile.profile_id, profile]));
       const mentorSemesterByMembership = new Map((mentorSemestersResult.data ?? []).map((mentorSemester) => [mentorSemester.semester_membership_id, mentorSemester]));
-      const scheduleMentorsByProfile = new Map(
-        (scheduleMentorsResult.data ?? [])
-          .filter((mentor) => mentor.user_id !== null && mentor.is_active && mentor.semester_id === input.semesterId)
-          .sort((left, right) => right.id.localeCompare(left.id))
-          .map((mentor) => [mentor.user_id, mentor]),
-      );
+      const scheduleMentorsByProfile = new Map<string, Array<{ id: string; full_name: string }>>();
+      for (const mentor of (scheduleMentorsResult.data ?? [])
+        .filter((item) => item.user_id !== null && item.is_active && item.semester_id === input.semesterId)
+        .sort((left, right) => left.id.localeCompare(right.id))) {
+        const profileId = mentor.user_id;
+        if (profileId === null) continue;
+        const scheduleMentors = scheduleMentorsByProfile.get(profileId) ?? [];
+        scheduleMentors.push({ id: mentor.id, full_name: mentor.full_name });
+        scheduleMentorsByProfile.set(profileId, scheduleMentors);
+      }
       const startupProfileByMembership = new Map(activeStartupMemberships.map((membership) => [membership.id, membership.profile_id]));
       const activeScheduleStartupsByProfile = new Map(
         (scheduleStartupsResult.data ?? [])
@@ -466,10 +473,12 @@ export function createSupabaseAssignmentDataSource(client: Client): AssignmentDa
         mentors: activeMentorMemberships.flatMap((membership) => {
           const mentorSemester = mentorSemesterByMembership.get(membership.id);
           const mentorProfile = mentorProfileById.get(membership.profile_id);
-          const scheduleMentor = scheduleMentorsByProfile.get(membership.profile_id);
-          if (mentorSemester === undefined || mentorProfile === undefined || scheduleMentor === undefined) return [];
+          const scheduleMentors = scheduleMentorsByProfile.get(membership.profile_id);
+          const scheduleMentor = scheduleMentors?.[0];
+          if (mentorSemester === undefined || mentorProfile === undefined || scheduleMentors === undefined || scheduleMentor === undefined) return [];
           return [{
             id: scheduleMentor.id,
+            scheduleMentorIds: scheduleMentors.map((mentor) => mentor.id),
             profileId: membership.profile_id,
             name: scheduleMentor.full_name,
             expertise: mentorProfile.expertise_tags,

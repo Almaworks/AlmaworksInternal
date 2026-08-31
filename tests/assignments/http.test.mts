@@ -38,6 +38,7 @@ const candidateData: CandidateSourceData = {
   mentors: [
     {
       id: "schedule-mentor-1",
+      scheduleMentorIds: ["schedule-mentor-1"],
       profileId: ids.mentor,
       name: "Available mentor",
       expertise: ["Enterprise sales"],
@@ -46,6 +47,7 @@ const candidateData: CandidateSourceData = {
     },
     {
       id: "schedule-mentor-2",
+      scheduleMentorIds: ["schedule-mentor-2"],
       profileId: ids.firstSlotMentor,
       name: "First slot mentor",
       expertise: ["Fundraising strategy"],
@@ -439,7 +441,39 @@ test("Supabase candidate source maps lifecycle mentors and the selected schedule
   const result = await source.loadCandidateData({ semesterId: ids.semester, startupSemesterId: ids.startup, sessionDateId: ids.date, timeSlot: "3:30-4:15", format: "online" } as unknown as Parameters<typeof source.loadCandidateData>[0]);
 
   assert.equal(result.startupScheduleId, "schedule-startup-selected");
-  assert.deepEqual(result.mentors, [{ id: "schedule-mentor-1", profileId: ids.mentor, name: "Lifecycle mentor", expertise: ["Enterprise sales"], preferredFormat: "online", capacity: 3 }]);
+  assert.deepEqual(result.mentors, [{ id: "schedule-mentor-1", scheduleMentorIds: ["schedule-mentor-1", "schedule-mentor-z"], profileId: ids.mentor, name: "Lifecycle mentor", expertise: ["Enterprise sales"], preferredFormat: "online", capacity: 3 }]);
+});
+
+test("duplicate legacy mentor rows count profile-wide capacity and recency", async () => {
+  const priorDateId = "10000000-0000-4000-8000-000000000006";
+  const source = createSupabaseAssignmentDataSource(fakeSupabase({
+    session_dates: { rows: [
+      { id: ids.date, date: "2026-09-04", semester_id: ids.semester },
+      { id: priorDateId, date: "2026-08-28", semester_id: ids.semester },
+    ] },
+    startup_semesters: { rows: [], single: { id: ids.startup, semester_id: ids.semester, company_snapshot: null, goals: [], mentor_need_context: null, mentor_need_no_preference: false, mentorship_needs: ["Enterprise sales"], preferred_expertise_tags: [], stage: "mvp" } },
+    semester_memberships: { rows: [
+      { id: "mentor-membership", profile_id: ids.mentor, semester_id: ids.semester, role: "mentor", status: "active" },
+      { id: "startup-membership", profile_id: "startup-profile", semester_id: ids.semester, role: "startup", status: "active" },
+    ] },
+    mentor_semesters: { rows: [{ semester_membership_id: "mentor-membership", semester_id: ids.semester, capacity: 1, preferred_format: "online" }] },
+    mentor_profiles: { rows: [{ profile_id: ids.mentor, expertise_tags: ["Enterprise sales"] }] },
+    mentors: { rows: [
+      { id: "schedule-mentor-1", user_id: ids.mentor, full_name: "Lifecycle mentor", semester_id: ids.semester, is_active: true },
+      { id: "schedule-mentor-z", user_id: ids.mentor, full_name: "Duplicate schedule row", semester_id: ids.semester, is_active: true },
+    ] },
+    startup_team_memberships: { rows: [{ id: "team-membership", startup_semester_id: ids.startup, semester_membership_id: "startup-membership", semester_id: ids.semester, is_primary_contact: true }] },
+    startups: { rows: [{ id: "schedule-startup-selected", user_id: "startup-profile", semester_id: ids.semester, is_active: true }] },
+    availability: { rows: [] },
+    sessions: { rows: [{ mentor_id: "schedule-mentor-z", startup_id: "schedule-startup-selected", session_date_id: priorDateId, time_slot: "3:30-4:15", status: "confirmed" }] },
+  }));
+  const response = await routesFor(source).getCandidates(candidateRequest());
+  const payload = await response.json() as { data: { candidates: Array<{ mentor: { id: string; assignmentLoad: number; recentMeetingCount: number }; requiredOverrideTypes: string[] }> } };
+  const candidate = payload.data.candidates.find((item) => item.mentor.id === ids.mentor);
+
+  assert.equal(candidate?.mentor.assignmentLoad, 1);
+  assert.equal(candidate?.mentor.recentMeetingCount, 1);
+  assert.deepEqual(candidate?.requiredOverrideTypes, ["capacity"]);
 });
 
 test("actual RPC adapter maps known SQLSTATEs and hides unknown database messages", async () => {
