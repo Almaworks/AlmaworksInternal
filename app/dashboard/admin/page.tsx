@@ -6,6 +6,10 @@ import { useEffect, useMemo, useState } from 'react'
 import TagInput from '@/components/TagInput'
 import StartupModal from '@/components/StartupModal'
 import { CohortScreenControls, useCohortScreen } from '@/components/CohortScreenControls'
+import MentorAssignmentPicker, {
+  type AssignmentCommitResult,
+  type AssignmentPickerTarget,
+} from '@/components/assignments/MentorAssignmentPicker'
 import type { CohortRecordReference } from '@/src/lifecycle/cohort-screen'
 
 type PendingUser = {
@@ -51,6 +55,7 @@ type Founder = {
 
 type Startup = {
   id: string
+  user_id: string | null
   name: string
   industry: string | null
   stage: string | null
@@ -62,6 +67,7 @@ type Startup = {
   mentorship_needs: string[]
   semester_id: string | null
   semester_name: string | null
+  startup_semester_id: string | null
 }
 
 type Session = {
@@ -205,13 +211,13 @@ export default function AdminDashboard() {
   const [activeSemesterName, setActiveSemesterName] = useState<string | null>(null)
   const [selectedSessionDateId, setSelectedSessionDateId] = useState<string | null>(null)
   const [assignMentorId, setAssignMentorId] = useState<string>('')
-  const [assignStartupId, setAssignStartupId] = useState<string>('')
   const [assignTopic, setAssignTopic] = useState<string>('')
   const [assignTimeSlot, setAssignTimeSlot] = useState<string>('3:30-4:15')
   const [assignFormat, setAssignFormat] = useState<string>('online')
-  const [assignStartupAbsent, setAssignStartupAbsent] = useState<boolean>(false)
   const [assignSubstituteName, setAssignSubstituteName] = useState<string>('')
   const [assigning, setAssigning] = useState<boolean>(false)
+  const [assignmentPickerTarget, setAssignmentPickerTarget] = useState<AssignmentPickerTarget | null>(null)
+  const [assignmentFeedback, setAssignmentFeedback] = useState<string | null>(null)
 
   // Session date wizard
   const [showDateWizard, setShowDateWizard] = useState(false)
@@ -266,7 +272,7 @@ export default function AdminDashboard() {
       supabase.from('profiles').select('id, email, full_name, created_at').eq('status', 'pending').order('created_at'),
       supabase.from('profiles').select('id, email, full_name, role, is_active, created_at').eq('status', 'approved').order('full_name'),
       supabase.from('mentors').select('id, full_name, company, role_title, linkedin_url, bio, expertise_tags, is_active, slug, email, general_availability, preferred_format, per_week_availability, opening_talk, semester_id, semesters(name)').order('full_name'),
-      supabase.from('startups').select('id, name, industry, stage, founder_name, founders, slug, description, preferred_tags, mentorship_needs, semester_id, semesters(name)').order('name'),
+      supabase.from('startups').select('id, user_id, name, industry, stage, founder_name, founders, slug, description, preferred_tags, mentorship_needs, semester_id, semesters(name)').order('name'),
       supabase.from('sessions').select('id, mentor_id, startup_id, status, topic, time_slot, format, startup_absent, substitute_name, is_confirmed, session_dates(date, label, semester_id, semesters(name)), mentors(full_name, slug), startups(name, slug)').order('time_slot'),
       supabase.from('semesters').select('id, name').eq('is_active', true).maybeSingle(),
     ])
@@ -277,11 +283,12 @@ export default function AdminDashboard() {
       ...m,
       semester_name: Array.isArray(m.semesters) ? (m.semesters[0]?.name ?? null) : (m.semesters?.name ?? null),
     })))
-    type StartupRow = Omit<Startup, 'semester_name'> & { semesters: { name: string } | { name: string }[] | null }
-    setStartups(((startupsRes.data ?? []) as unknown as StartupRow[]).map(s => ({
+    type StartupRow = Omit<Startup, 'semester_name' | 'startup_semester_id'> & { semesters: { name: string } | { name: string }[] | null }
+    const loadedStartups = ((startupsRes.data ?? []) as unknown as StartupRow[]).map(s => ({
       ...s,
       semester_name: Array.isArray(s.semesters) ? (s.semesters[0]?.name ?? null) : (s.semesters?.name ?? null),
-    })))
+      startup_semester_id: null,
+    }))
     setSessions((sessionsRes.data as unknown as Session[]) ?? [])
 
     const semData = semesterRes.data as { id: string; name: string } | null
@@ -289,17 +296,29 @@ export default function AdminDashboard() {
     setActiveSemesterId(semId)
     setActiveSemesterName(semData?.name ?? null)
     if (semId) {
-      const { data: dateRows } = await supabase
-        .from('session_dates')
-        .select('id, date, label')
-        .eq('semester_id', semId)
-        .order('date')
+      const [dateRowsResult, teamRowsResult, membershipRowsResult] = await Promise.all([
+        supabase.from('session_dates').select('id, date, label').eq('semester_id', semId).order('date'),
+        supabase.from('startup_team_memberships').select('startup_semester_id, semester_membership_id, is_primary_contact').eq('semester_id', semId),
+        supabase.from('semester_memberships').select('id, profile_id').eq('semester_id', semId).eq('role', 'startup').eq('status', 'active'),
+      ])
+      const dateRows = dateRowsResult.data
       const dates = (dateRows as SessionDate[]) ?? []
       setSessionDates(dates)
       setSelectedSessionDateId(prev => prev ?? (dates[0]?.id ?? null))
+      const profileByMembership = new Map((membershipRowsResult.data ?? []).map(row => [row.id, row.profile_id]))
+      const startupSemesterByProfile = new Map<string, string>()
+      for (const team of [...(teamRowsResult.data ?? [])].sort((left, right) => Number(right.is_primary_contact) - Number(left.is_primary_contact))) {
+        const profileId = profileByMembership.get(team.semester_membership_id)
+        if (profileId && !startupSemesterByProfile.has(profileId)) startupSemesterByProfile.set(profileId, team.startup_semester_id)
+      }
+      setStartups(loadedStartups.map(startup => ({
+        ...startup,
+        startup_semester_id: startup.user_id ? (startupSemesterByProfile.get(startup.user_id) ?? null) : null,
+      })))
     } else {
       setSessionDates([])
       setSelectedSessionDateId(null)
+      setStartups(loadedStartups)
     }
   }
 
@@ -517,15 +536,7 @@ export default function AdminDashboard() {
   }
 
   async function refreshStartups() {
-    const { data } = await supabase
-      .from('startups')
-      .select('id, name, industry, stage, founder_name, founders, slug, description, preferred_tags, semester_id, semesters(name)')
-      .order('name')
-    type SRow = Omit<Startup, 'semester_name'> & { semesters: { name: string } | { name: string }[] | null }
-    setStartups(((data ?? []) as unknown as SRow[]).map(s => ({
-      ...s,
-      semester_name: Array.isArray(s.semesters) ? (s.semesters[0]?.name ?? null) : (s.semesters?.name ?? null),
-    })))
+    await loadAll()
   }
 
   async function removeFounder(email: string, startupId: string) {
@@ -618,6 +629,32 @@ export default function AdminDashboard() {
 
   // ── Schedule ───────────────────────────────────────────────────────────────
 
+  function openAssignmentPicker(startup: Startup, date: SessionDate, timeSlot: '3:30-4:15' | '4:15-5:00') {
+    if (!activeSemesterId || !startup.startup_semester_id) {
+      setAssignmentFeedback(`${startup.name} is not linked to an active startup cohort record, so the ranked picker cannot assign this slot.`)
+      return
+    }
+    setAssignmentFeedback(null)
+    setAssignmentPickerTarget({
+      semesterId: activeSemesterId,
+      startupSemesterId: startup.startup_semester_id,
+      startupName: startup.name,
+      sessionDateId: date.id,
+      date: date.date,
+      timeSlot,
+      initialFormat: 'in_person',
+    })
+  }
+
+  async function handleAssignmentCommitted(result: AssignmentCommitResult, target: AssignmentPickerTarget) {
+    await loadAll()
+    setAssignmentFeedback(
+      result.replayed
+        ? `${target.startupName}'s assignment was already saved and the schedule is up to date.`
+        : `${target.startupName}'s mentor was assigned for ${target.date}, ${target.timeSlot}.`,
+    )
+  }
+
   async function assignForWeek() {
     if (!activeSemesterId || !selectedSessionDateId) {
       alert('No active semester or session date configured.')
@@ -627,21 +664,17 @@ export default function AdminDashboard() {
       alert('Pick a mentor.')
       return
     }
-    if (!assignStartupAbsent && !assignStartupId) {
-      alert('Pick a startup, or mark the startup as absent and enter a substitute name.')
-      return
-    }
     setAssigning(true)
     try {
       const { error } = await supabase.from('sessions').insert({
         mentor_id: assignMentorId,
-        startup_id: assignStartupAbsent ? null : assignStartupId,
+        startup_id: null,
         session_date_id: selectedSessionDateId,
         semester_id: activeSemesterId,
         time_slot: assignTimeSlot,
         format: assignFormat,
-        startup_absent: assignStartupAbsent,
-        substitute_name: assignStartupAbsent && assignSubstituteName.trim() ? assignSubstituteName.trim() : null,
+        startup_absent: true,
+        substitute_name: assignSubstituteName.trim() ? assignSubstituteName.trim() : null,
         topic: assignTopic.trim() ? assignTopic.trim() : null,
         status: 'confirmed',
         is_confirmed: true,
@@ -655,8 +688,6 @@ export default function AdminDashboard() {
       setSessions((sessionRows as unknown as Session[]) ?? [])
       setAssignTopic('')
       setAssignSubstituteName('')
-      setAssignStartupAbsent(false)
-      setAssignStartupId('')
       setAssignMentorId('')
       setShowAddSession(false)
     } catch (e) {
@@ -1197,33 +1228,20 @@ export default function AdminDashboard() {
       {tab === 'schedule' && (() => {
         // Build matrix: rows = (date + time_slot), cols = startups
         // Unique row keys sorted by date then time slot
-        const rowKeys: { dateId: string; date: string; label: string | null; slot: string }[] = []
-        const seenRowKeys = new Set<string>()
-        const sortedSessions = [...sessions].sort((a, b) => {
-          const da = a.session_dates?.date ?? ''
-          const db = b.session_dates?.date ?? ''
-          if (da !== db) return da.localeCompare(db)
-          return (a.time_slot ?? '').localeCompare(b.time_slot ?? '')
-        })
-        for (const s of sortedSessions) {
-          if (!s.session_dates) continue
-          const slot = s.time_slot ?? 'TBD'
-          const key = `${s.session_dates.date}__${slot}`
-          if (!seenRowKeys.has(key)) {
-            seenRowKeys.add(key)
-            rowKeys.push({
-              dateId: key,
-              date: s.session_dates.date,
-              label: s.session_dates.label,
-              slot,
-            })
-          }
-        }
+        const fixedSlots = ['3:30-4:15', '4:15-5:00'] as const
+        const rowKeys = sessionDates.flatMap(date => fixedSlots.map(slot => ({
+          dateId: `${date.id}__${slot}`,
+          date: date.date,
+          label: date.label,
+          slot,
+        })))
 
-        // Unique startup columns — only startups that appear in sessions
-        const colStartups = startups.filter(st =>
-          sessions.some(s => s.startups?.name === st.name && !s.startup_absent)
-        )
+        // One column per active-semester startup; lifecycle linkage is checked when the picker opens.
+        const colStartups = [...new Map(
+          startups
+            .filter(startup => startup.semester_id === activeSemesterId)
+            .map(startup => [startup.startup_semester_id ?? startup.id, startup] as const),
+        ).values()]
 
         // Build lookup: `date__slot__startupName` -> session
         const cellMap = new Map<string, Session>()
@@ -1239,7 +1257,7 @@ export default function AdminDashboard() {
             {/* Header row */}
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3 flex-wrap">
-                <p className="text-sm text-gray-500">Session grid — click any cell to edit.</p>
+                <p className="text-sm text-gray-500">Choose an empty slot for ranked assignment. Existing sessions use the legacy editor.</p>
                 <div className="flex items-center gap-2 text-[10px] font-medium">
                   <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">Online</span>
                   <span className="px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">In-person</span>
@@ -1260,16 +1278,26 @@ export default function AdminDashboard() {
                   Setup dates
                 </button>
                 <button
-                  onClick={() => { setShowAddSession(v => !v) }}
+                  onClick={() => {
+                    setAssignMentorId('')
+                    setAssignSubstituteName('')
+                    setShowAddSession(v => !v)
+                  }}
                   className="flex items-center gap-1.5 px-4 py-2 bg-[#002147] text-white text-sm font-medium rounded-xl hover:bg-[#002147]/90 transition-colors"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
                   </svg>
-                  Add session
+                  Add substitute session
                 </button>
               </div>
             </div>
+
+            {assignmentFeedback && (
+              <p role="status" className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                {assignmentFeedback}
+              </p>
+            )}
 
             {/* Session dates wizard */}
             {showDateWizard && (
@@ -1394,13 +1422,13 @@ export default function AdminDashboard() {
                         <tr key={row.dateId} className={ri % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
                           <td className="sticky left-0 z-10 bg-inherit px-4 py-2.5 font-semibold text-[#002147] whitespace-nowrap border-r border-gray-200">
                             <span className="block">{row.label ?? new Date(row.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                            <span className="block text-[10px] font-normal text-gray-400">{row.slot === 'TBD' ? 'Time TBD' : row.slot}</span>
+                            <span className="block text-[10px] font-normal text-gray-400">{row.slot}</span>
                           </td>
                           {colStartups.map(st => {
                             const cellKey = `${row.date}__${row.slot}__${st.name}`
                             const cell = cellMap.get(cellKey)
                             const formatBg =
-                              cell?.format === 'in-person' ? 'bg-green-50 text-green-800 border border-green-200 hover:bg-green-100' :
+                              (cell?.format === 'in-person' || cell?.format === 'in_person') ? 'bg-green-50 text-green-800 border border-green-200 hover:bg-green-100' :
                               cell?.format === 'online' ? 'bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100' :
                               'bg-gray-50 text-gray-700 border border-gray-200 hover:bg-gray-100'
                             return (
@@ -1408,6 +1436,7 @@ export default function AdminDashboard() {
                                 {cell ? (
                                   <button
                                     onClick={() => openEditSession(cell)}
+                                    aria-label={`Edit existing session for ${st.name} using the legacy session editor`}
                                     className={`w-full px-2 py-1.5 rounded-lg text-[11px] font-medium text-left transition-colors ${formatBg}`}
                                     style={!cell.is_confirmed ? {
                                       backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(0,0,0,0.05) 5px, rgba(0,0,0,0.05) 10px)',
@@ -1415,7 +1444,7 @@ export default function AdminDashboard() {
                                   >
                                     {cell.mentors?.full_name ?? '—'}
                                     {cell.format && (
-                                      <span className="block text-[9px] font-normal opacity-60 capitalize">{cell.format}</span>
+                                      <span className="block text-[9px] font-normal opacity-60 capitalize">{cell.format.replace('_', ' ')}</span>
                                     )}
                                     {!cell.is_confirmed && (
                                       <span className="block text-[9px] font-normal opacity-70">unconfirmed</span>
@@ -1425,16 +1454,12 @@ export default function AdminDashboard() {
                                   <button
                                     onClick={() => {
                                       const dateObj = sessionDates.find(d => d.date === row.date)
-                                      if (dateObj) setSelectedSessionDateId(dateObj.id)
-                                      setAssignStartupId(st.id)
-                                      setAssignMentorId('')
-                                      setAssignTopic('')
-                                      setShowAddSession(true)
+                                      if (dateObj) openAssignmentPicker(st, dateObj, row.slot)
                                     }}
-                                    className="w-full h-8 rounded-lg border border-dashed border-gray-200 text-gray-300 hover:border-[#75AADB]/50 hover:text-[#75AADB]/70 hover:bg-blue-50/30 transition-colors text-[10px] font-medium"
-                                    title={`Add session: ${st.name} on ${row.label ?? row.date}`}
+                                    className="w-full min-h-10 rounded-lg border border-dashed border-gray-200 text-gray-400 hover:border-[#75AADB] hover:text-[#00689d] hover:bg-blue-50/50 focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40 transition-colors text-[10px] font-semibold"
+                                    aria-label={`Assign a mentor to ${st.name} on ${row.label ?? row.date}, ${row.slot}`}
                                   >
-                                    +
+                                    + Assign
                                   </button>
                                 )}
                               </td>
@@ -1759,13 +1784,23 @@ export default function AdminDashboard() {
 
       <StartupModal startupId={selectedStartupId} onClose={() => setSelectedStartupId(null)} />
 
+      <MentorAssignmentPicker
+        open={assignmentPickerTarget !== null}
+        target={assignmentPickerTarget}
+        onClose={() => setAssignmentPickerTarget(null)}
+        onCommitted={handleAssignmentCommitted}
+      />
+
       {/* ── Add Session Lightbox ── */}
       {showAddSession && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowAddSession(false)} />
           <div className="relative bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-[#002147]">Add Session</h3>
+              <div>
+                <h3 className="text-sm font-semibold text-[#002147]">Add substitute session</h3>
+                <p className="mt-1 text-xs text-gray-500">Compatibility workflow for a startup-absent or internal team substitute.</p>
+              </div>
               <button onClick={() => setShowAddSession(false)} className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-700">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -1811,39 +1846,21 @@ export default function AdminDashboard() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Startup</label>
-                <select value={assignStartupId} onChange={e => setAssignStartupId(e.target.value)}
-                  disabled={assignStartupAbsent}
-                  className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40 disabled:opacity-40">
-                  <option value="">Select startup…</option>
-                  {startups.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Topic</label>
                 <input value={assignTopic} onChange={e => setAssignTopic(e.target.value)} placeholder="Optional"
                   className="w-full text-sm text-gray-800 placeholder:text-gray-400 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40" />
               </div>
-              <div className="flex flex-col gap-2">
-                <label className="flex items-center gap-2 cursor-pointer select-none mt-5">
-                  <input type="checkbox" checked={assignStartupAbsent}
-                    onChange={e => { setAssignStartupAbsent(e.target.checked); if (!e.target.checked) setAssignSubstituteName('') }}
-                    className="w-4 h-4 rounded accent-[#002147]" />
-                  <span className="text-sm text-gray-700">Startup absent</span>
-                </label>
-                {assignStartupAbsent && (
-                  <input value={assignSubstituteName} onChange={e => setAssignSubstituteName(e.target.value)}
-                    placeholder="Substitute name…"
-                    className="w-full text-sm text-gray-800 placeholder:text-gray-400 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40" />
-                )}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Substitute name</label>
+                <input value={assignSubstituteName} onChange={e => setAssignSubstituteName(e.target.value)}
+                  placeholder="Internal team or substitute name…"
+                  className="w-full text-sm text-gray-800 placeholder:text-gray-400 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40" />
               </div>
             </div>
             <div className="flex items-center gap-2 pt-1">
               <button onClick={assignForWeek} disabled={assigning || !assignMentorId}
                 className="px-4 py-2 bg-[#002147] text-white text-sm font-medium rounded-lg hover:bg-[#002147]/90 disabled:opacity-50 transition-colors">
-                {assigning ? 'Adding…' : 'Add session'}
+                {assigning ? 'Adding…' : 'Add substitute session'}
               </button>
               <button onClick={() => setShowAddSession(false)}
                 className="px-4 py-2 text-sm font-medium text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">
@@ -1937,7 +1954,10 @@ export default function AdminDashboard() {
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setEditingSession(null)} />
           <div className="relative bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-[#002147]">Edit Session</h3>
+              <div>
+                <h3 className="text-sm font-semibold text-[#002147]">Edit existing session</h3>
+                <p className="mt-1 text-xs text-amber-700">Legacy compatibility editor for assignments created before the ranked workflow.</p>
+              </div>
               <button onClick={() => setEditingSession(null)} className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-700">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
