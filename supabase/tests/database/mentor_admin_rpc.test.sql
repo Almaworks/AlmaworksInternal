@@ -1,6 +1,6 @@
 begin;
 
-select plan(8);
+select plan(9);
 
 select has_function(
   'public',
@@ -36,19 +36,22 @@ insert into auth.users (id, aud, role, email, raw_app_meta_data, raw_user_meta_d
 values
   ('e2000000-0000-0000-0000-000000000001', 'authenticated', 'authenticated', 'rpc-admin@example.test', '{}', '{"full_name":"RPC Admin"}'),
   ('e2000000-0000-0000-0000-000000000002', 'authenticated', 'authenticated', 'unrelated-admin@example.test', '{}', '{"full_name":"Unrelated Admin"}'),
-  ('e2000000-0000-0000-0000-000000000011', 'authenticated', 'authenticated', 'rpc-mentor@example.test', '{}', '{"full_name":"RPC Mentor"}');
+  ('e2000000-0000-0000-0000-000000000011', 'authenticated', 'authenticated', 'rpc-mentor@example.test', '{}', '{"full_name":"RPC Mentor"}'),
+  ('e2000000-0000-0000-0000-000000000012', 'authenticated', 'authenticated', 'existing-participant@example.test', '{}', '{"full_name":"Existing Participant"}');
 
 update public.profiles
 set status = 'approved', is_active = true
 where id in (
   'e2000000-0000-0000-0000-000000000001',
-  'e2000000-0000-0000-0000-000000000002'
+  'e2000000-0000-0000-0000-000000000002',
+  'e2000000-0000-0000-0000-000000000012'
 );
 
 insert into public.semester_memberships (semester_id, profile_id, role, status, activated_at)
 values
   ('e1000000-0000-0000-0000-000000000001', 'e2000000-0000-0000-0000-000000000001', 'admin', 'active', now()),
-  ('e1000000-0000-0000-0000-000000000002', 'e2000000-0000-0000-0000-000000000002', 'admin', 'active', now());
+  ('e1000000-0000-0000-0000-000000000002', 'e2000000-0000-0000-0000-000000000002', 'admin', 'active', now()),
+  ('e1000000-0000-0000-0000-000000000002', 'e2000000-0000-0000-0000-000000000012', 'startup', 'active', now());
 
 set local role service_role;
 
@@ -90,6 +93,21 @@ select is(
   'not_started',
   'semester mentor onboarding starts incomplete'
 );
+
+set local role service_role;
+
+select lives_ok(
+  $$select public.create_mentor_records(
+    'e2000000-0000-0000-0000-000000000001',
+    'e2000000-0000-0000-0000-000000000012',
+    'e1000000-0000-0000-0000-000000000001',
+    'existing-participant@example.test', null, null, '{}', false,
+    null, null, null, null, null
+  )$$,
+  'an existing approved identity may join a different semester as a mentor'
+);
+
+reset role;
 
 set local role service_role;
 

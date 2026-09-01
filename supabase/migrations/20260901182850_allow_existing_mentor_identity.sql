@@ -1,23 +1,25 @@
-create or replace function public.create_mentor_records(
-  p_actor_profile_id uuid,
-  p_profile_id uuid,
-  p_semester_id uuid,
-  p_email text,
-  p_biography text,
-  p_company text,
-  p_expertise_tags text[],
-  p_is_active boolean,
-  p_linkedin_url text,
-  p_title text,
+set local check_function_bodies = off;
+
+create or replace function public.create_mentor_records (
+  p_actor_profile_id     uuid,
+  p_profile_id           uuid,
+  p_semester_id          uuid,
+  p_email                text,
+  p_biography            text,
+  p_company              text,
+  p_expertise_tags       text[],
+  p_is_active            boolean,
+  p_linkedin_url         text,
+  p_title                text,
   p_general_availability text,
-  p_opening_talk text,
-  p_preferred_format text
+  p_opening_talk         text,
+  p_preferred_format     text
 )
-returns uuid
-language plpgsql
-security definer
-set search_path = ''
-as $$
+  returns uuid
+  language plpgsql
+  security definer
+  set search_path to ''
+  AS $function$
 declare
   v_actor_is_super_admin boolean;
   v_existing_email text;
@@ -151,10 +153,4 @@ begin
 
   return v_mentor_semester_id;
 end;
-$$;
-
-revoke all on function public.create_mentor_records(uuid,uuid,uuid,text,text,text,text[],boolean,text,text,text,text,text)
-from public, anon, authenticated;
-
-grant execute on function public.create_mentor_records(uuid,uuid,uuid,text,text,text,text[],boolean,text,text,text,text,text)
-to service_role, postgres;
+$function$;
