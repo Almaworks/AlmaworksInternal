@@ -19,6 +19,8 @@ export interface MembershipPresentation {
   action: "activate" | "suspend" | "restore" | null;
 }
 
+export type MembershipLifecycleAction = Exclude<MembershipPresentation["action"], null>;
+
 export interface MembershipPresentationInput {
   status: MembershipStatus;
   readinessStatus: MembershipReadinessStatus;
@@ -54,4 +56,14 @@ export function filterMembershipsByVisibility<T extends { status: MembershipStat
   visibility: MembershipVisibility,
 ): T[] {
   return visibility === "all" ? [...members] : members.filter((member) => member.status === "active");
+}
+
+export function resolveBulkMembershipAction(
+  members: readonly MembershipPresentationInput[],
+): MembershipLifecycleAction | null {
+  const actions = members.map((member) => membershipPresentation(member).action);
+  const action = actions[0];
+  return action !== undefined && action !== null && actions.every((candidate) => candidate === action)
+    ? action
+    : null;
 }

@@ -5,6 +5,7 @@ import {
   filterMembershipsByVisibility,
   membershipPresentation,
   membershipPresentationState,
+  resolveBulkMembershipAction,
 } from "../../src/lifecycle/membership-presentation.ts";
 
 const cases = [
@@ -79,4 +80,26 @@ test("membership visibility retains all canonical statuses or only active member
     filterMembershipsByVisibility(memberships, "active").map((member) => member.status),
     ["active"],
   );
+});
+
+test("bulk membership action is available only for homogeneous actionable selections", () => {
+  assert.equal(resolveBulkMembershipAction([
+    { status: "onboarding", readinessStatus: "ready" },
+    { status: "onboarding", readinessStatus: "ready" },
+  ]), "activate");
+  assert.equal(resolveBulkMembershipAction([
+    { status: "active", readinessStatus: "ready" },
+    { status: "active", readinessStatus: null },
+  ]), "suspend");
+  assert.equal(resolveBulkMembershipAction([
+    { status: "suspended", readinessStatus: "ready" },
+  ]), "restore");
+  assert.equal(resolveBulkMembershipAction([
+    { status: "onboarding", readinessStatus: "ready" },
+    { status: "active", readinessStatus: "ready" },
+  ]), null);
+  assert.equal(resolveBulkMembershipAction([
+    { status: "invited", readinessStatus: null },
+  ]), null);
+  assert.equal(resolveBulkMembershipAction([]), null);
 });

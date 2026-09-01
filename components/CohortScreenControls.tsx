@@ -9,6 +9,10 @@ import {
   type CohortRecordReference,
 } from "@/src/lifecycle/cohort-screen";
 import type { CohortMember, CohortSummary } from "@/src/lifecycle/cohort-management";
+import {
+  resolveBulkMembershipAction,
+  type MembershipLifecycleAction,
+} from "@/src/lifecycle/membership-presentation";
 import type { ProgramRole } from "@/src/lifecycle/types";
 
 interface CohortResponse {
@@ -81,8 +85,14 @@ export function useCohortScreen(records: readonly CohortRecordReference[], role:
       : membershipIdsForRecords(visibleRecords, members, { semesterId, role });
   }
 
-  async function setActivity(activity: "active" | "inactive") {
+  async function setActivity(action: MembershipLifecycleAction) {
     if (!semesterId || selected.length === 0) return;
+    const selectedMembers = members.filter((member) => member.semesterId === semesterId && selected.includes(member.membershipId));
+    if (selectedMembers.length !== selected.length || resolveBulkMembershipAction(selectedMembers) !== action) {
+      setMessage("Select members that all have the same available lifecycle action.");
+      return;
+    }
+    const activity = action === "suspend" ? "inactive" : "active";
     setWorking(true); setMessage(null);
     try {
       const result = await requestJson<{ updated: number }>("/api/admin/lifecycle/memberships/activity", {
@@ -123,6 +133,8 @@ export function CohortScreenControls({ controller, visibleRecords }: { controlle
   const allSelected = visibleIds.length > 0 && visibleIds.every((id) => controller.selected.includes(id));
   const prior = controller.semesterId !== null && controller.cohorts.current !== null && controller.semesterId !== controller.cohorts.current.id;
   const canSetActivity = controller.semesterId !== null && controller.semesterId === controller.cohorts.current?.id;
+  const selectedMembers = controller.members.filter((member) => controller.semesterId !== null && member.semesterId === controller.semesterId && controller.selected.includes(member.membershipId));
+  const bulkAction = selectedMembers.length === controller.selected.length ? resolveBulkMembershipAction(selectedMembers) : null;
   return <div className="mb-4 space-y-3">
     <div className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-3 sm:flex-row sm:items-end">
       <label className="text-xs font-semibold text-gray-600">Cohort
@@ -133,7 +145,7 @@ export function CohortScreenControls({ controller, visibleRecords }: { controlle
       </label>
       <label className="flex items-center gap-2 text-xs font-medium text-gray-600"><input type="checkbox" checked={allSelected} disabled={controller.scope === "all" || visibleIds.length === 0 || controller.working} onChange={(event) => controller.setSelected(event.target.checked ? visibleIds : controller.selected.filter((id) => !visibleIds.includes(id)))} />Select all filtered ({visibleIds.length})</label>
       {controller.scope !== "all" && visibleIds.length > 0 && <details className="relative text-xs text-gray-600"><summary className="cursor-pointer select-none font-medium">Choose filtered people</summary><div className="absolute z-20 mt-2 max-h-56 min-w-64 space-y-1 overflow-auto rounded-xl border border-gray-200 bg-white p-2 shadow-lg">{visibleIds.map((id) => { const member = controller.members.find((item) => item.membershipId === id); return <label key={id} className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-50"><input type="checkbox" className="mt-0.5" checked={controller.selected.includes(id)} disabled={controller.working} onChange={(event) => controller.setSelected(event.target.checked ? [...new Set([...controller.selected, id])] : controller.selected.filter((selectedId) => selectedId !== id))} /><span><strong className="block text-[#002147]">{member?.name ?? "Cohort member"}</strong><small>{member?.email}</small></span></label>; })}</div></details>}
-      {controller.selected.length > 0 && controller.scope !== "all" && <div className="flex flex-wrap gap-2 sm:ml-auto"><span className="self-center text-xs text-gray-500">{controller.selected.length} selected</span>{canSetActivity && <><button className="rounded-lg bg-[#002147] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50" disabled={controller.working} onClick={() => void controller.setActivity("active")}>Set Active</button><button className="rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 disabled:opacity-50" disabled={controller.working} onClick={() => void controller.setActivity("inactive")}>Suspend selected</button></>}{prior && <button className="rounded-lg bg-[#75AADB] px-3 py-2 text-xs font-semibold text-[#002147] disabled:opacity-50" disabled={controller.working} onClick={() => void controller.importSelected(controller.selected)}>Import selected into {controller.cohorts.current?.name}</button>}</div>}
+      {controller.selected.length > 0 && controller.scope !== "all" && <div className="flex flex-wrap items-center gap-2 sm:ml-auto"><span className="self-center text-xs text-gray-500">{controller.selected.length} selected</span>{canSetActivity && bulkAction === "activate" && <button className="rounded-lg bg-[#002147] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50" disabled={controller.working} onClick={() => void controller.setActivity("activate")}>Activate selected</button>}{canSetActivity && bulkAction === "suspend" && <button className="rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 disabled:opacity-50" disabled={controller.working} onClick={() => void controller.setActivity("suspend")}>Suspend selected</button>}{canSetActivity && bulkAction === "restore" && <button className="rounded-lg bg-[#75AADB] px-3 py-2 text-xs font-semibold text-[#002147] disabled:opacity-50" disabled={controller.working} onClick={() => void controller.setActivity("restore")}>Restore selected</button>}{canSetActivity && bulkAction === null && <span className="text-xs text-gray-500">Select members with the same available lifecycle action.</span>}{prior && <button className="rounded-lg bg-[#75AADB] px-3 py-2 text-xs font-semibold text-[#002147] disabled:opacity-50" disabled={controller.working} onClick={() => void controller.importSelected(controller.selected)}>Import selected into {controller.cohorts.current?.name}</button>}</div>}
       {prior && controller.selected.length === 0 && visibleIds.length > 0 && <button className="rounded-lg border border-[#75AADB] px-3 py-2 text-xs font-semibold text-[#002147] sm:ml-auto" disabled={controller.working} onClick={() => void controller.importSelected(visibleIds)}>Import filtered into {controller.cohorts.current?.name}</button>}
     </div>
     {controller.scope === "all" && <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><strong>All-time view:</strong> every manageable cohort is loaded. Choose a specific cohort to change status or import people.</p>}
