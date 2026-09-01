@@ -107,12 +107,12 @@ export default function OnboardingFlow() {
       { item_key: role === "startup" ? "team_contacts" : "expertise", is_required: true, completed_at: (role === "startup" ? teamContact.trim() : expertise.trim()) ? new Date().toISOString() : null, payload: role === "startup" ? { teamContact: teamContact.trim() } : { expertise: expertise.split(",").map((item) => item.trim()).filter(Boolean) } },
       { item_key: "availability", is_required: true, completed_at: selectedWindows.size > 0 ? new Date().toISOString() : null, payload: { windows: Array.from(selectedWindows) } },
     ];
-    const now = new Date().toISOString();
-    const progressResult = await supabase.from("semester_memberships").update({
-      onboarding_data: rows,
-      onboarding_started_at: now,
-      ...(finalize ? { onboarding_completed_at: now, activated_at: now, status: "active" as const } : { status: "onboarding" as const }),
-    }).eq("id", membershipId).eq("semester_id", semesterId);
+    const progressResult = await supabase.rpc("update_own_onboarding_progress", {
+      p_membership_id: membershipId,
+      p_semester_id: semesterId,
+      p_onboarding_data: rows,
+      p_finalize: finalize,
+    });
     if (progressResult.error) {
       setSaveError(progressResult.error.message);
       setSaving(false);

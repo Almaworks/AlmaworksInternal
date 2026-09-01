@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
 
 const policyPath = new URL("../../supabase/schemas/zzz_database_revamp_rls.sql", import.meta.url);
@@ -11,15 +11,15 @@ const expectedPolicyMatrix = {
   mentor_profiles: ["select", "update"],
   mentor_semesters: ["select", "update"],
   outreach_activities: ["select"],
-  outreach_companies: ["insert", "select"],
-  outreach_contact_companies: ["insert", "select", "update"],
-  outreach_contacts: ["insert", "select", "update"],
+  outreach_companies: ["select"],
+  outreach_contact_companies: ["select", "update"],
+  outreach_contacts: ["select", "update"],
   outreach_imports: ["insert", "select", "update"],
-  outreach_opportunities: ["insert", "select", "update"],
+  outreach_opportunities: ["select", "update"],
   platform_roles: ["select"],
   profiles: ["select", "update"],
   program_audit_events: ["select"],
-  semester_memberships: ["select", "update"],
+  semester_memberships: ["select"],
   semesters: ["select"],
   sessions: ["delete", "insert", "select", "update"],
   startup_organizations: ["select"],
@@ -29,6 +29,12 @@ const expectedPolicyMatrix = {
 
 async function loadPolicySql() {
   return (await readFile(policyPath, "utf8")).replace(/\r\n/g, "\n");
+}
+
+async function loadDeclarativeSchema() {
+  const directory = new URL("../../supabase/schemas/", import.meta.url);
+  const filenames = (await readdir(directory)).filter((filename) => filename.endsWith(".sql")).sort();
+  return (await Promise.all(filenames.map((filename) => readFile(new URL(filename, directory), "utf8")))).join("\n").replace(/\r\n/g, "\n");
 }
 
 function policyMatrix(sql: string) {
@@ -63,6 +69,39 @@ test("policy identity lookups use initplans and never legacy profile roles", asy
 
   assert.doesNotMatch(sql, /(?<!select )auth\.uid\(\)/u);
   assert.doesNotMatch(sql, /profiles\.role|get_my_role/iu);
+});
+
+test("suspended members cannot reactivate themselves through direct table updates", async () => {
+  const sql = await loadPolicySql();
+  const schema = await loadDeclarativeSchema();
+
+  assert.doesNotMatch(sql, /create policy "[^"]+" on public\.semester_memberships\s+for update/iu);
+  assert.match(schema, /function public\.update_own_onboarding_progress\b/iu);
+  assert.match(schema, /if p_finalize and membership_record\.status <> 'onboarding'/iu);
+  assert.match(schema, /raise exception 'onboarding status transition is not allowed'/iu);
+});
+
+test("an active program member can read historical mentors but not arbitrary profiles", async () => {
+  const sql = await loadPolicySql();
+  const schema = await loadDeclarativeSchema();
+  const profilePolicy = sql.match(/create policy "program members read profiles"[\s\S]*?;\n/u)?.[0] ?? "";
+
+  assert.match(schema, /function private\.can_read_mentor_profile\([\s\S]*?target_profile_id uuid,[\s\S]*?candidate_id uuid/u);
+  assert.match(schema, /candidate_membership\.status in \('onboarding', 'active'\)/u);
+  assert.match(schema, /mentor_membership\.profile_id = target_profile_id/u);
+  assert.match(schema, /mentor_membership\.role = 'mentor'/u);
+  assert.match(profilePolicy, /private\.can_read_mentor_profile\(profiles\.id, \(select auth\.uid\(\)\)\)/u);
+  assert.doesNotMatch(profilePolicy, /viewer_membership\.semester_id = subject_membership\.semester_id/u);
+});
+
+test("outreach bootstrap is atomic and authorized for the target semester", async () => {
+  const sql = await loadPolicySql();
+  const schema = await loadDeclarativeSchema();
+
+  assert.match(schema, /function public\.upsert_outreach_contact_bundle\b/u);
+  assert.match(schema, /not private\.can_manage_semester\(p_semester_id, actor_id\)/u);
+  assert.match(schema, /insert into public\.outreach_contacts[\s\S]*?insert into public\.outreach_opportunities[\s\S]*?insert into public\.outreach_contact_companies/u);
+  assert.doesNotMatch(sql, /create policy "[^"]+" on public\.outreach_(?:contacts|companies|contact_companies|opportunities)\s+for insert/iu);
 });
 
 test("startup session requests cannot be created for another startup or as confirmed", async () => {

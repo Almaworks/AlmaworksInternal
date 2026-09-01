@@ -69,17 +69,7 @@ using (
       and administrator.role = 'admin'
       and administrator.status in ('onboarding', 'active')
   )
-  or exists (
-    select 1
-    from public.semester_memberships subject_membership
-    join public.semester_memberships viewer_membership
-      on viewer_membership.semester_id = subject_membership.semester_id
-    where subject_membership.profile_id = profiles.id
-      and subject_membership.role = 'mentor'
-      and subject_membership.status in ('onboarding', 'active', 'alumni')
-      and viewer_membership.profile_id = (select auth.uid())
-      and viewer_membership.status in ('onboarding', 'active')
-  )
+  or private.can_read_mentor_profile(profiles.id, (select auth.uid()))
 );
 
 create policy "users update their own profile" on public.profiles
@@ -112,17 +102,6 @@ using (
       )
     )
   )
-);
-
-create policy "owners or admins update semester memberships" on public.semester_memberships
-for update to authenticated
-using (
-  semester_memberships.profile_id = (select auth.uid())
-  or private.can_manage_semester(semester_memberships.semester_id, (select auth.uid()))
-)
-with check (
-  semester_memberships.profile_id = (select auth.uid())
-  or private.can_manage_semester(semester_memberships.semester_id, (select auth.uid()))
 );
 
 create policy "semester admins read invitations" on public.invitations
@@ -453,10 +432,6 @@ create policy "semester admins read outreach contacts" on public.outreach_contac
 for select to authenticated
 using (private.has_outreach_contact_access(outreach_contacts.id, (select auth.uid())));
 
-create policy "semester admins insert outreach contacts" on public.outreach_contacts
-for insert to authenticated
-with check (public.can_manage_any_outreach((select auth.uid())));
-
 create policy "semester admins update outreach contacts" on public.outreach_contacts
 for update to authenticated
 using (private.has_outreach_contact_access(outreach_contacts.id, (select auth.uid())))
@@ -466,20 +441,9 @@ create policy "semester admins read outreach companies" on public.outreach_compa
 for select to authenticated
 using (private.has_outreach_company_access(outreach_companies.id, (select auth.uid())));
 
-create policy "semester admins insert outreach companies" on public.outreach_companies
-for insert to authenticated
-with check (public.can_manage_any_outreach((select auth.uid())));
-
 create policy "semester admins read outreach company links" on public.outreach_contact_companies
 for select to authenticated
 using (
-  private.has_outreach_contact_access(outreach_contact_companies.contact_id, (select auth.uid()))
-  and private.has_outreach_company_access(outreach_contact_companies.company_id, (select auth.uid()))
-);
-
-create policy "semester admins insert outreach company links" on public.outreach_contact_companies
-for insert to authenticated
-with check (
   private.has_outreach_contact_access(outreach_contact_companies.contact_id, (select auth.uid()))
   and private.has_outreach_company_access(outreach_contact_companies.company_id, (select auth.uid()))
 );
@@ -498,10 +462,6 @@ with check (
 create policy "semester admins read outreach opportunities" on public.outreach_opportunities
 for select to authenticated
 using (private.can_manage_semester(outreach_opportunities.semester_id, (select auth.uid())));
-
-create policy "semester admins insert outreach opportunities" on public.outreach_opportunities
-for insert to authenticated
-with check (private.can_manage_semester(outreach_opportunities.semester_id, (select auth.uid())));
 
 create policy "semester admins update outreach opportunities" on public.outreach_opportunities
 for update to authenticated

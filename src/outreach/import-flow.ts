@@ -57,27 +57,31 @@ export async function commitImport(args: { client: Client; userId: string; semes
     for (const stored of storedRows) {
       const reviewed = decisionsByRow.get(stored.normalized.rowNumber);
       if (!reviewed || reviewed.decision === "exclude") continue;
-      let contactId = reviewed.decision === "merge" ? reviewed.matchedContactId ?? stored.decision.contactId : null;
-      if (!contactId) {
-        const { data: contact, error } = await args.client.from("outreach_contacts").insert({ full_name: stored.normalized.fullName ?? "Unnamed contact", email: stored.normalized.email, linkedin_url: stored.normalized.linkedinUrl, canonical_linkedin_url: stored.normalized.linkedinUrl, created_by: args.userId }).select("id").single();
-        if (error || !contact) throw new Error(`Unable to create contact for row ${stored.normalized.rowNumber}.`);
-        contactId = contact.id;
-      }
+      const contactId = reviewed.decision === "merge" ? reviewed.matchedContactId ?? stored.decision.contactId : null;
+      let companyId: string | null = null;
+      let normalizedName: string | null = null;
       if (stored.normalized.company) {
-        const normalizedName = comparable(stored.normalized.company);
+        normalizedName = comparable(stored.normalized.company);
         const { data: existingCompany } = await args.client.from("outreach_companies").select("id").eq("normalized_name", normalizedName).maybeSingle();
-        let companyId = existingCompany?.id ?? null;
-        if (!companyId) {
-          const { data: company, error } = await args.client.from("outreach_companies").insert({ name: stored.normalized.company, normalized_name: normalizedName, domain: stored.normalized.companyDomain, created_by: args.userId }).select("id").single();
-          if (error || !company) throw new Error(`Unable to create company for row ${stored.normalized.rowNumber}.`);
-          companyId = company.id;
-        }
-        const { error: linkError } = await args.client.from("outreach_contact_companies").upsert({ contact_id: contactId, company_id: companyId, is_primary: true }, { onConflict: "contact_id,company_id" });
-        if (linkError) throw new Error(`Unable to connect company for row ${stored.normalized.rowNumber}.`);
+        companyId = existingCompany?.id ?? null;
       }
       const relationshipTypes = stored.normalized.relationshipLabels.length > 0 ? [...stored.normalized.relationshipLabels] : ["mentor"];
-      const { error: opportunityError } = await args.client.from("outreach_opportunities").upsert({ semester_id: args.semesterId, contact_id: contactId, owner_profile_id: stored.normalized.ownerId, stage: stored.normalized.stage, relationship_types: relationshipTypes, source_context: json({ import_id: importRecord.id, source_name: importRecord.source_name }), created_by: args.userId }, { onConflict: "semester_id,contact_id" });
-      if (opportunityError) throw new Error(`Unable to create outreach opportunity for row ${stored.normalized.rowNumber}.`);
+      const { error: bundleError } = await args.client.rpc("upsert_outreach_contact_bundle", {
+        p_semester_id: args.semesterId,
+        p_contact_id: contactId,
+        p_full_name: stored.normalized.fullName ?? "Unnamed contact",
+        p_email: stored.normalized.email,
+        p_linkedin_url: stored.normalized.linkedinUrl,
+        p_company_id: companyId,
+        p_company_name: companyId === null ? stored.normalized.company : null,
+        p_company_normalized_name: companyId === null ? normalizedName : null,
+        p_company_domain: stored.normalized.companyDomain,
+        p_owner_profile_id: stored.normalized.ownerId,
+        p_stage: stored.normalized.stage,
+        p_relationship_types: relationshipTypes,
+        p_source_context: json({ import_id: importRecord.id, source_name: importRecord.source_name }),
+      });
+      if (bundleError) throw new Error(`Unable to create outreach bundle for row ${stored.normalized.rowNumber}.`);
       committedRows += 1;
     }
     const summary = { ...(importRecord.result as Record<string, Json>), committedRows };

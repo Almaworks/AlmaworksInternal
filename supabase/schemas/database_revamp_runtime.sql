@@ -211,6 +211,195 @@ begin
 end;
 $$;
 
+create or replace function private.can_read_mentor_profile(
+  target_profile_id uuid,
+  candidate_id uuid
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select candidate_id is not null
+    and candidate_id is not distinct from auth.uid()
+    and exists (
+      select 1
+      from public.semester_memberships candidate_membership
+      where candidate_membership.profile_id = candidate_id
+        and candidate_membership.status in ('onboarding', 'active')
+    )
+    and exists (
+      select 1
+      from public.semester_memberships mentor_membership
+      where mentor_membership.profile_id = target_profile_id
+        and mentor_membership.role = 'mentor'
+        and mentor_membership.status in ('onboarding', 'active', 'alumni')
+    );
+$$;
+
+create or replace function public.update_own_onboarding_progress(
+  p_membership_id uuid,
+  p_semester_id uuid,
+  p_onboarding_data jsonb,
+  p_finalize boolean
+)
+returns public.semester_memberships
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  actor_id uuid := auth.uid();
+  membership_record public.semester_memberships%rowtype;
+begin
+  if actor_id is null then
+    raise exception 'Authentication required' using errcode = '42501';
+  end if;
+
+  select *
+  into membership_record
+  from public.semester_memberships
+  where id = p_membership_id
+    and semester_id = p_semester_id
+    and profile_id = actor_id
+  for update;
+
+  if not found then
+    raise exception 'Onboarding membership not found' using errcode = '42501';
+  end if;
+
+  if p_finalize and membership_record.status <> 'onboarding' then
+    raise exception 'Onboarding status transition is not allowed' using errcode = '42501';
+  end if;
+  if not p_finalize and membership_record.status not in ('invited', 'onboarding') then
+    raise exception 'Onboarding status transition is not allowed' using errcode = '42501';
+  end if;
+
+  update public.semester_memberships
+  set onboarding_data = coalesce(p_onboarding_data, '[]'::jsonb),
+      onboarding_started_at = coalesce(onboarding_started_at, now()),
+      onboarding_completed_at = case when p_finalize then now() else onboarding_completed_at end,
+      activated_at = case when p_finalize then now() else activated_at end,
+      status = case when p_finalize then 'active' else 'onboarding' end,
+      updated_at = now()
+  where id = membership_record.id
+  returning * into membership_record;
+
+  return membership_record;
+end;
+$$;
+
+create or replace function public.upsert_outreach_contact_bundle(
+  p_semester_id uuid,
+  p_contact_id uuid default null,
+  p_full_name text default null,
+  p_email text default null,
+  p_linkedin_url text default null,
+  p_phone text default null,
+  p_biography text default null,
+  p_company_id uuid default null,
+  p_company_name text default null,
+  p_company_normalized_name text default null,
+  p_company_domain text default null,
+  p_company_title text default null,
+  p_owner_profile_id uuid default null,
+  p_stage text default 'not_contacted',
+  p_relationship_types text[] default array['mentor']::text[],
+  p_source_context jsonb default '{}'::jsonb
+)
+returns table(contact_id uuid, company_id uuid, opportunity_id uuid)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+#variable_conflict use_column
+declare
+  actor_id uuid := auth.uid();
+  resolved_contact_id uuid := p_contact_id;
+  resolved_company_id uuid := p_company_id;
+  resolved_opportunity_id uuid;
+begin
+  if actor_id is null or not private.can_manage_semester(p_semester_id, actor_id) then
+    raise exception 'Semester administrator access required' using errcode = '42501';
+  end if;
+
+  if resolved_contact_id is null then
+    if nullif(btrim(p_full_name), '') is null then
+      raise exception 'Contact full name is required' using errcode = '22023';
+    end if;
+    insert into public.outreach_contacts (
+      full_name, email, linkedin_url, canonical_linkedin_url, phone, biography, created_by
+    ) values (
+      btrim(p_full_name), lower(nullif(btrim(p_email), '')), nullif(btrim(p_linkedin_url), ''),
+      nullif(btrim(p_linkedin_url), ''), nullif(btrim(p_phone), ''), nullif(btrim(p_biography), ''), actor_id
+    )
+    returning id into resolved_contact_id;
+  elsif not private.has_outreach_contact_access(resolved_contact_id, actor_id) then
+    raise exception 'Contact is outside the administrator outreach scope' using errcode = '42501';
+  end if;
+
+  if resolved_company_id is not null then
+    if not private.has_outreach_company_access(resolved_company_id, actor_id) then
+      raise exception 'Company is outside the administrator outreach scope' using errcode = '42501';
+    end if;
+  elsif nullif(btrim(p_company_name), '') is not null then
+    insert into public.outreach_companies (name, normalized_name, domain, created_by)
+    values (
+      btrim(p_company_name),
+      coalesce(nullif(btrim(p_company_normalized_name), ''), lower(btrim(p_company_name))),
+      lower(nullif(btrim(p_company_domain), '')),
+      actor_id
+    )
+    returning id into resolved_company_id;
+  end if;
+
+  insert into public.outreach_opportunities (
+    semester_id, contact_id, owner_profile_id, stage, relationship_types, source_context, created_by
+  ) values (
+    p_semester_id, resolved_contact_id, p_owner_profile_id,
+    coalesce(nullif(btrim(p_stage), ''), 'not_contacted'),
+    case when cardinality(p_relationship_types) > 0 then p_relationship_types else array['mentor']::text[] end,
+    coalesce(p_source_context, '{}'::jsonb), actor_id
+  )
+  on conflict (semester_id, contact_id) do update
+  set owner_profile_id = excluded.owner_profile_id,
+      stage = excluded.stage,
+      relationship_types = excluded.relationship_types,
+      source_context = excluded.source_context,
+      updated_at = now()
+  returning id into resolved_opportunity_id;
+
+  if resolved_company_id is not null then
+    update public.outreach_contact_companies
+    set is_primary = false,
+        updated_at = now()
+    where contact_id = resolved_contact_id
+      and company_id <> resolved_company_id
+      and is_primary
+      and ended_on is null;
+
+    update public.outreach_contact_companies
+    set title = nullif(btrim(p_company_title), ''),
+        is_primary = true,
+        updated_at = now()
+    where contact_id = resolved_contact_id
+      and company_id = resolved_company_id
+      and ended_on is null;
+
+    if not found then
+      insert into public.outreach_contact_companies (contact_id, company_id, title, is_primary)
+      values (resolved_contact_id, resolved_company_id, nullif(btrim(p_company_title), ''), true);
+    end if;
+  end if;
+
+  contact_id := resolved_contact_id;
+  company_id := resolved_company_id;
+  opportunity_id := resolved_opportunity_id;
+  return next;
+end;
+$$;
+
 create or replace function public.authorize_semester_member_identity_update(
   p_profile_id uuid,
   p_semester_id uuid

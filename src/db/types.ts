@@ -1860,6 +1860,40 @@ export type Database = {
         }
         Returns: number
       }
+      update_own_onboarding_progress: {
+        Args: {
+          p_finalize: boolean
+          p_membership_id: string
+          p_onboarding_data: Json
+          p_semester_id: string
+        }
+        Returns: Database["public"]["Tables"]["semester_memberships"]["Row"]
+      }
+      upsert_outreach_contact_bundle: {
+        Args: {
+          p_biography?: string | null
+          p_company_domain?: string | null
+          p_company_id?: string | null
+          p_company_name?: string | null
+          p_company_normalized_name?: string | null
+          p_company_title?: string | null
+          p_contact_id?: string | null
+          p_email?: string | null
+          p_full_name?: string | null
+          p_linkedin_url?: string | null
+          p_owner_profile_id?: string | null
+          p_phone?: string | null
+          p_relationship_types?: string[]
+          p_semester_id: string
+          p_source_context?: Json
+          p_stage?: string
+        }
+        Returns: {
+          company_id: string | null
+          contact_id: string
+          opportunity_id: string
+        }[]
+      }
       can_manage_any_outreach: {
         Args: { candidate_id?: string }
         Returns: boolean

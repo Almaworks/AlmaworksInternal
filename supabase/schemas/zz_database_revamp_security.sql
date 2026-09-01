@@ -73,14 +73,9 @@ to authenticated;
 
 grant insert (semester_id, meeting_id, semester_membership_id, slot, is_available, source) on table public.meeting_availability to authenticated;
 grant insert (semester_id, meeting_id, mentor_semester_id, startup_semester_id, slot, status, topic, format) on table public.sessions to authenticated;
-grant insert (full_name, email, linkedin_url, canonical_linkedin_url, phone, biography, created_by) on table public.outreach_contacts to authenticated;
-grant insert (name, normalized_name, domain, created_by) on table public.outreach_companies to authenticated;
-grant insert (contact_id, company_id, title, is_primary) on table public.outreach_contact_companies to authenticated;
-grant insert (semester_id, contact_id, owner_profile_id, stage, relationship_types, source_context, created_by) on table public.outreach_opportunities to authenticated;
 grant insert (semester_id, source_name, status, idempotency_key, rows, result, created_by) on table public.outreach_imports to authenticated;
 
 grant update (full_name) on table public.profiles to authenticated;
-grant update (onboarding_data, onboarding_started_at, onboarding_completed_at, activated_at, status) on table public.semester_memberships to authenticated;
 grant update (goals, mentorship_needs, mentor_need_context, mentor_need_no_preference, preferred_expertise_tags) on table public.startup_semesters to authenticated;
 grant update (semester_id, meeting_id, semester_membership_id, slot, is_available, source) on table public.meeting_availability to authenticated;
 grant update (status) on table public.sessions to authenticated;
@@ -126,6 +121,7 @@ grant execute on function private.can_manage_semester(uuid,uuid) to authenticate
 grant execute on function private.can_read_outreach_relationship_labels(uuid) to authenticated;
 grant execute on function private.has_outreach_contact_access(uuid,uuid) to authenticated;
 grant execute on function private.has_outreach_company_access(uuid,uuid) to authenticated;
+grant execute on function private.can_read_mentor_profile(uuid,uuid) to authenticated;
 
 -- Authenticated commands. Every function performs its own actor/semester check.
 grant execute on function public.activate_semester_transition(uuid,uuid) to authenticated;
@@ -146,7 +142,9 @@ grant execute on function public.set_outreach_silence(uuid,boolean,text,timestam
 grant execute on function public.set_outreach_snooze(uuid,timestamptz,text,timestamptz) to authenticated;
 grant execute on function public.suspend_outreach_membership(uuid,uuid,text,timestamptz) to authenticated;
 grant execute on function public.transfer_outreach_owner(uuid,uuid,text,timestamptz) to authenticated;
+grant execute on function public.update_own_onboarding_progress(uuid,uuid,jsonb,boolean) to authenticated;
 grant execute on function public.update_startup_records(uuid,text,text,text,text,text,text[],text[]) to authenticated;
+grant execute on function public.upsert_outreach_contact_bundle(uuid,uuid,text,text,text,text,text,uuid,text,text,text,text,uuid,text,text[],jsonb) to authenticated;
 
 -- Identity-bearing mutations are only called from authenticated server routes
 -- after the application has established the actor identity.

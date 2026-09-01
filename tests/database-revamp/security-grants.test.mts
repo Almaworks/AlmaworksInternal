@@ -38,7 +38,9 @@ const authenticatedRpcs = [
   "set_outreach_snooze(uuid,timestamptz,text,timestamptz)",
   "suspend_outreach_membership(uuid,uuid,text,timestamptz)",
   "transfer_outreach_owner(uuid,uuid,text,timestamptz)",
+  "update_own_onboarding_progress(uuid,uuid,jsonb,boolean)",
   "update_startup_records(uuid,text,text,text,text,text,text[],text[])",
+  "upsert_outreach_contact_bundle(uuid,uuid,text,text,text,text,text,uuid,text,text,text,text,uuid,text,text[],jsonb)",
 ] as const;
 
 const serviceRpcs = [
@@ -146,9 +148,7 @@ test("authenticated writes cannot mutate identity, ownership, or scheduling keys
     "goals", "mentor_need_context", "mentor_need_no_preference", "mentorship_needs", "preferred_expertise_tags",
   ]);
   assert.deepEqual(grantedColumns(sql, "update", "sessions", "authenticated"), ["status"]);
-  assert.deepEqual(grantedColumns(sql, "update", "semester_memberships", "authenticated"), [
-    "activated_at", "onboarding_completed_at", "onboarding_data", "onboarding_started_at", "status",
-  ]);
+  assert.doesNotMatch(sql, /grant update \([^)]*\) on table public\.semester_memberships to authenticated;/u);
   assert.doesNotMatch(sql, /grant update \([^)]*(?:email|is_active|profile_id|semester_id|mentor_semester_id|startup_semester_id)[^)]*\) on table public\.(?:profiles|semester_memberships|startup_semesters|sessions) to authenticated;/u);
 });
 
@@ -164,6 +164,7 @@ test("authenticated inserts are constrained to the fields each direct workflow s
   assert.deepEqual(grantedColumns(sql, "insert", "outreach_imports", "authenticated"), [
     "created_by", "idempotency_key", "result", "rows", "semester_id", "source_name", "status",
   ]);
+  assert.doesNotMatch(sql, /grant insert \([^)]*\) on table public\.outreach_(?:contacts|companies|contact_companies|opportunities) to authenticated;/u);
 });
 
 test("service-role direct writes are column-scoped and cannot rewrite record identities", () => {
