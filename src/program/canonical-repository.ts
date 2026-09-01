@@ -27,6 +27,7 @@ type MembershipRow = {
   id?: string;
   profile_id: string;
   profile: Related<ProfileRow>;
+  semester_id: string;
   status?: MembershipStatus;
 };
 
@@ -45,6 +46,7 @@ type MentorSemesterRow = {
 type StartupTeamRow = {
   is_primary_contact: boolean;
   membership: Related<MembershipRow>;
+  semester_id: string;
 };
 
 type StartupSemesterRow = {
@@ -172,9 +174,11 @@ const STARTUP_DIRECTORY_SELECT = `
   team:startup_team_memberships(
     id,
     is_primary_contact,
+    semester_id,
     membership:semester_memberships!inner(
       id,
       profile_id,
+      semester_id,
       status,
       profile:profiles!inner(id,email,full_name,is_active)
     )
@@ -251,7 +255,11 @@ export async function loadStartupDirectory(client: ProgramClient) {
 
 function mapStartup(row: StartupSemesterRow): StartupView {
   const organization = one(row.organization);
-  const team = Array.isArray(row.team) ? row.team : row.team ? [row.team] : [];
+  const unscopedTeam = Array.isArray(row.team) ? row.team : row.team ? [row.team] : [];
+  const team = unscopedTeam.filter((teamMember) => {
+    const membership = one(teamMember.membership);
+    return teamMember.semester_id === row.semester_id && membership?.semester_id === row.semester_id;
+  });
   const founders = team
     .map((teamMember) => one(teamMember.membership))
     .filter((membership): membership is MembershipRow => membership !== null)

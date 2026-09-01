@@ -10,10 +10,21 @@ import {
   resolveAdminDashboardTab,
 } from "../../src/assignments/schedule-navigation.ts";
 
-test("member management links use the canonical Members tab and encode the email", () => {
+test("member management links keep the canonical Members tab and encode the email", () => {
   assert.equal(
     adminMemberHref("mentor+ops@example.com"),
     "/dashboard/admin?tab=members&member=mentor%2Bops%40example.com",
+  );
+});
+
+test("historical mentor and startup management links preserve their target semester", () => {
+  assert.equal(
+    adminMemberHref("mentor@example.com", "fall 2025"),
+    "/dashboard/admin?tab=members&member=mentor%40example.com&semester=fall%202025",
+  );
+  assert.equal(
+    adminMemberHref("founder+ops@example.com", "spring-2024"),
+    "/dashboard/admin?tab=members&member=founder%2Bops%40example.com&semester=spring-2024",
   );
 });
 

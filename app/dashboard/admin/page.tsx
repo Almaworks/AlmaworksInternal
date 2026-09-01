@@ -776,7 +776,7 @@ function AdminDashboardContent() {
   const memberReferences = useMemo<CohortRecordReference[]>(() => members.map(member => ({
     recordId: member.id, profileId: member.id, email: member.email,
   })), [members])
-  const cohort = useCohortScreen(memberReferences, 'all')
+  const cohort = useCohortScreen(memberReferences, 'all', searchParams.get('semester') ?? undefined)
   const selectedCohortMembers = cohort.semesterId === null
     ? []
     : cohort.members.filter(member => member.semesterId === cohort.semesterId)
@@ -1914,7 +1914,7 @@ function AdminDashboardContent() {
                             <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current" />
                             {presentation.label}
                           </span>
-                          {s.membership_email && <Link href={adminMemberHref(s.membership_email)} className="text-[10px] font-medium text-[#002147] underline-offset-2 hover:underline">Manage lifecycle</Link>}
+                          {s.membership_email && <Link href={adminMemberHref(s.membership_email, s.semester_id)} className="text-[10px] font-medium text-[#002147] underline-offset-2 hover:underline">Manage lifecycle</Link>}
                           {s.semester_name && (
                             <span className="text-[10px] font-semibold bg-[#75AADB]/20 text-[#002147] px-1.5 py-0.5 rounded-full">{s.semester_name}</span>
                           )}

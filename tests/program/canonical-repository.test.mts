@@ -155,8 +155,10 @@ test("startup profile derives founders from canonical team memberships instead o
     stage: "seed",
     team: [{
       is_primary_contact: true,
+      semester_id: "semester-1",
       membership: {
         profile_id: "profile-1",
+        semester_id: "semester-1",
         profile: { email: "founder@example.com", full_name: "Fresh Founder", is_active: true },
       },
     }],

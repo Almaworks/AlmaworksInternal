@@ -57,9 +57,11 @@ function startupRow(status: "onboarding" | "active" | "alumni" | "suspended", re
     stage: null,
     team: [{
       is_primary_contact: true,
+      semester_id: "fall-2026",
       membership: {
         id: `${status}-membership`,
         profile_id: `${status}-profile`,
+        semester_id: "fall-2026",
         status,
         profile: { email: `${status}@example.com`, full_name: `${status} founder`, is_active: false },
       },
@@ -84,6 +86,39 @@ test("mentor directory preserves canonical lifecycle inputs despite an inactive 
       expectedLabels.get(status),
     );
   }
+});
+
+test("startup directory ignores a cross-semester primary contact in favor of a same-semester team member", async () => {
+  const row = startupRow("active", "ready");
+  row.team = [
+    {
+      is_primary_contact: true,
+      semester_id: "spring-2025",
+      membership: {
+        id: "cross-semester-membership",
+        profile_id: "cross-semester-profile",
+        semester_id: "spring-2025",
+        status: "suspended",
+        profile: { email: "cross-semester@example.com", full_name: "Cross-semester founder", is_active: true },
+      },
+    },
+    {
+      is_primary_contact: false,
+      semester_id: "fall-2026",
+      membership: {
+        id: "same-semester-membership",
+        profile_id: "same-semester-profile",
+        semester_id: "fall-2026",
+        status: "active",
+        profile: { email: "same-semester@example.com", full_name: "Same-semester founder", is_active: true },
+      },
+    },
+  ];
+
+  const [startup] = await loadStartupDirectory(directoryClient([row]));
+
+  assert.equal(startup.membership_status, "active");
+  assert.equal(startup.membership_email, "same-semester@example.com");
 });
 
 test("startup directory preserves canonical lifecycle inputs from its primary membership", async () => {
@@ -111,4 +146,7 @@ test("directory pages present lifecycle status without a direct boolean lifecycl
   assert.match(adminPage, /adminMemberHref\(/u);
   assert.match(adminPage, /searchParams\.get\('member'\)/u);
   assert.match(adminPage, /setMemberSearch\(member\)/u);
+  assert.match(mentorPage, /adminMemberHref\(m\.email, m\.semester_id\)/u);
+  assert.match(adminPage, /adminMemberHref\(s\.membership_email, s\.semester_id\)/u);
+  assert.match(adminPage, /useCohortScreen\(memberReferences, 'all', searchParams\.get\('semester'\) \?\? undefined\)/u);
 });

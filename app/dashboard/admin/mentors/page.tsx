@@ -406,7 +406,7 @@ export default function AdminMentorsPage() {
                           <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current" />
                           {presentation.label}
                         </span>
-                        {m.email && <Link href={adminMemberHref(m.email)} className="text-[11px] font-medium text-[#002147] underline-offset-2 hover:underline">Manage lifecycle</Link>}
+                        {m.email && <Link href={adminMemberHref(m.email, m.semester_id)} className="text-[11px] font-medium text-[#002147] underline-offset-2 hover:underline">Manage lifecycle</Link>}
                       </div>
                     </td>
                     <td className="px-4 py-3">

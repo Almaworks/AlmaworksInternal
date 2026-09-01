@@ -13,8 +13,9 @@ export function adminDashboardHref(tab: AdminDashboardTab): string {
     : `/dashboard/admin?tab=${tab}`;
 }
 
-export function adminMemberHref(email: string): string {
-  return `${adminDashboardHref("members")}&member=${encodeURIComponent(email)}`;
+export function adminMemberHref(email: string, semesterId?: string | null): string {
+  const semesterQuery = semesterId ? `&semester=${encodeURIComponent(semesterId)}` : "";
+  return `${adminDashboardHref("members")}&member=${encodeURIComponent(email)}${semesterQuery}`;
 }
 
 export function resolveAdminDashboardTab(
