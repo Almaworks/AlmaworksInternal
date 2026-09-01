@@ -182,6 +182,29 @@ test("founder assignment creates canonical semester and team memberships", async
   assert.equal(requests[2].url.searchParams.get("on_conflict"), "startup_semester_id,semester_membership_id");
 });
 
+test("founder assignment reactivates an existing membership without updating identity keys", async () => {
+  const { client, requests } = recordingClient([
+    { semester_id: "semester-1" },
+    { body: null, status: 200 },
+    { id: "membership-1" },
+    [],
+  ]);
+
+  await assignFounderMembership(client, {
+    profileId: "profile-1",
+    startupSemesterId: "startup-term-1",
+  });
+
+  assert.deepEqual(requests.map((request) => request.path), [
+    "/rest/v1/startup_semesters",
+    "/rest/v1/semester_memberships",
+    "/rest/v1/semester_memberships",
+    "/rest/v1/startup_team_memberships",
+  ]);
+  assert.equal(requests[2].method, "PATCH");
+  assert.deepEqual(JSON.parse(requests[2].body ?? "null"), { status: "active" });
+});
+
 test("founder move is one atomic canonical command", async () => {
   const { client, requests } = recordingClient([
     { moved_membership_id: "team-1" },

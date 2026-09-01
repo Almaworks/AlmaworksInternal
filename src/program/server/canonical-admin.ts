@@ -173,23 +173,34 @@ export async function assignFounderMembership(
     .single();
   const term = requireData(termResult.data, termResult.error, "Startup not found.");
 
-  const membershipResult = await client
+  const membershipInsertResult = await client
     .from("semester_memberships")
     .upsert({
       profile_id: input.profileId,
       role: "startup",
       semester_id: term.semester_id,
       status: "active",
-    }, { onConflict: "semester_id,profile_id" })
+    }, { ignoreDuplicates: true, onConflict: "semester_id,profile_id" })
     .select("id")
-    .single();
+    .maybeSingle();
+  if (membershipInsertResult.error) throw new Error(membershipInsertResult.error.message);
+
+  const membershipResult = membershipInsertResult.data
+    ? membershipInsertResult
+    : await client
+      .from("semester_memberships")
+      .update({ status: "active" })
+      .eq("semester_id", term.semester_id)
+      .eq("profile_id", input.profileId)
+      .select("id")
+      .single();
   const membership = requireData(membershipResult.data, membershipResult.error, "Unable to create startup membership.");
 
   const teamResult = await client.from("startup_team_memberships").upsert({
     semester_id: term.semester_id,
     semester_membership_id: membership.id,
     startup_semester_id: input.startupSemesterId,
-  }, { onConflict: "startup_semester_id,semester_membership_id" });
+  }, { ignoreDuplicates: true, onConflict: "startup_semester_id,semester_membership_id" });
   if (teamResult.error) throw new Error(teamResult.error.message);
 }
 

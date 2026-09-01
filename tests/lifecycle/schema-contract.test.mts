@@ -45,7 +45,7 @@ test("authorization helpers are security definer functions with a fixed search p
 
 test("authorization helpers deny anonymous candidate probing", () => {
   const sql = readFileSync(securityPath, "utf8").toLowerCase();
-  assert.match(sql, /revoke execute on all functions in schema public from public, anon, authenticated, service_role/);
+  assert.match(sql, /revoke all privileges on all functions in schema public from public, anon, authenticated, service_role/);
   assert.match(sql, /revoke all on schema private from public, anon, authenticated, service_role/);
   assert.match(sql, /grant execute on function private\.is_super_admin\(uuid\) to authenticated/);
   assert.match(sql, /grant execute on function private\.has_semester_role\(uuid,public\.user_role\[\],uuid\) to authenticated/);

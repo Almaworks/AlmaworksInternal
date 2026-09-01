@@ -4,16 +4,46 @@
 
 create schema if not exists private;
 
+-- Function EXECUTE is granted to PUBLIC by PostgreSQL's global built-in
+-- defaults. Schema-local defaults cannot subtract that global grant, so close
+-- it globally for each role that owns application functions.
+alter default privileges for role postgres
+  revoke all on functions from public, anon, authenticated, service_role;
 alter default privileges for role postgres in schema public
-  revoke select, insert, update, delete on tables from anon, authenticated, service_role;
+  revoke all on tables from public, anon, authenticated, service_role;
 alter default privileges for role postgres in schema public
-  revoke execute on functions from public, anon, authenticated, service_role;
+  revoke all on sequences from public, anon, authenticated, service_role;
 alter default privileges for role postgres in schema public
-  revoke usage, select on sequences from anon, authenticated, service_role;
+  revoke all on functions from public, anon, authenticated, service_role;
+alter default privileges for role postgres in schema private
+  revoke all on tables from public, anon, authenticated, service_role;
+alter default privileges for role postgres in schema private
+  revoke all on sequences from public, anon, authenticated, service_role;
+alter default privileges for role postgres in schema private
+  revoke all on functions from public, anon, authenticated, service_role;
+
+alter default privileges for role supabase_admin
+  revoke all on functions from public, anon, authenticated, service_role;
+alter default privileges for role supabase_admin in schema public
+  revoke all on tables from public, anon, authenticated, service_role;
+alter default privileges for role supabase_admin in schema public
+  revoke all on sequences from public, anon, authenticated, service_role;
+alter default privileges for role supabase_admin in schema public
+  revoke all on functions from public, anon, authenticated, service_role;
+alter default privileges for role supabase_admin in schema private
+  revoke all on tables from public, anon, authenticated, service_role;
+alter default privileges for role supabase_admin in schema private
+  revoke all on sequences from public, anon, authenticated, service_role;
+alter default privileges for role supabase_admin in schema private
+  revoke all on functions from public, anon, authenticated, service_role;
 
 revoke all privileges on all tables in schema public from public, anon, authenticated, service_role;
 revoke all privileges on all sequences in schema public from public, anon, authenticated, service_role;
-revoke execute on all functions in schema public from public, anon, authenticated, service_role;
+revoke all privileges on all functions in schema public from public, anon, authenticated, service_role;
+
+revoke all privileges on all tables in schema private from public, anon, authenticated, service_role;
+revoke all privileges on all sequences in schema private from public, anon, authenticated, service_role;
+revoke all privileges on all functions in schema private from public, anon, authenticated, service_role;
 
 revoke all on schema private from public, anon, authenticated, service_role;
 grant usage on schema private to authenticated;
@@ -41,28 +71,23 @@ grant select on table
   public.outreach_imports
 to authenticated;
 
-grant insert on table
-  public.meetings,
-  public.meeting_availability,
-  public.sessions,
-  public.outreach_contacts,
-  public.outreach_companies,
-  public.outreach_contact_companies,
-  public.outreach_opportunities,
-  public.outreach_imports
-to authenticated;
+grant insert (semester_id, meeting_id, semester_membership_id, slot, is_available, source) on table public.meeting_availability to authenticated;
+grant insert (semester_id, meeting_id, mentor_semester_id, startup_semester_id, slot, status, topic, format) on table public.sessions to authenticated;
+grant insert (full_name, email, linkedin_url, canonical_linkedin_url, phone, biography, created_by) on table public.outreach_contacts to authenticated;
+grant insert (name, normalized_name, domain, created_by) on table public.outreach_companies to authenticated;
+grant insert (contact_id, company_id, title, is_primary) on table public.outreach_contact_companies to authenticated;
+grant insert (semester_id, contact_id, owner_profile_id, stage, relationship_types, source_context, created_by) on table public.outreach_opportunities to authenticated;
+grant insert (semester_id, source_name, status, idempotency_key, rows, result, created_by) on table public.outreach_imports to authenticated;
 
-grant update on table
-  public.profiles,
-  public.semester_memberships,
-  public.startup_semesters,
-  public.meetings,
-  public.meeting_availability,
-  public.sessions,
-  public.outreach_contacts,
-  public.outreach_opportunities,
-  public.outreach_imports
-to authenticated;
+grant update (full_name) on table public.profiles to authenticated;
+grant update (onboarding_data, onboarding_started_at, onboarding_completed_at, activated_at, status) on table public.semester_memberships to authenticated;
+grant update (goals, mentorship_needs, mentor_need_context, mentor_need_no_preference, preferred_expertise_tags) on table public.startup_semesters to authenticated;
+grant update (semester_id, meeting_id, semester_membership_id, slot, is_available, source) on table public.meeting_availability to authenticated;
+grant update (status) on table public.sessions to authenticated;
+grant update (full_name, email, linkedin_url, phone, biography, expertise_tags, notes) on table public.outreach_contacts to authenticated;
+grant update (contact_id, company_id, is_primary) on table public.outreach_contact_companies to authenticated;
+grant update (semester_id, contact_id, owner_profile_id, stage, relationship_types, source_context, created_by) on table public.outreach_opportunities to authenticated;
+grant update (status, idempotency_key, committed_at, result, updated_at) on table public.outreach_imports to authenticated;
 
 grant delete on table public.meeting_availability to authenticated;
 
@@ -77,19 +102,14 @@ grant select on table
   public.sessions
 to service_role;
 
-grant insert on table
-  public.semester_memberships,
-  public.startup_organizations,
-  public.startup_semesters,
-  public.startup_team_memberships,
-  public.sessions
-to service_role;
+grant insert (semester_id, profile_id, role, status) on table public.semester_memberships to service_role;
+grant insert (name, slug, description, industry) on table public.startup_organizations to service_role;
+grant insert (semester_id, startup_organization_id, stage, preferred_expertise_tags, readiness_status) on table public.startup_semesters to service_role;
+grant insert (semester_id, startup_semester_id, semester_membership_id) on table public.startup_team_memberships to service_role;
+grant insert (semester_id, meeting_id, mentor_semester_id, startup_semester_id, slot, status, topic, format, startup_absent, substitute_name) on table public.sessions to service_role;
 
-grant update on table
-  public.semester_memberships,
-  public.startup_team_memberships,
-  public.sessions
-to service_role;
+grant update (status) on table public.semester_memberships to service_role;
+grant update (mentor_semester_id, startup_semester_id, slot, status, topic, format, startup_absent, substitute_name) on table public.sessions to service_role;
 
 grant delete on table
   public.startup_team_memberships,

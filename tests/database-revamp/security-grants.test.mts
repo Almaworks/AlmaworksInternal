@@ -49,11 +49,22 @@ const serviceRpcs = [
 
 test("the final schema layer revokes Data API defaults before allowlisting access", () => {
   const sql = security();
-  assert.match(sql, /alter default privileges for role postgres in schema public revoke select, insert, update, delete on tables from anon, authenticated, service_role;/u);
-  assert.match(sql, /alter default privileges for role postgres in schema public revoke execute on functions from public, anon, authenticated, service_role;/u);
-  assert.match(sql, /alter default privileges for role postgres in schema public revoke usage, select on sequences from anon, authenticated, service_role;/u);
+  for (const owner of ["postgres", "supabase_admin"]) {
+    // PostgreSQL's built-in function default grants EXECUTE to PUBLIC globally;
+    // a schema-local revoke cannot override that global default.
+    assert.match(sql, new RegExp(`alter default privileges for role ${owner} revoke all on functions from public, anon, authenticated, service_role;`, "u"));
+    for (const schema of ["public", "private"]) {
+      for (const objectType of ["tables", "sequences", "functions"]) {
+        assert.match(sql, new RegExp(`alter default privileges for role ${owner} in schema ${schema} revoke all on ${objectType} from public, anon, authenticated, service_role;`, "u"));
+      }
+    }
+  }
   assert.match(sql, /revoke all privileges on all tables in schema public from public, anon, authenticated, service_role;/u);
-  assert.match(sql, /revoke execute on all functions in schema public from public, anon, authenticated, service_role;/u);
+  assert.match(sql, /revoke all privileges on all sequences in schema public from public, anon, authenticated, service_role;/u);
+  assert.match(sql, /revoke all privileges on all functions in schema public from public, anon, authenticated, service_role;/u);
+  assert.match(sql, /revoke all privileges on all tables in schema private from public, anon, authenticated, service_role;/u);
+  assert.match(sql, /revoke all privileges on all sequences in schema private from public, anon, authenticated, service_role;/u);
+  assert.match(sql, /revoke all privileges on all functions in schema private from public, anon, authenticated, service_role;/u);
 });
 
 test("anonymous users receive no public table or function grants", () => {
@@ -117,9 +128,51 @@ test("public authorization probes are bound to the authenticated identity", () =
 
 test("authenticated table privileges are operation-specific", () => {
   const sql = security();
-  assert.doesNotMatch(sql, /grant (?:all|select, insert, update, delete) on (?:table )?public\.[^;]+ to authenticated;/u);
+  assert.doesNotMatch(sql, /grant (?:all|insert|update) on (?:table )?public\.[^;(]+ to authenticated;/u);
   assert.match(sql, /grant select on table public\.semesters,[^;]+public\.sessions,[^;]+public\.outreach_imports to authenticated;/u);
-  assert.match(sql, /grant insert on table [^;]+public\.meeting_availability,[^;]+public\.outreach_imports to authenticated;/u);
-  assert.match(sql, /grant update on table public\.profiles,[^;]+public\.sessions,[^;]+public\.outreach_imports to authenticated;/u);
   assert.match(sql, /grant delete on table public\.meeting_availability to authenticated;/u);
+});
+
+function grantedColumns(sql: string, operation: "insert" | "update", table: string, role: "authenticated" | "service_role") {
+  const match = sql.match(new RegExp(`grant ${operation} \\(([^)]+)\\) on table public\\.${table} to ${role};`, "u"));
+  assert.ok(match, `${role} needs an explicit ${operation} column grant on ${table}`);
+  return match[1].split(",").map((column) => column.trim()).sort();
+}
+
+test("authenticated writes cannot mutate identity, ownership, or scheduling keys beyond client intent", () => {
+  const sql = security();
+  assert.deepEqual(grantedColumns(sql, "update", "profiles", "authenticated"), ["full_name"]);
+  assert.deepEqual(grantedColumns(sql, "update", "startup_semesters", "authenticated"), [
+    "goals", "mentor_need_context", "mentor_need_no_preference", "mentorship_needs", "preferred_expertise_tags",
+  ]);
+  assert.deepEqual(grantedColumns(sql, "update", "sessions", "authenticated"), ["status"]);
+  assert.deepEqual(grantedColumns(sql, "update", "semester_memberships", "authenticated"), [
+    "activated_at", "onboarding_completed_at", "onboarding_data", "onboarding_started_at", "status",
+  ]);
+  assert.doesNotMatch(sql, /grant update \([^)]*(?:email|is_active|profile_id|semester_id|mentor_semester_id|startup_semester_id)[^)]*\) on table public\.(?:profiles|semester_memberships|startup_semesters|sessions) to authenticated;/u);
+});
+
+test("authenticated inserts are constrained to the fields each direct workflow submits", () => {
+  const sql = security();
+  assert.doesNotMatch(sql, /grant insert \([^)]*\) on table public\.meetings to authenticated;/u);
+  assert.deepEqual(grantedColumns(sql, "insert", "sessions", "authenticated"), [
+    "format", "meeting_id", "mentor_semester_id", "semester_id", "slot", "startup_semester_id", "status", "topic",
+  ]);
+  assert.deepEqual(grantedColumns(sql, "insert", "meeting_availability", "authenticated"), [
+    "is_available", "meeting_id", "semester_id", "semester_membership_id", "slot", "source",
+  ]);
+  assert.deepEqual(grantedColumns(sql, "insert", "outreach_imports", "authenticated"), [
+    "created_by", "idempotency_key", "result", "rows", "semester_id", "source_name", "status",
+  ]);
+});
+
+test("service-role direct writes are column-scoped and cannot rewrite record identities", () => {
+  const sql = security();
+  assert.doesNotMatch(sql, /grant (?:insert|update) on (?:table )?public\.[^;(]+ to service_role;/u);
+  assert.deepEqual(grantedColumns(sql, "update", "semester_memberships", "service_role"), ["status"]);
+  assert.doesNotMatch(sql, /grant update \([^)]*\) on table public\.startup_team_memberships to service_role;/u);
+  assert.deepEqual(grantedColumns(sql, "update", "sessions", "service_role"), [
+    "format", "mentor_semester_id", "slot", "startup_absent", "startup_semester_id", "status", "substitute_name", "topic",
+  ]);
+  assert.deepEqual(grantedColumns(sql, "insert", "startup_organizations", "service_role"), ["description", "industry", "name", "slug"]);
 });

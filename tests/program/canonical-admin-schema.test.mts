@@ -26,7 +26,7 @@ test("founder moves are authorized and atomic inside one database function", () 
   assert.match(body, /insert into public\.startup_team_memberships/u);
   assert.match(body, /delete from public\.startup_team_memberships/u);
   assert.ok(body.indexOf("insert into public.startup_team_memberships") < body.indexOf("delete from public.startup_team_memberships"));
-  assert.match(security, /revoke execute on all functions in schema public from public, anon, authenticated, service_role/u);
+  assert.match(security, /revoke all privileges on all functions in schema public from public, anon, authenticated, service_role/u);
   assert.match(security, /grant execute on function public\.move_startup_team_membership\(uuid,uuid,uuid\)[\s\S]*to authenticated/u);
 });
 
@@ -45,7 +45,7 @@ test("semester member approval and role changes are authorized and atomic withou
   assert.match(body, /insert into public\.mentor_profiles/u);
   assert.match(body, /insert into public\.mentor_semesters/u);
   assert.doesNotMatch(body, /platform_roles/u);
-  assert.match(security, /revoke execute on all functions in schema public from public, anon, authenticated, service_role/u);
+  assert.match(security, /revoke all privileges on all functions in schema public from public, anon, authenticated, service_role/u);
   assert.match(security, /grant execute on function[\s\S]*public\.set_semester_member_access\(uuid,uuid,uuid,public\.user_role,boolean,text,text\)[\s\S]*to service_role/u);
 });
 
