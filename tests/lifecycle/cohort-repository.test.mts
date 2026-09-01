@@ -4,12 +4,14 @@ import test from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "../../src/db/types.ts";
-import { loadCohortMembers } from "../../src/lifecycle/cohort-repository.ts";
+import { CohortRepositoryError, loadCohortMembers } from "../../src/lifecycle/cohort-repository.ts";
 
 type QueryResult = {
   data: readonly Record<string, unknown>[];
-  error: null;
+  error: { message: string } | null;
 };
+
+type CohortTable = "semester_memberships" | "profiles" | "mentor_semesters" | "startup_team_memberships";
 
 interface FakeQuery extends PromiseLike<QueryResult> {
   select(columns: string): FakeQuery;
@@ -27,7 +29,7 @@ function fakeQuery(result: QueryResult): FakeQuery {
   return query;
 }
 
-function cohortClient(): SupabaseClient<Database> {
+function cohortClient(errors: Partial<Record<CohortTable, string>> = {}): SupabaseClient<Database> {
   const rowsByTable: Record<string, readonly Record<string, unknown>[]> = {
     semester_memberships: [
       { id: "mentor-membership", semester_id: "spring-2026", profile_id: "mentor-profile", role: "mentor", status: "onboarding" },
@@ -52,15 +54,21 @@ function cohortClient(): SupabaseClient<Database> {
 
   return {
     from(table: string) {
-      return fakeQuery({ data: rowsByTable[table] ?? [], error: null });
+      const errorMessage = errors[table as CohortTable];
+      return fakeQuery({
+        data: rowsByTable[table] ?? [],
+        error: errorMessage === undefined ? null : { message: errorMessage },
+      });
     },
   } as unknown as SupabaseClient<Database>;
 }
 
+const springCohort = [
+  { id: "spring-2026", name: "Spring 2026", startsOn: "2026-01-20", isActive: true },
+] as const;
+
 test("cohort members receive mentor, startup, and admin readiness from their semester records", async () => {
-  const members = await loadCohortMembers(cohortClient(), [
-    { id: "spring-2026", name: "Spring 2026", startsOn: "2026-01-20", isActive: true },
-  ]);
+  const members = await loadCohortMembers(cohortClient(), springCohort);
 
   assert.deepEqual(
     members.map((member) => [member.membershipId, member.readinessStatus]),
@@ -69,5 +77,21 @@ test("cohort members receive mentor, startup, and admin readiness from their sem
       ["startup-membership", "in_progress"],
       ["admin-membership", null],
     ],
+  );
+});
+
+test("cohort loading wraps mentor readiness query failures", async () => {
+  await assert.rejects(
+    loadCohortMembers(cohortClient({ mentor_semesters: "mentor readiness query failed" }), springCohort),
+    (error: unknown) => error instanceof CohortRepositoryError
+      && error.message === "mentor readiness query failed",
+  );
+});
+
+test("cohort loading wraps startup readiness query failures", async () => {
+  await assert.rejects(
+    loadCohortMembers(cohortClient({ startup_team_memberships: "startup readiness query failed" }), springCohort),
+    (error: unknown) => error instanceof CohortRepositoryError
+      && error.message === "startup readiness query failed",
   );
 });
