@@ -100,6 +100,14 @@ export interface UpdateContactBody {
   };
 }
 
+export interface ArchiveContactBody {
+  semesterId: string;
+  opportunityId: string;
+  contactId: string;
+  updatedAt: string;
+  scope: "semester" | "global";
+}
+
 export interface ActivityBody {
   semesterId: string;
   opportunityId: string;
@@ -415,6 +423,20 @@ export function parseUpdateContactBody(value: unknown): UpdateContactBody {
     contactId: uuid(body.contactId, "contactId"),
     updatedAt: isoTimestamp(body.updatedAt, "updatedAt"),
     changes: parsedChanges,
+  };
+}
+
+export function parseArchiveContactBody(value: unknown): ArchiveContactBody {
+  const body = object(value);
+  if (body.scope !== "semester" && body.scope !== "global") {
+    validation("scope", "scope must be semester or global.");
+  }
+  return {
+    semesterId: uuid(body.semesterId, "semesterId"),
+    opportunityId: uuid(body.opportunityId, "opportunityId"),
+    contactId: uuid(body.contactId, "contactId"),
+    updatedAt: isoTimestamp(body.updatedAt, "updatedAt"),
+    scope: body.scope,
   };
 }
 

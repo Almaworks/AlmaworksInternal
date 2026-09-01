@@ -48,6 +48,8 @@ const activityRow: ActivityRow = {
 };
 
 const opportunityRow: OpportunityRow = {
+  archived_at: null,
+  archived_by: null,
   cadence_days: 7,
   contact_id: "ce2aca63-a915-4e44-8f48-e2a2858cb2c8",
   created_at: "2027-02-01T09:00:00.000Z",

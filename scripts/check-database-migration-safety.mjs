@@ -4,6 +4,15 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const defaultMigrationDirectory = resolve(repositoryRoot, "supabase", "migrations");
+const reviewedPostCutoverMigrations = [
+  "20260901205013_allow_mentor_profile_self_service_updates.sql",
+  "20260901215752_archive_outreach_contacts.sql",
+  "20260901220211_exclude_archived_outreach_carry_forward.sql",
+];
+const requiredOutreachArchiveMigrations = [
+  "20260901215752_archive_outreach_contacts.sql",
+  "20260901220211_exclude_archived_outreach_carry_forward.sql",
+];
 
 export function inspectMigrationDeploymentPlan(migrationDirectory = defaultMigrationDirectory) {
   const migrations = readdirSync(migrationDirectory)
@@ -18,12 +27,16 @@ export function inspectMigrationDeploymentPlan(migrationDirectory = defaultMigra
   const deployable = migrations.filter((name) =>
     /_database_hardening_cutover_stage_[ab]\.sql$/u.test(name),
   );
-  const known = new Set([...preCutover, ...localReplayOnly, ...deployable]);
+  const postCutover = migrations.filter((name) =>
+    reviewedPostCutoverMigrations.includes(name),
+  );
+  const known = new Set([...preCutover, ...localReplayOnly, ...deployable, ...postCutover]);
 
   return {
     preCutover,
     localReplayOnly,
     deployable,
+    postCutover,
     unknown: migrations.filter((name) => !known.has(name)),
   };
 }
@@ -33,12 +46,14 @@ export function assertSafeMigrationDeploymentPlan(plan = inspectMigrationDeploym
     plan.preCutover.length !== 3
     || plan.localReplayOnly.length !== 1
     || plan.deployable.length !== 2
+    || requiredOutreachArchiveMigrations.some((migration) => !plan.postCutover.includes(migration))
     || plan.unknown.length !== 0
     || !plan.deployable[0].endsWith("_database_hardening_cutover_stage_a.sql")
     || !plan.deployable[1].endsWith("_database_hardening_cutover_stage_b.sql")
     || !plan.preCutover.every((migration) => migration < plan.localReplayOnly[0])
     || !(plan.localReplayOnly[0] < plan.deployable[0])
     || !(plan.deployable[0] < plan.deployable[1])
+    || !plan.postCutover.every((migration) => plan.deployable[1] < migration)
   ) {
     throw new Error(`Unsafe migration deployment plan: ${JSON.stringify(plan)}`);
   }

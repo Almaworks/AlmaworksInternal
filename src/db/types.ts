@@ -532,6 +532,8 @@ export type Database = {
       }
       outreach_contacts: {
         Row: {
+          archived_at: string | null
+          archived_by: string | null
           background_notes: string | null
           biography: string | null
           canonical_linkedin_url: string | null
@@ -548,6 +550,8 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          archived_at?: string | null
+          archived_by?: string | null
           background_notes?: string | null
           biography?: string | null
           canonical_linkedin_url?: string | null
@@ -564,6 +568,8 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          archived_at?: string | null
+          archived_by?: string | null
           background_notes?: string | null
           biography?: string | null
           canonical_linkedin_url?: string | null
@@ -580,6 +586,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "outreach_contacts_archived_by_fkey"
+            columns: ["archived_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "outreach_contacts_created_by_fkey"
             columns: ["created_by"]
@@ -648,6 +661,8 @@ export type Database = {
       }
       outreach_opportunities: {
         Row: {
+          archived_at: string | null
+          archived_by: string | null
           cadence_days: number
           contact_id: string
           created_at: string
@@ -673,6 +688,8 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          archived_at?: string | null
+          archived_by?: string | null
           cadence_days?: number
           contact_id: string
           created_at?: string
@@ -700,6 +717,8 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          archived_at?: string | null
+          archived_by?: string | null
           cadence_days?: number
           contact_id?: string
           created_at?: string
@@ -727,6 +746,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "outreach_opportunities_archived_by_fkey"
+            columns: ["archived_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "outreach_opportunities_contact_id_fkey"
             columns: ["contact_id"]
@@ -1412,6 +1438,8 @@ export type Database = {
           p_reason?: string
         }
         Returns: {
+          archived_at: string | null
+          archived_by: string | null
           cadence_days: number
           contact_id: string
           created_at: string
@@ -1451,6 +1479,8 @@ export type Database = {
           p_snoozed_until: string
         }
         Returns: {
+          archived_at: string | null
+          archived_by: string | null
           cadence_days: number
           contact_id: string
           created_at: string
@@ -1520,6 +1550,8 @@ export type Database = {
           p_reason?: string
         }
         Returns: {
+          archived_at: string | null
+          archived_by: string | null
           cadence_days: number
           contact_id: string
           created_at: string

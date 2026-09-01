@@ -274,8 +274,10 @@ export async function loadOutreachWorkspace(
   let query = client
     .from("outreach_opportunities")
     .select(
-      "id, semester_id, contact_id, owner_profile_id, stage, relationship_types, cadence_days, next_follow_up_at, snoozed_until, is_silenced, silence_reason, latest_inbound_activity_at, latest_outbound_activity_at, updated_at",
+      "id, semester_id, contact_id, owner_profile_id, stage, relationship_types, cadence_days, next_follow_up_at, snoozed_until, is_silenced, silence_reason, latest_inbound_activity_at, latest_outbound_activity_at, updated_at, outreach_contacts!inner(archived_at)",
     )
+    .is("archived_at", null)
+    .is("outreach_contacts.archived_at", null)
     .order("next_follow_up_at", { ascending: true, nullsFirst: false })
     .order("id", { ascending: true })
     .limit(pageSize + 1);
@@ -385,6 +387,7 @@ export async function loadAuthorizedAllTimeOutreachDirectory(
     const { data, error } = await client
       .from("outreach_contacts")
       .select("id, full_name, email, linkedin_url, biography, expertise_tags, updated_at")
+      .is("archived_at", null)
       .order("full_name", { ascending: true })
       .order("id", { ascending: true })
       .range(offset, offset + pageSize - 1);

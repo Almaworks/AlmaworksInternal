@@ -12,6 +12,7 @@ import {
   parseWorkspaceQuery,
   toOutreachResponse,
 } from "../../src/outreach/server/http.ts";
+import * as outreachHttp from "../../src/outreach/server/http.ts";
 
 const semesterId = "4403d7a5-1ff5-4be9-b96c-323893c9ac68";
 const opportunityId = "f89fdf50-3d96-4993-8966-d16579d21652";
@@ -317,4 +318,54 @@ test("successful parsed actions return a versioned data envelope", async () => {
     apiVersion: "2026-08-18",
     data: { semesterId },
   });
+});
+
+test("contact archive parsing distinguishes semester removal from global removal", () => {
+  const moduleWithArchiveParser = outreachHttp as typeof outreachHttp & {
+    parseArchiveContactBody?: (value: unknown) => {
+      semesterId: string;
+      opportunityId: string;
+      contactId: string;
+      updatedAt: string;
+      scope: "semester" | "global";
+    };
+  };
+
+  assert.equal(typeof moduleWithArchiveParser.parseArchiveContactBody, "function");
+  if (moduleWithArchiveParser.parseArchiveContactBody === undefined) return;
+
+  for (const scope of ["semester", "global"] as const) {
+    assert.deepEqual(moduleWithArchiveParser.parseArchiveContactBody({
+      semesterId,
+      opportunityId,
+      contactId: opportunityId,
+      updatedAt,
+      scope,
+    }), {
+      semesterId,
+      opportunityId,
+      contactId: opportunityId,
+      updatedAt,
+      scope,
+    });
+  }
+});
+
+test("contact archive parsing rejects unknown removal scopes", () => {
+  const moduleWithArchiveParser = outreachHttp as typeof outreachHttp & {
+    parseArchiveContactBody?: (value: unknown) => unknown;
+  };
+
+  assert.equal(typeof moduleWithArchiveParser.parseArchiveContactBody, "function");
+  if (moduleWithArchiveParser.parseArchiveContactBody === undefined) return;
+  assert.throws(
+    () => moduleWithArchiveParser.parseArchiveContactBody?.({
+      semesterId,
+      opportunityId,
+      contactId: opportunityId,
+      updatedAt,
+      scope: "delete",
+    }),
+    /scope/i,
+  );
 });

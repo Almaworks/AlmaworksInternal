@@ -22,7 +22,7 @@ function serializeRow(row: NormalizedOutreachRow, decision: ImportMatchDecision)
 
 export async function createImportPreview(args: { client: Client; userId: string; semesterId: string; source: "csv" | "excel" | "legacy"; sourceFilename?: string; rows: readonly Record<string, unknown>[] }) {
   const [{ data: contacts, error: contactsError }, { data: companies, error: companiesError }, { data: owners, error: ownersError }] = await Promise.all([
-    args.client.from("outreach_contacts").select("id, email, linkedin_url, full_name"),
+    args.client.from("outreach_contacts").select("id, email, linkedin_url, full_name").is("archived_at", null),
     args.client.from("outreach_companies").select("id, name"),
     args.client.from("profiles").select("id, full_name, is_active").eq("is_active", true),
   ]);

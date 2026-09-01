@@ -33,6 +33,7 @@ export async function loadOpportunitySnapshot(
     )
     .eq("semester_id", semesterId)
     .eq("id", opportunityId)
+    .is("archived_at", null)
     .maybeSingle();
   if (error !== null) databaseReadError();
   if (data === null) notFound("The requested outreach opportunity was not found.");
@@ -213,6 +214,7 @@ export async function loadContactDetailResponse(
     .select("*")
     .eq("semester_id", options.semesterId)
     .eq("contact_id", options.contactId)
+    .is("archived_at", null)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -262,6 +264,7 @@ export async function loadContactDetailResponse(
       .from("outreach_contacts")
       .select("id, full_name, email, linkedin_url, phone, biography, expertise_tags, notes, updated_at")
       .eq("id", options.contactId)
+      .is("archived_at", null)
       .maybeSingle(),
     client
       .from("outreach_contact_companies")

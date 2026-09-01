@@ -1,6 +1,7 @@
 import { requireSemesterAdmin } from "../../auth/server.ts";
 import type { Database } from "../../db/types.ts";
 import type { UpdateContactBody } from "./http.ts";
+import type { ArchiveContactBody } from "./http.ts";
 
 export interface ContactUpdateRow {
   id: string;
@@ -106,3 +107,94 @@ const authorizeWithServerContext: AuthorizeContactUpdate = async (request, semes
 };
 
 export const updateOutreachContact = createUpdateOutreachContactCommand(authorizeWithServerContext);
+
+interface ContactArchiveRow { id: string }
+interface ContactArchiveError { message: string }
+
+export interface ContactArchiveClient {
+  archiveSemester(input: {
+    semesterId: string;
+    opportunityId: string;
+    contactId: string;
+    expectedUpdatedAt: string;
+  }): Promise<{ data: ContactArchiveRow | null; error: ContactArchiveError | null }>;
+  archiveGlobal(input: {
+    contactId: string;
+    expectedUpdatedAt: string;
+  }): Promise<{ data: ContactArchiveRow | null; error: ContactArchiveError | null }>;
+}
+
+export type AuthorizeContactArchive = (
+  request: Request,
+  semesterId: string,
+) => Promise<ContactArchiveClient>;
+
+export type ArchiveContactResult =
+  | { ok: true; value: { scope: "semester" | "global"; semesterId: string; opportunityId: string; contactId: string } }
+  | { ok: false; error: { kind: "conflict"; code: "stale_updated_at"; message: string } };
+
+export function createArchiveOutreachContactCommand(authorize: AuthorizeContactArchive) {
+  return async function archiveOutreachContact(
+    input: ArchiveContactBody & { request: Request },
+  ): Promise<ArchiveContactResult> {
+    const client = await authorize(input.request, input.semesterId);
+    const result = input.scope === "semester"
+      ? await client.archiveSemester({
+        semesterId: input.semesterId,
+        opportunityId: input.opportunityId,
+        contactId: input.contactId,
+        expectedUpdatedAt: input.updatedAt,
+      })
+      : await client.archiveGlobal({
+        contactId: input.contactId,
+        expectedUpdatedAt: input.updatedAt,
+      });
+    if (result.error !== null) throw new Error(result.error.message);
+    if (result.data === null) {
+      return {
+        ok: false,
+        error: {
+          kind: "conflict",
+          code: "stale_updated_at",
+          message: "Outreach contact changed after it was loaded.",
+        },
+      };
+    }
+    return {
+      ok: true,
+      value: {
+        scope: input.scope,
+        semesterId: input.semesterId,
+        opportunityId: input.opportunityId,
+        contactId: input.contactId,
+      },
+    };
+  };
+}
+
+const authorizeArchiveWithServerContext: AuthorizeContactArchive = async (request, semesterId) => {
+  const { userClient } = await requireSemesterAdmin(request, semesterId);
+  const archivedAt = () => new Date().toISOString();
+  return {
+    archiveSemester: async ({ semesterId: scopedSemesterId, opportunityId, contactId, expectedUpdatedAt }) => await userClient
+      .from("outreach_opportunities")
+      .update({ archived_at: archivedAt() })
+      .eq("semester_id", scopedSemesterId)
+      .eq("id", opportunityId)
+      .eq("contact_id", contactId)
+      .eq("updated_at", expectedUpdatedAt)
+      .is("archived_at", null)
+      .select("id")
+      .maybeSingle(),
+    archiveGlobal: async ({ contactId, expectedUpdatedAt }) => await userClient
+      .from("outreach_contacts")
+      .update({ archived_at: archivedAt() })
+      .eq("id", contactId)
+      .eq("updated_at", expectedUpdatedAt)
+      .is("archived_at", null)
+      .select("id")
+      .maybeSingle(),
+  };
+};
+
+export const archiveOutreachContact = createArchiveOutreachContactCommand(authorizeArchiveWithServerContext);

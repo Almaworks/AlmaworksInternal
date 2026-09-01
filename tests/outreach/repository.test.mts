@@ -15,6 +15,7 @@ type QueryResult = { data: readonly Record<string, unknown>[] | null; error: { m
 class QueryBuilder implements PromiseLike<QueryResult> {
   private equality = new Map<string, unknown>();
   private inclusion = new Map<string, readonly unknown[]>();
+  private nullColumns = new Set<string>();
   private maximum = Number.POSITIVE_INFINITY;
   private offset = 0;
   private readonly rows: readonly Record<string, unknown>[];
@@ -27,7 +28,7 @@ class QueryBuilder implements PromiseLike<QueryResult> {
   select(): this { return this; }
   order(): this { return this; }
   or(): this { return this; }
-  is(): this { return this; }
+  is(column: string, value: unknown): this { if (value === null) this.nullColumns.add(column); return this; }
   gt(): this { return this; }
   maybeSingle(): this { return this; }
   eq(column: string, value: unknown): this { this.equality.set(column, value); return this; }
@@ -42,6 +43,7 @@ class QueryBuilder implements PromiseLike<QueryResult> {
     const data = this.rows
       .filter((row) => [...this.equality].every(([column, value]) => row[column] === value))
       .filter((row) => [...this.inclusion].every(([column, values]) => values.includes(row[column])))
+      .filter((row) => [...this.nullColumns].every((column) => row[column] === null))
       .slice(this.offset, this.offset + this.maximum);
     return Promise.resolve({ data, error: null }).then(onfulfilled, onrejected);
   }
@@ -61,9 +63,13 @@ function clientFor(opportunities: readonly Record<string, unknown>[]): SupabaseC
     full_name: `Contact ${index + 1}`,
     email: `contact-${index + 1}@example.test`,
     biography: null,
+    archived_at: row.contact_archived_at ?? null,
   }));
   const tables: Record<string, readonly Record<string, unknown>[]> = {
-    outreach_opportunities: opportunities,
+    outreach_opportunities: opportunities.map((row) => ({
+      ...row,
+      "outreach_contacts.archived_at": row.contact_archived_at ?? null,
+    })),
     outreach_contacts: contacts,
     profiles: [],
     outreach_contact_companies: [],
@@ -98,6 +104,7 @@ function opportunity(index: number, semesterId = semesters.current): Record<stri
     latest_inbound_activity_at: null,
     latest_outbound_activity_at: null,
     updated_at: "2027-01-01T00:00:00.000Z",
+    archived_at: null,
   };
 }
 
@@ -147,6 +154,7 @@ test("the legacy all-time contact directory drains every database page", async (
     linkedin_url: null,
     biography: null,
     expertise_tags: [],
+    archived_at: null,
     updated_at: "2027-01-01T00:00:00.000Z",
   }));
 
@@ -156,4 +164,24 @@ test("the legacy all-time contact directory drains every database page", async (
   });
 
   assert.deepEqual(loaded.map((contact) => contact.fullName), ["Contact 1", "Contact 2", "Contact 3"]);
+});
+
+test("workspace and reusable directory omit archived outreach records", async () => {
+  const archivedOpportunity = { ...opportunity(2), archived_at: "2027-02-01T00:00:00.000Z" };
+  const globallyArchivedContact = { ...opportunity(3), contact_archived_at: "2027-02-01T00:00:00.000Z" };
+  const page = await loadOutreachWorkspace(clientFor([opportunity(1), archivedOpportunity, globallyArchivedContact]), {
+    semesterId: semesters.current,
+    pageSize: 10,
+  });
+  assert.deepEqual(page.items.map((row) => row.id), [opportunity(1).id]);
+
+  const contacts = [
+    { id: "20000000-0000-4000-8000-000000000001", full_name: "Visible Contact", email: null, linkedin_url: null, biography: null, expertise_tags: [], archived_at: null, updated_at: "2027-01-01T00:00:00.000Z" },
+    { id: "20000000-0000-4000-8000-000000000002", full_name: "Archived Contact", email: null, linkedin_url: null, biography: null, expertise_tags: [], archived_at: "2027-02-01T00:00:00.000Z", updated_at: "2027-01-01T00:00:00.000Z" },
+  ];
+  const directory = await loadAuthorizedAllTimeOutreachDirectory(directoryClientFor(contacts), {
+    authorization: "all_time_directory",
+    pageSize: 10,
+  });
+  assert.deepEqual(directory.map((contact) => contact.fullName), ["Visible Contact"]);
 });
