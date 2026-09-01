@@ -1,15 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-function generateSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .trim()
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-}
-
 type CreateMentorPayload = {
   semesterId: string
   email: string
@@ -19,7 +10,9 @@ type CreateMentorPayload = {
   linkedinUrl: string | null
   expertiseTags: string[]
   bio: string | null
-  isActive: boolean
+  generalAvailability: string | null
+  preferredFormat: string | null
+  openingTalk: string | null
 }
 
 export async function POST(req: Request) {
@@ -52,8 +45,11 @@ export async function POST(req: Request) {
     if (authErr || !authData.user) {
       return NextResponse.json({ error: 'Invalid auth token.' }, { status: 401 })
     }
-    const adminCheck = await userClient.from('profiles').select('role').eq('id', authData.user.id).single()
-    if (adminCheck.error || adminCheck.data?.role !== 'admin') {
+    const adminCheck = await userClient.rpc('can_manage_semester', {
+      target_semester_id: payload.semesterId,
+      candidate_id: authData.user.id,
+    })
+    if (adminCheck.error || adminCheck.data !== true) {
       return NextResponse.json({ error: 'Admin access required.' }, { status: 403 })
     }
 
@@ -74,71 +70,33 @@ export async function POST(req: Request) {
     }
 
     const userId = linkData.user.id
-    const profileRes = await adminClient.from('profiles').upsert(
-      {
-        id: userId,
-        email,
-        full_name: fullName,
-        role: 'mentor',
-        status: 'approved',
-        semester_id: payload.semesterId,
-      },
-      { onConflict: 'id' },
-    )
-    if (profileRes.error) {
-      return NextResponse.json({ error: profileRes.error.message }, { status: 400 })
+    const provisionResult = await adminClient.rpc('create_mentor_records', {
+      p_actor_profile_id: authData.user.id,
+      p_profile_id: userId,
+      p_semester_id: payload.semesterId,
+      p_email: email,
+      p_biography: payload.bio,
+      p_company: payload.company,
+      p_expertise_tags: payload.expertiseTags ?? [],
+      p_is_active: false,
+      p_linkedin_url: payload.linkedinUrl,
+      p_title: payload.roleTitle,
+      p_general_availability: payload.generalAvailability,
+      p_opening_talk: payload.openingTalk,
+      p_preferred_format: payload.preferredFormat,
+    })
+    if (provisionResult.error || typeof provisionResult.data !== 'string') {
+      return NextResponse.json(
+        { error: provisionResult.error?.message ?? 'Could not provision mentor.' },
+        { status: 400 },
+      )
     }
 
-    const existing = await adminClient
-      .from('mentors')
-      .select('id')
-      .eq('user_id', userId)
-      .eq('semester_id', payload.semesterId)
-      .maybeSingle()
-    if (existing.error) {
-      return NextResponse.json({ error: existing.error.message }, { status: 400 })
-    }
-
-    let mentorId = existing.data?.id ?? null
-    if (!mentorId) {
-      // Generate a unique slug from the mentor's name
-      const baseSlug = generateSlug(fullName)
-      let slug = baseSlug
-      let suffix = 1
-      while (true) {
-        const { data: taken } = await adminClient
-          .from('mentors')
-          .select('id')
-          .eq('slug', slug)
-          .maybeSingle()
-        if (!taken) break
-        suffix++
-        slug = `${baseSlug}-${suffix}`
-      }
-
-      const insertRes = await adminClient
-        .from('mentors')
-        .insert({
-          user_id: userId,
-          semester_id: payload.semesterId,
-          full_name: fullName,
-          company: payload.company,
-          role_title: payload.roleTitle,
-          linkedin_url: payload.linkedinUrl,
-          expertise_tags: payload.expertiseTags ?? [],
-          bio: payload.bio,
-          is_active: payload.isActive,
-          slug,
-        })
-        .select('id')
-        .single()
-      if (insertRes.error) {
-        return NextResponse.json({ error: insertRes.error.message }, { status: 400 })
-      }
-      mentorId = insertRes.data.id
-    }
-
-    return NextResponse.json({ ok: true, mentorId, magicLink: linkData.properties.action_link })
+    return NextResponse.json({
+      ok: true,
+      mentorId: provisionResult.data,
+      magicLink: linkData.properties.action_link,
+    })
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Unexpected server error.' },
