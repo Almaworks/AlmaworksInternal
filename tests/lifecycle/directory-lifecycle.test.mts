@@ -145,7 +145,10 @@ test("directory pages present lifecycle status without a direct boolean lifecycl
   assert.match(adminPage, /membershipPresentation\(/u);
   assert.match(adminPage, /adminMemberHref\(/u);
   assert.match(adminPage, /searchParams\.get\('member'\)/u);
-  assert.match(adminPage, /setMemberSearch\(member\)/u);
+  assert.match(adminPage, /memberDeepLinkState\(memberParam\)/u);
+  assert.match(adminPage, /setMemberSearch\(deepLinkState\.search\)/u);
+  assert.match(adminPage, /setMemberVisibility\(deepLinkState\.visibility\)/u);
+  assert.match(adminPage, /setCohortSelected\(deepLinkState\.selectedMembershipIds\)/u);
   assert.match(mentorPage, /adminMemberHref\(m\.email, m\.semester_id\)/u);
   assert.match(adminPage, /adminMemberHref\(s\.membership_email, s\.semester_id\)/u);
   assert.match(adminPage, /useCohortScreen\(memberReferences, 'all', searchParams\.get\('semester'\) \?\? undefined\)/u);

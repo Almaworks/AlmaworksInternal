@@ -68,6 +68,14 @@ test("activation workspace uses the needs activation label", () => {
   assert.equal(ACTIVATION_TAB_LABEL, "Needs activation");
 });
 
+test("admin activation UI consumes the separately loaded current-semester model", () => {
+  const page = readFileSync(new URL("../../app/dashboard/admin/page.tsx", import.meta.url), "utf8");
+  assert.match(
+    page,
+    /activationWorkspaceState\(cohort\.currentMembers, cohort\.cohorts\.current\?\.id \?\? null, pendingUsers\.length\)/u,
+  );
+});
+
 test("all-time activation workspace disables registration-request mutations", () => {
   const page = readFileSync(new URL("../../app/dashboard/admin/page.tsx", import.meta.url), "utf8");
   const registrationRequests = page.slice(

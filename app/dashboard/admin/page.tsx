@@ -17,9 +17,8 @@ import { adminDashboardHref, adminMemberHref, resolveAdminDashboardTab } from '@
 import type { CohortRecordReference } from '@/src/lifecycle/cohort-screen'
 import {
   ACTIVATION_TAB_LABEL,
-  activationAttentionCount,
-  membersReadyForActivation,
 } from '@/src/lifecycle/admin-activation'
+import { activationWorkspaceState, memberDeepLinkState } from '@/src/lifecycle/admin-membership-ui-state'
 import {
   filterMembershipsByVisibility,
   membershipPresentation,
@@ -27,6 +26,7 @@ import {
   type MembershipVisibility,
 } from '@/src/lifecycle/membership-presentation'
 import type { MembershipStatus } from '@/src/lifecycle/types'
+import { persistAndRefreshMembership, refreshMembershipReadModels } from '@/src/lifecycle/membership-mutation'
 import { loadMentorDirectory, loadStartupDirectory } from '@/src/program/canonical-repository'
 
 type PendingUser = {
@@ -180,6 +180,9 @@ function AdminDashboardContent() {
   const [memberVisibility, setMemberVisibility] = useState<MembershipVisibility>('all')
   const [togglingActive, setTogglingActive] = useState<string | null>(null)
   const [activationError, setActivationError] = useState<string | null>(null)
+  const [membershipRefreshFeedback, setMembershipRefreshFeedback] = useState<string | null>(null)
+  const [membershipRefreshRetryRequired, setMembershipRefreshRetryRequired] = useState(false)
+  const [membershipRefreshRetrying, setMembershipRefreshRetrying] = useState(false)
 
   // Add user form
   const [showAddUser, setShowAddUser] = useState(false)
@@ -355,6 +358,8 @@ function AdminDashboardContent() {
       supabase.from('sessions').select('id, mentor_semester_id, startup_semester_id, status, topic, slot, format, startup_absent, substitute_name, meeting:meetings(meeting_date, label, semester_id, semester:semesters(name)), mentor:mentor_semesters(membership:semester_memberships(profile:profiles(full_name))), startup:startup_semesters(organization:startup_organizations(name,slug))').order('slot'),
       supabase.from('semesters').select('id, name').eq('is_active', true).maybeSingle(),
     ])
+    const loadError = usersRes.error ?? membersRes.error ?? sessionsRes.error ?? semesterRes.error
+    if (loadError) throw new Error(loadError.message)
     setPendingUsers((usersRes.data as PendingUser[]) ?? [])
     type MemberRow = Omit<Member, 'role' | 'is_active' | 'membership_id' | 'semester_id'> & { memberships: { id: string; role: string; status: string; semester_id: string; semester: { is_active: boolean } | null }[] | null }
     setMembers(((membersRes.data ?? []) as unknown as MemberRow[]).map((member) => ({
@@ -381,11 +386,12 @@ function AdminDashboardContent() {
     setActiveSemesterId(semId)
     setActiveSemesterName(semData?.name ?? null)
     if (semId) {
-      const { data: dateRows } = await supabase
+      const { data: dateRows, error: dateError } = await supabase
         .from('meetings')
         .select('id, meeting_date, label')
         .eq('semester_id', semId)
         .order('meeting_date')
+      if (dateError) throw new Error(dateError.message)
       const dates = (dateRows ?? []).map((row) => ({ id: row.id, date: row.meeting_date, label: row.label }))
       setMeetingDates(dates)
       setSelectedMeetingId(prev => prev ?? (dates[0]?.id ?? null))
@@ -442,42 +448,23 @@ function AdminDashboardContent() {
 
   // ── Members ───────────────────────────────────────────────────────────────
 
-  async function toggleMemberActive(
-    memberId: string,
+  async function persistMemberActivity(
     membershipId: string | null,
     semesterId: string | null,
     current: boolean,
-    onFailure?: (message: string) => void,
-  ): Promise<boolean> {
-    const reportFailure = (message: string) => {
-      if (onFailure) onFailure(message)
-      else alert(message)
-    }
-
+  ): Promise<void> {
     if (!membershipId || !semesterId) {
-      reportFailure('This person has no semester membership to update.')
-      return false
+      throw new Error('This person has no semester membership to update.')
     }
-    setTogglingActive(memberId)
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const response = await fetch('/api/admin/lifecycle/memberships/activity', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
-        body: JSON.stringify({ semesterId, membershipIds: [membershipId], activity: current ? 'inactive' : 'active' }),
-      })
-      if (!response.ok) {
-        const payload = await response.json() as { error?: string }
-        reportFailure(payload.error ?? 'Unable to update semester membership.')
-        return false
-      }
-      await loadAll()
-      return true
-    } catch (cause) {
-      reportFailure(cause instanceof Error ? cause.message : 'Unable to update semester membership.')
-      return false
-    } finally {
-      setTogglingActive(null)
+    const { data: { session } } = await supabase.auth.getSession()
+    const response = await fetch('/api/admin/lifecycle/memberships/activity', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+      body: JSON.stringify({ semesterId, membershipIds: [membershipId], activity: current ? 'inactive' : 'active' }),
+    })
+    if (!response.ok) {
+      const payload = await response.json() as { error?: string }
+      throw new Error(payload.error ?? 'Unable to update semester membership.')
     }
   }
 
@@ -748,11 +735,6 @@ function AdminDashboardContent() {
   const [startupSearch, setStartupSearch] = useState('')
   const [startupSemesterFilter, setStartupSemesterFilter] = useState('')
 
-  useEffect(() => {
-    const member = searchParams.get('member')
-    if (member) setMemberSearch(member)
-  }, [searchParams])
-
   // ── Startup-role members not yet linked to any startup (email not in any founders array)
   const allTags = [...new Set(startups.flatMap(s => s.preferred_tags ?? []))].sort()
   const allStartupSemesters = [...new Set(startups.map(s => s.semester_name).filter((n): n is string => Boolean(n)))].sort()
@@ -777,25 +759,77 @@ function AdminDashboardContent() {
     recordId: member.id, profileId: member.id, email: member.email,
   })), [members])
   const cohort = useCohortScreen(memberReferences, 'all', searchParams.get('semester') ?? undefined)
+  const setCohortSelected = cohort.setSelected
+  const memberParam = searchParams.get('member')
+
+  useEffect(() => {
+    const deepLinkState = memberDeepLinkState(memberParam)
+    if (deepLinkState === null) return
+    setMemberSearch(deepLinkState.search)
+    setMemberVisibility(deepLinkState.visibility)
+    setCohortSelected(deepLinkState.selectedMembershipIds)
+  }, [memberParam, setCohortSelected])
+
   const selectedCohortMembers = cohort.semesterId === null
     ? []
     : cohort.members.filter(member => member.semesterId === cohort.semesterId)
   const scopedCohortMembers = cohort.semesterId === null ? cohort.members : selectedCohortMembers
   const lifecycleMutationEnabled = cohort.semesterId !== null && cohort.semesterId === cohort.cohorts.current?.id
-  const readyMembers = membersReadyForActivation(selectedCohortMembers)
-  const activationAttention = activationAttentionCount(selectedCohortMembers, pendingUsers.length)
+  const activationMutationEnabled = cohort.cohorts.current !== null
+  const activationWorkspace = activationWorkspaceState(cohort.currentMembers, cohort.cohorts.current?.id ?? null, pendingUsers.length)
+  const readyMembers = activationWorkspace.readyMembers
+  const activationAttention = activationWorkspace.attentionCount
 
-  async function activateReadyMember(member: (typeof selectedCohortMembers)[number]) {
-    if (!lifecycleMutationEnabled) return
+  const membershipRefreshes = () => [loadAll, cohort.reload, cohort.reloadCurrent] as const
+
+  async function applyMembershipActivity(
+    memberId: string,
+    membershipId: string | null,
+    semesterId: string | null,
+    current: boolean,
+    onFailure?: (message: string) => void,
+  ): Promise<boolean> {
+    setTogglingActive(memberId)
+    const outcome = await persistAndRefreshMembership({
+      persist: () => persistMemberActivity(membershipId, semesterId, current),
+      refreshes: membershipRefreshes(),
+    })
+    setTogglingActive(null)
+
+    if (outcome.status === 'mutation_failed') {
+      if (onFailure) onFailure(outcome.message)
+      else alert(outcome.message)
+      return false
+    }
     setActivationError(null)
-    const updated = await toggleMemberActive(
+    if (outcome.status === 'updated_refresh_failed') {
+      setMembershipRefreshFeedback('Membership updated; refresh failed.')
+      setMembershipRefreshRetryRequired(true)
+    } else {
+      setMembershipRefreshFeedback(null)
+      setMembershipRefreshRetryRequired(false)
+    }
+    return true
+  }
+
+  async function retryMembershipRefresh() {
+    setMembershipRefreshRetrying(true)
+    const refreshed = await refreshMembershipReadModels(membershipRefreshes())
+    setMembershipRefreshFeedback(refreshed ? 'Membership data refreshed.' : 'Membership updated; refresh failed.')
+    setMembershipRefreshRetryRequired(!refreshed)
+    setMembershipRefreshRetrying(false)
+  }
+
+  async function activateReadyMember(member: (typeof readyMembers)[number]) {
+    if (!activationMutationEnabled || member.semesterId !== cohort.cohorts.current?.id) return
+    setActivationError(null)
+    await applyMembershipActivity(
       member.profileId,
       member.membershipId,
       member.semesterId,
       false,
       setActivationError,
     )
-    if (updated) await cohort.reload()
   }
 
   const activeMembershipProfiles = new Set(scopedCohortMembers
@@ -843,13 +877,12 @@ function AdminDashboardContent() {
     const memberName = member.full_name ?? member.email
     if (member.presentation.action === 'suspend' && !window.confirm('Suspend ' + memberName + '? They will no longer have active program access.')) return
 
-    const updated = await toggleMemberActive(
+    await applyMembershipActivity(
       member.id,
       member.membership.membershipId,
       member.membership.semesterId,
       member.presentation.action === 'suspend',
     )
-    if (updated) await cohort.reload()
   }
 
   // ── Schedule ───────────────────────────────────────────────────────────────
@@ -1017,6 +1050,19 @@ function AdminDashboardContent() {
       </div>
 
       <CohortScreenControls controller={cohort} visibleRecords={filteredMembers.map(member => ({ recordId: member.id, profileId: member.id, email: member.email }))} />
+      {membershipRefreshFeedback && (
+        <div role="status" className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <span>{membershipRefreshFeedback}</span>
+          {membershipRefreshRetryRequired && (
+            <button
+              type="button"
+              disabled={membershipRefreshRetrying}
+              onClick={() => void retryMembershipRefresh()}
+              className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+            >{membershipRefreshRetrying ? 'Refreshing...' : 'Retry refresh'}</button>
+          )}
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-[1.3fr_1fr] gap-4 mb-6">
         <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
@@ -1093,7 +1139,7 @@ function AdminDashboardContent() {
                     </div>
                     <button
                       onClick={() => void activateReadyMember(member)}
-                      disabled={togglingActive === member.profileId || !lifecycleMutationEnabled}
+                      disabled={togglingActive === member.profileId || !activationMutationEnabled || member.semesterId !== cohort.cohorts.current?.id}
                       className="shrink-0 rounded-lg bg-[#002147] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#002147]/90 disabled:opacity-50"
                     >
                       {togglingActive === member.profileId ? 'Activating…' : 'Activate'}

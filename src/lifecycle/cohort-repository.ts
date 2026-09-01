@@ -68,7 +68,7 @@ export async function loadCohortMembers(
       .in("semester_id", semesterIds),
     client
       .from("startup_team_memberships")
-      .select("semester_membership_id,startup_semester:startup_semesters!inner(readiness_status)")
+      .select("semester_membership_id,semester_id,startup_semester:startup_semesters!inner(semester_id,readiness_status)")
       .in("semester_id", semesterIds),
   ]);
   if (profileResult.error !== null) throw new CohortRepositoryError(profileResult.error.message);
@@ -77,15 +77,36 @@ export async function loadCohortMembers(
 
   const profiles = new Map((profileResult.data ?? []).map((profile) => [profile.id, profile]));
   const semesterNames = new Map(semesters.map((semester) => [semester.id, semester.name]));
+  const semesterByMembershipId = new Map(
+    (membershipResult.data ?? []).map((membership) => [membership.id, membership.semester_id]),
+  );
   const readinessByMembershipId = new Map<string, MembershipReadinessStatus>();
+  const conflictingReadiness = new Set<string>();
+  const recordReadiness = (membershipId: string, readinessStatus: MembershipReadinessStatus) => {
+    if (conflictingReadiness.has(membershipId)) return;
+    if (!readinessByMembershipId.has(membershipId)) {
+      readinessByMembershipId.set(membershipId, readinessStatus);
+      return;
+    }
+    if (readinessByMembershipId.get(membershipId) !== readinessStatus) {
+      readinessByMembershipId.set(membershipId, null);
+      conflictingReadiness.add(membershipId);
+    }
+  };
   for (const mentor of mentorReadinessResult.data ?? []) {
-    readinessByMembershipId.set(
+    recordReadiness(
       mentor.semester_membership_id,
       membershipReadinessStatus(mentor.readiness_status),
     );
   }
   for (const startup of startupReadinessResult.data ?? []) {
-    readinessByMembershipId.set(
+    const membershipSemesterId = semesterByMembershipId.get(startup.semester_membership_id);
+    if (
+      membershipSemesterId === undefined
+      || startup.semester_id !== membershipSemesterId
+      || startup.startup_semester?.semester_id !== membershipSemesterId
+    ) continue;
+    recordReadiness(
       startup.semester_membership_id,
       membershipReadinessStatus(startup.startup_semester?.readiness_status),
     );

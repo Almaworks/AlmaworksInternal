@@ -29,7 +29,10 @@ function fakeQuery(result: QueryResult): FakeQuery {
   return query;
 }
 
-function cohortClient(errors: Partial<Record<CohortTable, string>> = {}): SupabaseClient<Database> {
+function cohortClient(
+  errors: Partial<Record<CohortTable, string>> = {},
+  overrides: Partial<Record<CohortTable, readonly Record<string, unknown>[]>> = {},
+): SupabaseClient<Database> {
   const rowsByTable: Record<string, readonly Record<string, unknown>[]> = {
     semester_memberships: [
       { id: "mentor-membership", semester_id: "spring-2026", profile_id: "mentor-profile", role: "mentor", status: "onboarding" },
@@ -42,14 +45,16 @@ function cohortClient(errors: Partial<Record<CohortTable, string>> = {}): Supaba
       { id: "admin-profile", full_name: "Ari Admin", email: "ari@example.com" },
     ],
     mentor_semesters: [
-      { semester_membership_id: "mentor-membership", readiness_status: "ready" },
+      { semester_membership_id: "mentor-membership", semester_id: "spring-2026", readiness_status: "ready" },
     ],
     startup_team_memberships: [
       {
         semester_membership_id: "startup-membership",
-        startup_semester: { readiness_status: "in_progress" },
+        semester_id: "spring-2026",
+        startup_semester: { semester_id: "spring-2026", readiness_status: "in_progress" },
       },
     ],
+    ...overrides,
   };
 
   return {
@@ -78,6 +83,56 @@ test("cohort members receive mentor, startup, and admin readiness from their sem
       ["admin-membership", null],
     ],
   );
+});
+
+test("startup readiness is ignored unless membership, team, and startup rows share one semester", async () => {
+  const mismatchedRows = [
+    {
+      semester_membership_id: "startup-membership",
+      semester_id: "fall-2025",
+      startup_semester: { semester_id: "spring-2026", readiness_status: "ready" },
+    },
+    {
+      semester_membership_id: "startup-membership",
+      semester_id: "spring-2026",
+      startup_semester: { semester_id: "fall-2025", readiness_status: "ready" },
+    },
+  ] as const;
+
+  for (const row of mismatchedRows) {
+    const members = await loadCohortMembers(
+      cohortClient({}, { startup_team_memberships: [row] }),
+      springCohort,
+    );
+    assert.equal(
+      members.find((member) => member.membershipId === "startup-membership")?.readinessStatus,
+      null,
+    );
+  }
+});
+
+test("conflicting duplicate startup readiness resolves to null independent of response order", async () => {
+  const ready = {
+    semester_membership_id: "startup-membership",
+    semester_id: "spring-2026",
+    startup_semester: { semester_id: "spring-2026", readiness_status: "ready" },
+  } as const;
+  const inProgress = {
+    semester_membership_id: "startup-membership",
+    semester_id: "spring-2026",
+    startup_semester: { semester_id: "spring-2026", readiness_status: "in_progress" },
+  } as const;
+
+  for (const rows of [[ready, inProgress], [inProgress, ready]]) {
+    const members = await loadCohortMembers(
+      cohortClient({}, { startup_team_memberships: rows }),
+      springCohort,
+    );
+    assert.equal(
+      members.find((member) => member.membershipId === "startup-membership")?.readinessStatus,
+      null,
+    );
+  }
 });
 
 test("cohort loading wraps mentor readiness query failures", async () => {

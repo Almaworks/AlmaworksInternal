@@ -14,6 +14,7 @@ import {
   type MembershipLifecycleAction,
 } from "@/src/lifecycle/membership-presentation";
 import type { ProgramRole } from "@/src/lifecycle/types";
+import { persistAndRefreshMembership } from "@/src/lifecycle/membership-mutation";
 
 interface CohortResponse {
   cohorts: { current: CohortSummary | null; previous: CohortSummary | null; all: CohortSummary[] };
@@ -35,11 +36,13 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 export function useCohortScreen(records: readonly CohortRecordReference[], role: ProgramRole | "all", preferredSemesterId?: string) {
   const [cohorts, setCohorts] = useState<CohortResponse["cohorts"]>({ current: null, previous: null, all: [] });
   const [members, setMembers] = useState<CohortMember[]>([]);
+  const [currentMembers, setCurrentMembers] = useState<CohortMember[]>([]);
   const [scope, setScope] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [refreshRetryRequired, setRefreshRetryRequired] = useState(false);
 
   const load = useCallback(async (semesterId: string, allTime = false) => {
     setLoading(true);
@@ -48,23 +51,49 @@ export function useCohortScreen(records: readonly CohortRecordReference[], role:
       const result = await requestJson<CohortResponse>(`/api/admin/lifecycle/cohorts?semesterId=${encodeURIComponent(semesterId)}&scope=${allTime ? "all" : "semester"}`);
       setCohorts(result.cohorts);
       setMembers(result.members);
+      if (allTime || result.cohorts.current?.id === semesterId) {
+        setCurrentMembers(result.cohorts.current === null
+          ? []
+          : result.members.filter((member) => member.semesterId === result.cohorts.current?.id));
+      }
       setScope(allTime ? "all" : semesterId);
       setSelected([]);
+      return result;
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : "Unable to load cohorts.");
+      return null;
     } finally {
       setLoading(false);
     }
   }, []);
 
+  const loadCurrent = useCallback(async (semesterId: string): Promise<boolean> => {
+    try {
+      const result = await requestJson<CohortResponse>(`/api/admin/lifecycle/cohorts?semesterId=${encodeURIComponent(semesterId)}&scope=semester`);
+      setCohorts(result.cohorts);
+      setCurrentMembers(result.members.filter((member) => member.semesterId === semesterId));
+      return true;
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "Unable to load the current activation queue.");
+      return false;
+    }
+  }, []);
+
   useEffect(() => {
     void (async () => {
-      if (preferredSemesterId) { await load(preferredSemesterId); return; }
+      if (preferredSemesterId) {
+        const result = await load(preferredSemesterId);
+        const currentSemesterId = result?.cohorts.current?.id;
+        if (currentSemesterId && currentSemesterId !== preferredSemesterId) {
+          await loadCurrent(currentSemesterId);
+        }
+        return;
+      }
       const { data } = await createClient().from("semesters").select("id").eq("is_active", true).maybeSingle();
       if (data?.id) await load(data.id);
       else { setMessage("No active cohort is configured."); setLoading(false); }
     })();
-  }, [load, preferredSemesterId]);
+  }, [load, loadCurrent, preferredSemesterId]);
 
   const semesterId = scope === "all" ? null : scope || null;
   const scopedRecords = useMemo(
@@ -94,14 +123,26 @@ export function useCohortScreen(records: readonly CohortRecordReference[], role:
     }
     const activity = action === "suspend" ? "inactive" : "active";
     setWorking(true); setMessage(null);
-    try {
-      const result = await requestJson<{ updated: number }>("/api/admin/lifecycle/memberships/activity", {
-        method: "PATCH", body: JSON.stringify({ semesterId, membershipIds: selected, activity }),
-      });
-      setMessage(`${result.updated} membership${result.updated === 1 ? "" : "s"} ${activity === "active" ? "activated" : "suspended"}.`);
-      await load(semesterId);
-    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Unable to update memberships."); }
-    finally { setWorking(false); }
+    let updated = 0;
+    const outcome = await persistAndRefreshMembership({
+      persist: async () => {
+        const result = await requestJson<{ updated: number }>("/api/admin/lifecycle/memberships/activity", {
+          method: "PATCH", body: JSON.stringify({ semesterId, membershipIds: selected, activity }),
+        });
+        updated = result.updated;
+      },
+      refreshes: [reload],
+    });
+    if (outcome.status === "mutation_failed") {
+      setMessage(outcome.message);
+    } else if (outcome.status === "updated_refresh_failed") {
+      setMessage("Membership updated; refresh failed.");
+      setRefreshRetryRequired(true);
+    } else {
+      setMessage(`${updated} membership${updated === 1 ? "" : "s"} ${activity === "active" ? "activated" : "suspended"}.`);
+      setRefreshRetryRequired(false);
+    }
+    setWorking(false);
   }
 
   async function importSelected(ids: readonly string[] | null) {
@@ -117,13 +158,26 @@ export function useCohortScreen(records: readonly CohortRecordReference[], role:
     finally { setWorking(false); }
   }
 
-  async function reload() {
+  async function reload(): Promise<boolean> {
     if (scope === "all") {
-      if (cohorts.current) await load(cohorts.current.id, true);
-    } else if (semesterId) await load(semesterId);
+      return cohorts.current ? await load(cohorts.current.id, true) !== null : false;
+    }
+    return semesterId ? await load(semesterId) !== null : false;
   }
 
-  return { cohorts, members, scope, semesterId, selected, setSelected, loading, working, message, scopedRecords, changeScope, membershipIds, setActivity, importSelected, reload };
+  async function reloadCurrent(): Promise<boolean> {
+    return cohorts.current ? loadCurrent(cohorts.current.id) : false;
+  }
+
+  async function retryRefresh() {
+    setWorking(true);
+    const refreshed = await reload();
+    setRefreshRetryRequired(!refreshed);
+    setMessage(refreshed ? "Membership data refreshed." : "Membership updated; refresh failed.");
+    setWorking(false);
+  }
+
+  return { cohorts, members, currentMembers, scope, semesterId, selected, setSelected, loading, working, message, refreshRetryRequired, scopedRecords, changeScope, membershipIds, setActivity, importSelected, reload, reloadCurrent, retryRefresh };
 }
 
 type Controller = ReturnType<typeof useCohortScreen>;
@@ -149,6 +203,6 @@ export function CohortScreenControls({ controller, visibleRecords }: { controlle
       {prior && controller.selected.length === 0 && visibleIds.length > 0 && <button className="rounded-lg border border-[#75AADB] px-3 py-2 text-xs font-semibold text-[#002147] sm:ml-auto" disabled={controller.working} onClick={() => void controller.importSelected(visibleIds)}>Import filtered into {controller.cohorts.current?.name}</button>}
     </div>
     {controller.scope === "all" && <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><strong>All-time view:</strong> every manageable cohort is loaded. Choose a specific cohort to change status or import people.</p>}
-    {controller.message && <p role="status" className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-700">{controller.message}</p>}
+    {controller.message && <div role="status" className="flex flex-wrap items-center gap-3 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-700"><span>{controller.message}</span>{controller.refreshRetryRequired && <button type="button" className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50" disabled={controller.working} onClick={() => void controller.retryRefresh()}>Retry refresh</button>}</div>}
   </div>;
 }
