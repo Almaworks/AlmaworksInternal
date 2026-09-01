@@ -13,6 +13,12 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 
+CREATE SCHEMA IF NOT EXISTS "private";
+
+
+ALTER SCHEMA "private" OWNER TO "postgres";
+
+
 CREATE SCHEMA IF NOT EXISTS "public";
 
 
@@ -138,6 +144,85 @@ CREATE TYPE "public"."user_role" AS ENUM (
 
 
 ALTER TYPE "public"."user_role" OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "private"."can_manage_semester"("target_semester_id" "uuid", "candidate_id" "uuid" DEFAULT "auth"."uid"()) RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$ select private.is_super_admin(candidate_id) or private.has_semester_role(target_semester_id,array['admin']::public.user_role[],candidate_id) $$;
+
+
+ALTER FUNCTION "private"."can_manage_semester"("target_semester_id" "uuid", "candidate_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "private"."can_read_mentor_profile"("target_profile_id" "uuid", "candidate_id" "uuid") RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select candidate_id is not null
+    and candidate_id is not distinct from auth.uid()
+    and exists (
+      select 1
+      from public.semester_memberships candidate_membership
+      where candidate_membership.profile_id = candidate_id
+        and candidate_membership.status in ('onboarding', 'active')
+    )
+    and exists (
+      select 1
+      from public.semester_memberships mentor_membership
+      where mentor_membership.profile_id = target_profile_id
+        and mentor_membership.role = 'mentor'
+        and mentor_membership.status in ('onboarding', 'active', 'alumni')
+    );
+$$;
+
+
+ALTER FUNCTION "private"."can_read_mentor_profile"("target_profile_id" "uuid", "candidate_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "private"."can_read_outreach_relationship_labels"("candidate_id" "uuid" DEFAULT "auth"."uid"()) RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$ select private.is_super_admin(candidate_id) or exists(select 1 from public.semester_memberships where profile_id=candidate_id and role='admin' and status='active') $$;
+
+
+ALTER FUNCTION "private"."can_read_outreach_relationship_labels"("candidate_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "private"."has_outreach_company_access"("target_company_id" "uuid", "candidate_id" "uuid" DEFAULT "auth"."uid"()) RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$ select exists(select 1 from public.outreach_contact_companies cc join public.outreach_opportunities o on o.contact_id=cc.contact_id where cc.company_id=target_company_id and private.can_manage_semester(o.semester_id,candidate_id)) $$;
+
+
+ALTER FUNCTION "private"."has_outreach_company_access"("target_company_id" "uuid", "candidate_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "private"."has_outreach_contact_access"("target_contact_id" "uuid", "candidate_id" "uuid" DEFAULT "auth"."uid"()) RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$ select exists(select 1 from public.outreach_opportunities o where o.contact_id=target_contact_id and private.can_manage_semester(o.semester_id,candidate_id)) $$;
+
+
+ALTER FUNCTION "private"."has_outreach_contact_access"("target_contact_id" "uuid", "candidate_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "private"."has_semester_role"("target_semester_id" "uuid", "allowed_roles" "public"."user_role"[], "candidate_id" "uuid" DEFAULT "auth"."uid"()) RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$ select candidate_id is not null and candidate_id is not distinct from auth.uid() and exists (select 1 from public.semester_memberships where semester_id=target_semester_id and profile_id=candidate_id and role=any(allowed_roles) and status='active') $$;
+
+
+ALTER FUNCTION "private"."has_semester_role"("target_semester_id" "uuid", "allowed_roles" "public"."user_role"[], "candidate_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "private"."is_super_admin"("candidate_id" "uuid" DEFAULT "auth"."uid"()) RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$ select candidate_id is not null and candidate_id is not distinct from auth.uid() and exists (select 1 from public.platform_roles where profile_id=candidate_id and role='super_admin') $$;
+
+
+ALTER FUNCTION "private"."is_super_admin"("candidate_id" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."activate_semester_transition"("p_source_semester_id" "uuid", "p_target_semester_id" "uuid") RETURNS TABLE("closed_semester_id" "uuid", "active_semester_id" "uuid", "alumni_count" integer)
@@ -2898,10 +2983,49 @@ CREATE POLICY "users update their own profile" ON "public"."profiles" FOR UPDATE
 
 
 
+GRANT USAGE ON SCHEMA "private" TO "authenticated";
+
+
+
 GRANT USAGE ON SCHEMA "public" TO "postgres";
 GRANT USAGE ON SCHEMA "public" TO "anon";
 GRANT USAGE ON SCHEMA "public" TO "authenticated";
 GRANT USAGE ON SCHEMA "public" TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "private"."can_manage_semester"("target_semester_id" "uuid", "candidate_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "private"."can_manage_semester"("target_semester_id" "uuid", "candidate_id" "uuid") TO "authenticated";
+
+
+
+REVOKE ALL ON FUNCTION "private"."can_read_mentor_profile"("target_profile_id" "uuid", "candidate_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "private"."can_read_mentor_profile"("target_profile_id" "uuid", "candidate_id" "uuid") TO "authenticated";
+
+
+
+REVOKE ALL ON FUNCTION "private"."can_read_outreach_relationship_labels"("candidate_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "private"."can_read_outreach_relationship_labels"("candidate_id" "uuid") TO "authenticated";
+
+
+
+REVOKE ALL ON FUNCTION "private"."has_outreach_company_access"("target_company_id" "uuid", "candidate_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "private"."has_outreach_company_access"("target_company_id" "uuid", "candidate_id" "uuid") TO "authenticated";
+
+
+
+REVOKE ALL ON FUNCTION "private"."has_outreach_contact_access"("target_contact_id" "uuid", "candidate_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "private"."has_outreach_contact_access"("target_contact_id" "uuid", "candidate_id" "uuid") TO "authenticated";
+
+
+
+REVOKE ALL ON FUNCTION "private"."has_semester_role"("target_semester_id" "uuid", "allowed_roles" "public"."user_role"[], "candidate_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "private"."has_semester_role"("target_semester_id" "uuid", "allowed_roles" "public"."user_role"[], "candidate_id" "uuid") TO "authenticated";
+
+
+
+REVOKE ALL ON FUNCTION "private"."is_super_admin"("candidate_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "private"."is_super_admin"("candidate_id" "uuid") TO "authenticated";
 
 
 
@@ -3147,3 +3271,10 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON FUN
 
 
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "postgres";
+
+
+
+
+
+
+

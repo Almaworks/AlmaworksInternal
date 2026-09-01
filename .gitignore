@@ -45,6 +45,7 @@ next-env.d.ts
 /.tmp/
 /.superpowers/
 /.playwright-mcp/
+/supabase/schemas/canonical/
 
 # Obsidian vault: keep shared settings, ignore personal workspace state/plugins
 /docs/.obsidian/workspace*.json

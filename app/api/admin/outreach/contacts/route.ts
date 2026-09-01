@@ -51,14 +51,14 @@ export async function POST(request: Request) {
     const bundleResult = await userClient.rpc("upsert_outreach_contact_bundle", {
       p_semester_id: body.semesterId,
       p_full_name: body.fullName,
-      p_email: body.email,
-      p_linkedin_url: body.linkedinUrl,
-      p_phone: body.phone,
-      p_biography: body.biography,
-      p_company_name: body.companyName,
-      p_company_normalized_name: body.companyName?.toLowerCase() ?? null,
-      p_company_domain: body.companyDomain,
-      p_company_title: body.title,
+      p_email: body.email ?? undefined,
+      p_linkedin_url: body.linkedinUrl ?? undefined,
+      p_phone: body.phone ?? undefined,
+      p_biography: body.biography ?? undefined,
+      p_company_name: body.companyName ?? undefined,
+      p_company_normalized_name: body.companyName?.toLowerCase() ?? undefined,
+      p_company_domain: body.companyDomain ?? undefined,
+      p_company_title: body.title ?? undefined,
     }).single();
     if (bundleResult.error !== null || bundleResult.data === null) {
       if (bundleResult.error?.message.includes("outreach_company_identity_conflict")) {
