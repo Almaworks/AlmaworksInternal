@@ -11,9 +11,9 @@ import {
 import type { CohortMember } from "../../src/lifecycle/cohort-management.ts";
 
 const memberships: CohortMember[] = [
-  { membershipId: "current-mentor", profileId: "profile-1", name: "Ada", email: "ADA@example.com", role: "mentor", status: "active", semesterId: "spring-2026", semesterName: "Spring 2026" },
-  { membershipId: "prior-mentor", profileId: "profile-1", name: "Ada", email: "ada@example.com", role: "mentor", status: "alumni", semesterId: "fall-2025", semesterName: "Fall 2025" },
-  { membershipId: "current-startup", profileId: "profile-2", name: "Beta", email: "beta@example.com", role: "startup", status: "active", semesterId: "spring-2026", semesterName: "Spring 2026" },
+  { membershipId: "current-mentor", profileId: "profile-1", name: "Ada", email: "ADA@example.com", role: "mentor", status: "active", readinessStatus: "ready", semesterId: "spring-2026", semesterName: "Spring 2026" },
+  { membershipId: "prior-mentor", profileId: "profile-1", name: "Ada", email: "ada@example.com", role: "mentor", status: "alumni", readinessStatus: "ready", semesterId: "fall-2025", semesterName: "Fall 2025" },
+  { membershipId: "current-startup", profileId: "profile-2", name: "Beta", email: "beta@example.com", role: "startup", status: "active", readinessStatus: "ready", semesterId: "spring-2026", semesterName: "Spring 2026" },
 ];
 
 const records: CohortRecordReference[] = [
@@ -55,7 +55,7 @@ test("a screen row resolves the membership status for its exact cohort", () => {
 test("member editing resolves the role from the selected semester instead of another active history row", () => {
   const roleHistory: CohortMember[] = [
     ...memberships,
-    { membershipId: "prior-admin", profileId: "profile-2", name: "Beta", email: "beta@example.com", role: "admin", status: "active", semesterId: "fall-2025", semesterName: "Fall 2025" },
+    { membershipId: "prior-admin", profileId: "profile-2", name: "Beta", email: "beta@example.com", role: "admin", status: "active", readinessStatus: null, semesterId: "fall-2025", semesterName: "Fall 2025" },
   ];
   assert.equal(roleForProfileInSemester(roleHistory, "profile-2", "spring-2026"), "startup");
   assert.equal(roleForProfileInSemester(roleHistory, "profile-2", "fall-2025"), "admin");

@@ -2,12 +2,17 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "../db/types.ts";
 import type { CohortMember, CohortSummary } from "./cohort-management.ts";
+import type { MembershipReadinessStatus } from "./membership-presentation.ts";
 
 export class CohortRepositoryError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "CohortRepositoryError";
   }
+}
+
+function membershipReadinessStatus(value: string | null | undefined): MembershipReadinessStatus {
+  return value === "not_started" || value === "in_progress" || value === "ready" ? value : null;
 }
 
 export async function loadManageableCohorts(
@@ -53,13 +58,38 @@ export async function loadCohortMembers(
   }
 
   const profileIds = [...new Set((membershipResult.data ?? []).map((row) => row.profile_id))];
-  const profileResult = profileIds.length === 0
-    ? { data: [], error: null }
-    : await client.from("profiles").select("id, full_name, email").in("id", profileIds);
+  const [profileResult, mentorReadinessResult, startupReadinessResult] = await Promise.all([
+    profileIds.length === 0
+      ? Promise.resolve({ data: [], error: null })
+      : client.from("profiles").select("id, full_name, email").in("id", profileIds),
+    client
+      .from("mentor_semesters")
+      .select("semester_membership_id,readiness_status")
+      .in("semester_id", semesterIds),
+    client
+      .from("startup_team_memberships")
+      .select("semester_membership_id,startup_semester:startup_semesters!inner(readiness_status)")
+      .in("semester_id", semesterIds),
+  ]);
   if (profileResult.error !== null) throw new CohortRepositoryError(profileResult.error.message);
+  if (mentorReadinessResult.error !== null) throw new CohortRepositoryError(mentorReadinessResult.error.message);
+  if (startupReadinessResult.error !== null) throw new CohortRepositoryError(startupReadinessResult.error.message);
 
   const profiles = new Map((profileResult.data ?? []).map((profile) => [profile.id, profile]));
   const semesterNames = new Map(semesters.map((semester) => [semester.id, semester.name]));
+  const readinessByMembershipId = new Map<string, MembershipReadinessStatus>();
+  for (const mentor of mentorReadinessResult.data ?? []) {
+    readinessByMembershipId.set(
+      mentor.semester_membership_id,
+      membershipReadinessStatus(mentor.readiness_status),
+    );
+  }
+  for (const startup of startupReadinessResult.data ?? []) {
+    readinessByMembershipId.set(
+      startup.semester_membership_id,
+      membershipReadinessStatus(startup.startup_semester?.readiness_status),
+    );
+  }
   return (membershipResult.data ?? []).flatMap((membership) => {
     const profile = profiles.get(membership.profile_id);
     const semesterName = semesterNames.get(membership.semester_id);
@@ -71,6 +101,7 @@ export async function loadCohortMembers(
       email: profile.email,
       role: membership.role,
       status: membership.status,
+      readinessStatus: readinessByMembershipId.get(membership.id) ?? null,
       semesterId: membership.semester_id,
       semesterName,
     }];

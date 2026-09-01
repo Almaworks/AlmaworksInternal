@@ -1,4 +1,5 @@
 import type { MembershipStatus, ProgramRole } from "./types.ts";
+import type { MembershipReadinessStatus } from "./membership-presentation.ts";
 
 export interface CohortSummary {
   id: string;
@@ -14,6 +15,7 @@ export interface CohortMember {
   email: string;
   role: ProgramRole;
   status: MembershipStatus;
+  readinessStatus: MembershipReadinessStatus;
   semesterId: string;
   semesterName: string;
 }

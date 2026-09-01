@@ -17,8 +17,8 @@ const semesters = [
 ];
 
 const members: CohortMember[] = [
-  { membershipId: "membership-1", profileId: "profile-1", name: "Ada Founder", email: "ada@example.com", role: "startup", status: "active", semesterId: "spring-2026", semesterName: "Spring 2026" },
-  { membershipId: "membership-2", profileId: "profile-2", name: "Grace Mentor", email: "grace@example.com", role: "mentor", status: "alumni", semesterId: "fall-2025", semesterName: "Fall 2025" },
+  { membershipId: "membership-1", profileId: "profile-1", name: "Ada Founder", email: "ada@example.com", role: "startup", status: "active", readinessStatus: "ready", semesterId: "spring-2026", semesterName: "Spring 2026" },
+  { membershipId: "membership-2", profileId: "profile-2", name: "Grace Mentor", email: "grace@example.com", role: "mentor", status: "alumni", readinessStatus: "ready", semesterId: "fall-2025", semesterName: "Fall 2025" },
 ];
 
 test("cohort options identify current and immediately previous cohorts", () => {
