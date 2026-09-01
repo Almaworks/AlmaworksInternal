@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -65,4 +66,16 @@ test("activation badge combines ready members and registration requests", () => 
 
 test("activation workspace uses the needs activation label", () => {
   assert.equal(ACTIVATION_TAB_LABEL, "Needs activation");
+});
+
+test("all-time activation workspace disables registration-request mutations", () => {
+  const page = readFileSync(new URL("../../app/dashboard/admin/page.tsx", import.meta.url), "utf8");
+  const registrationRequests = page.slice(
+    page.indexOf("Registration requests"),
+    page.indexOf("{tab === 'members'"),
+  );
+
+  assert.match(registrationRequests, /<select[\s\S]*?disabled=\{cohort\.scope === 'all'\}/);
+  assert.match(registrationRequests, /onClick=\{\(\) => approveUser\(u\.id\)\}[\s\S]*?disabled=\{approving === u\.id \|\| !roleSelections\[u\.id\] \|\| cohort\.scope === 'all'\}/);
+  assert.match(registrationRequests, /onClick=\{\(\) => rejectUser\(u\.id\)\}[\s\S]*?disabled=\{cohort\.scope === 'all'\}/);
 });

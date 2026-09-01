@@ -1079,7 +1079,8 @@ function AdminDashboardContent() {
                     <select
                       value={roleSelections[u.id] ?? ''}
                       onChange={e => setRoleSelections(prev => ({ ...prev, [u.id]: e.target.value }))}
-                      className="text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
+                      disabled={cohort.scope === 'all'}
+                      className="text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <option value="">Select role…</option>
                       <option value="mentor">Mentor</option>
@@ -1088,14 +1089,15 @@ function AdminDashboardContent() {
                     </select>
                     <button
                       onClick={() => approveUser(u.id)}
-                      disabled={approving === u.id || !roleSelections[u.id]}
-                      className="px-4 py-2 bg-[#002147] text-white text-sm font-medium rounded-lg hover:bg-[#002147]/90 disabled:opacity-50 transition-colors"
+                      disabled={approving === u.id || !roleSelections[u.id] || cohort.scope === 'all'}
+                      className="px-4 py-2 bg-[#002147] text-white text-sm font-medium rounded-lg hover:bg-[#002147]/90 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
                     >
                       {approving === u.id ? '…' : 'Approve'}
                     </button>
                     <button
                       onClick={() => rejectUser(u.id)}
-                      className="px-4 py-2 text-sm font-medium text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                      disabled={cohort.scope === 'all'}
+                      className="px-4 py-2 text-sm font-medium text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Reject
                     </button>
