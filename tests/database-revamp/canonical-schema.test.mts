@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 
 const canonicalSource = readFileSync(
@@ -11,6 +11,10 @@ const securitySource = readFileSync(
   "utf8",
 ).replaceAll('"', "").toLowerCase();
 const source = `${canonicalSource}\n${securitySource}`;
+const migrationDirectory = new URL("../../supabase/migrations/", import.meta.url);
+const cutoverMigrations = readdirSync(migrationDirectory)
+  .filter((name) => name.includes("database_hardening_cutover_stage_"))
+  .sort();
 
 const tables = [
   "profiles", "platform_roles", "semesters", "semester_memberships", "invitations",
@@ -59,7 +63,13 @@ test("all tables have RLS, policy actions are consolidated, and auth calls use i
   assert.equal(new Set(keys).size, keys.length);
   for (const policy of policies) {
     assert.doesNotMatch(policy[0], /(?<!select )auth\.(uid|role|jwt)\(\)/u);
+    assert.doesNotMatch(
+      policy[0],
+      /(?:profile_id|\bid)\s*=\s*\( select auth\.uid\(\) as uid\)/u,
+      "durable profile identities must be resolved through private.current_profile_id",
+    );
   }
+  assert.match(source, /private\.current_profile_id\(\( select auth\.uid\(\) as uid\)\)/u);
 });
 
 test("least-privilege grants and relationship indexes are present", () => {
@@ -78,4 +88,17 @@ test("least-privilege grants and relationship indexes are present", () => {
   ]) {
     assert.match(source, new RegExp(`create index ${index}\\b`, "u"));
   }
+});
+
+test("generated cutover stages preserve deny-before-allow ACL ordering", () => {
+  assert.equal(cutoverMigrations.length, 2);
+  const [stageAName, stageBName] = cutoverMigrations;
+  assert.match(stageAName, /_stage_a\.sql$/u);
+  assert.match(stageBName, /_stage_b\.sql$/u);
+  const stageA = readFileSync(new URL(stageAName, migrationDirectory), "utf8").toLowerCase();
+  const stageB = readFileSync(new URL(stageBName, migrationDirectory), "utf8").toLowerCase();
+  assert.match(stageA, /alter default privileges for role "postgres" revoke all on functions from public;/u);
+  assert.match(stageA, /revoke all on table "public"\."sessions" from "authenticated";/u);
+  assert.doesNotMatch(stageB, /^revoke all on table/gmu);
+  assert.doesNotMatch(`${stageA}\n${stageB}`, /drop (?:table|schema).*\b(?:visa|agent)/u);
 });

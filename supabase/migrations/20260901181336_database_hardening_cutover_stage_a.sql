@@ -20,25 +20,37 @@ alter default privileges for role "postgres" in schema "public" revoke all on ta
 
 revoke all on function "public"."activate_semester_transition"(uuid, uuid) from "anon";
 
+revoke all on function "public"."activate_semester_transition"(uuid, uuid) from "authenticated";
+
 revoke all on function "public"."activate_semester_transition"(uuid, uuid) from "service_role";
 
 revoke all on function "public"."bulk_set_membership_activity"(uuid, uuid[], boolean) from "anon";
+
+revoke all on function "public"."bulk_set_membership_activity"(uuid, uuid[], boolean) from "authenticated";
 
 revoke all on function "public"."bulk_set_membership_activity"(uuid, uuid[], boolean) from "service_role";
 
 revoke all on function "public"."can_manage_any_outreach"(uuid) from "anon";
 
+revoke all on function "public"."can_manage_any_outreach"(uuid) from "authenticated";
+
 revoke all on function "public"."can_manage_any_outreach"(uuid) from "service_role";
 
 revoke all on function "public"."can_manage_semester"(uuid, uuid) from "anon";
+
+revoke all on function "public"."can_manage_semester"(uuid, uuid) from "authenticated";
 
 revoke all on function "public"."can_manage_semester"(uuid, uuid) from "service_role";
 
 revoke all on function "public"."carry_forward_outreach_contacts"(uuid, uuid, uuid[]) from "anon";
 
+revoke all on function "public"."carry_forward_outreach_contacts"(uuid, uuid, uuid[]) from "authenticated";
+
 revoke all on function "public"."carry_forward_outreach_contacts"(uuid, uuid, uuid[]) from "service_role";
 
 revoke all on function "public"."create_semester_draft"(uuid, text, date, date, jsonb) from "anon";
+
+revoke all on function "public"."create_semester_draft"(uuid, text, date, date, jsonb) from "authenticated";
 
 revoke all on function "public"."create_semester_draft"(uuid, text, date, date, jsonb) from "service_role";
 
@@ -50,12 +62,19 @@ revoke all on function "public"."handle_new_user"() from "service_role";
 
 revoke all on function "public"."import_prior_semester_memberships"(uuid, uuid, uuid[]) from "anon";
 
+revoke all on function "public"."import_prior_semester_memberships"(uuid, uuid, uuid[]) from "authenticated";
+
 revoke all on function "public"."import_prior_semester_memberships"(uuid, uuid, uuid[]) from "service_role";
 
 revoke all
   on function "public"."log_outreach_activity"(uuid, public.outreach_activity_kind, timestamp with time zone, public.outreach_channel, text, jsonb, timestamp
     with time zone, public.outreach_stage, timestamp with time zone)
   from "anon";
+
+revoke all
+  on function "public"."log_outreach_activity"(uuid, public.outreach_activity_kind, timestamp with time zone, public.outreach_channel, text, jsonb, timestamp
+    with time zone, public.outreach_stage, timestamp with time zone)
+  from "authenticated";
 
 revoke all
   on function "public"."log_outreach_activity"(uuid, public.outreach_activity_kind, timestamp with time zone, public.outreach_channel, text, jsonb, timestamp
@@ -70,17 +89,25 @@ revoke all on function "public"."prevent_outreach_activity_mutation"() from "ser
 
 revoke all on function "public"."release_inactive_owner_work"(uuid) from "anon";
 
+revoke all on function "public"."release_inactive_owner_work"(uuid) from "authenticated";
+
 revoke all on function "public"."release_inactive_owner_work"(uuid) from "service_role";
 
 revoke all on function "public"."reset_outreach_opportunities"(uuid, uuid[]) from "anon";
+
+revoke all on function "public"."reset_outreach_opportunities"(uuid, uuid[]) from "authenticated";
 
 revoke all on function "public"."reset_outreach_opportunities"(uuid, uuid[]) from "service_role";
 
 revoke all on function "public"."set_outreach_silence"(uuid, boolean, text, timestamp with time zone, timestamp with time zone) from "anon";
 
+revoke all on function "public"."set_outreach_silence"(uuid, boolean, text, timestamp with time zone, timestamp with time zone) from "authenticated";
+
 revoke all on function "public"."set_outreach_silence"(uuid, boolean, text, timestamp with time zone, timestamp with time zone) from "service_role";
 
 revoke all on function "public"."set_outreach_snooze"(uuid, timestamp with time zone, text, timestamp with time zone) from "anon";
+
+revoke all on function "public"."set_outreach_snooze"(uuid, timestamp with time zone, text, timestamp with time zone) from "authenticated";
 
 revoke all on function "public"."set_outreach_snooze"(uuid, timestamp with time zone, text, timestamp with time zone) from "service_role";
 
@@ -92,9 +119,13 @@ revoke all on function "public"."set_updated_at"() from "service_role";
 
 revoke all on function "public"."suspend_outreach_membership"(uuid, uuid, text, timestamp with time zone) from "anon";
 
+revoke all on function "public"."suspend_outreach_membership"(uuid, uuid, text, timestamp with time zone) from "authenticated";
+
 revoke all on function "public"."suspend_outreach_membership"(uuid, uuid, text, timestamp with time zone) from "service_role";
 
 revoke all on function "public"."transfer_outreach_owner"(uuid, uuid, text, timestamp with time zone) from "anon";
+
+revoke all on function "public"."transfer_outreach_owner"(uuid, uuid, text, timestamp with time zone) from "authenticated";
 
 revoke all on function "public"."transfer_outreach_owner"(uuid, uuid, text, timestamp with time zone) from "service_role";
 
@@ -109,6 +140,8 @@ revoke all on function "public"."validate_outreach_owner_membership"() from "ano
 revoke all on function "public"."validate_outreach_owner_membership"() from "authenticated";
 
 revoke all on function "public"."validate_outreach_owner_membership"() from "service_role";
+
+revoke all on schema "public" from public;
 
 revoke all on table "public"."invitations" from "anon";
 
@@ -2147,8 +2180,9 @@ create policy "members delete meeting availability" on "public"."meeting_availab
   using ((private.can_manage_semester(semester_id, ( select auth.uid() as uid)) or (exists ( select 1
    from public.semester_memberships membership
   where
-    ((membership.id = meeting_availability.semester_membership_id) AND (membership.semester_id = meeting_availability.semester_id) AND (membership.profile_id = ( select auth.uid()
-    as uid)) AND (membership.status = ANY (ARRAY['onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status])))))));
+    ((membership.id = meeting_availability.semester_membership_id) AND (membership.semester_id = meeting_availability.semester_id) AND (membership.profile_id = ( select
+    private.current_profile_id(( select auth.uid() as uid)) as current_profile_id)) AND
+    (membership.status = ANY (ARRAY['onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status])))))));
 
 create policy "members insert meeting availability" on "public"."meeting_availability"
   for insert
@@ -2156,8 +2190,9 @@ create policy "members insert meeting availability" on "public"."meeting_availab
   with check ((private.can_manage_semester(semester_id, ( SELECT auth.uid() AS uid)) OR ((EXISTS ( SELECT 1
    FROM public.semester_memberships membership
   WHERE
-    ((membership.id = meeting_availability.semester_membership_id) AND (membership.semester_id = meeting_availability.semester_id) AND (membership.profile_id = ( SELECT auth.uid()
-    AS uid)) AND (membership.status = ANY (ARRAY['onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status]))))) AND (EXISTS ( SELECT 1
+    ((membership.id = meeting_availability.semester_membership_id) AND (membership.semester_id = meeting_availability.semester_id) AND (membership.profile_id = ( SELECT
+    private.current_profile_id(( SELECT auth.uid() AS uid)) AS current_profile_id)) AND
+    (membership.status = ANY (ARRAY['onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status]))))) AND (EXISTS ( SELECT 1
    FROM public.meetings meeting
   WHERE ((meeting.id = meeting_availability.meeting_id) AND (meeting.semester_id = meeting_availability.semester_id)))))));
 
@@ -2167,13 +2202,15 @@ create policy "members update meeting availability" on "public"."meeting_availab
   using ((private.can_manage_semester(semester_id, ( select auth.uid() as uid)) or (exists ( select 1
    from public.semester_memberships membership
   where
-    ((membership.id = meeting_availability.semester_membership_id) AND (membership.semester_id = meeting_availability.semester_id) AND (membership.profile_id = ( select auth.uid()
-    as uid)) AND (membership.status = ANY (ARRAY['onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status])))))))
+    ((membership.id = meeting_availability.semester_membership_id) AND (membership.semester_id = meeting_availability.semester_id) AND (membership.profile_id = ( select
+    private.current_profile_id(( select auth.uid() as uid)) as current_profile_id)) AND
+    (membership.status = ANY (ARRAY['onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status])))))))
   with check ((private.can_manage_semester(semester_id, ( SELECT auth.uid() AS uid)) OR ((EXISTS ( SELECT 1
    FROM public.semester_memberships membership
   WHERE
-    ((membership.id = meeting_availability.semester_membership_id) AND (membership.semester_id = meeting_availability.semester_id) AND (membership.profile_id = ( SELECT auth.uid()
-    AS uid)) AND (membership.status = ANY (ARRAY['onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status]))))) AND (EXISTS ( SELECT 1
+    ((membership.id = meeting_availability.semester_membership_id) AND (membership.semester_id = meeting_availability.semester_id) AND (membership.profile_id = ( SELECT
+    private.current_profile_id(( SELECT auth.uid() AS uid)) AS current_profile_id)) AND
+    (membership.status = ANY (ARRAY['onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status]))))) AND (EXISTS ( SELECT 1
    FROM public.meetings meeting
   WHERE ((meeting.id = meeting_availability.meeting_id) AND (meeting.semester_id = meeting_availability.semester_id)))))));
 
@@ -2183,8 +2220,8 @@ create policy "owners or admins read meeting availability" on "public"."meeting_
   using ((private.can_manage_semester(semester_id, ( select auth.uid() as uid)) or (exists ( select 1
    from public.semester_memberships membership
   where
-    ((membership.id = meeting_availability.semester_membership_id) AND (membership.semester_id = meeting_availability.semester_id) AND (membership.profile_id = ( select auth.uid()
-    as uid)))))));
+    ((membership.id = meeting_availability.semester_membership_id) AND (membership.semester_id = meeting_availability.semester_id) AND (membership.profile_id = ( select
+    private.current_profile_id(( select auth.uid() as uid)) as current_profile_id)))))));
 
 create policy "cohort members read meetings" on "public"."meetings"
   for select
@@ -2194,17 +2231,19 @@ create policy "cohort members read meetings" on "public"."meetings"
 create policy "mentors update their own mentor profile" on "public"."mentor_profiles"
   for update
   to "authenticated"
-  using ((profile_id = ( select auth.uid() as uid)))
-  with check ((profile_id = ( SELECT auth.uid() AS uid)));
+  using ((profile_id = ( select private.current_profile_id(( select auth.uid() as uid)) as current_profile_id)))
+  with check ((profile_id = ( SELECT private.current_profile_id(( SELECT auth.uid() AS uid)) AS current_profile_id)));
 
 create policy "program members read mentor profiles" on "public"."mentor_profiles"
   for select
   to "authenticated"
-  using (((profile_id = ( select auth.uid() as uid)) or private.is_super_admin(( select auth.uid() as uid)) or (exists ( select 1
+  using
+    (((profile_id = ( select private.current_profile_id(( select auth.uid() as uid)) as current_profile_id)) or private.is_super_admin(( select auth.uid() as uid)) or (exists (
+    select 1
    from public.semester_memberships viewer_membership
   where
-    ((viewer_membership.profile_id = ( select auth.uid() as uid)) AND (viewer_membership.status = ANY (ARRAY['onboarding'::public.membership_lifecycle_status,
-    'active'::public.membership_lifecycle_status])))))));
+    ((viewer_membership.profile_id = ( select private.current_profile_id(( select auth.uid() as uid)) as current_profile_id)) AND (viewer_membership.status = ANY
+    (ARRAY['onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status])))))));
 
 create policy "mentors update their own semester profile" on "public"."mentor_semesters"
   for update
@@ -2213,12 +2252,14 @@ create policy "mentors update their own semester profile" on "public"."mentor_se
    from public.semester_memberships mentor_membership
   where
     ((mentor_membership.id = mentor_semesters.semester_membership_id) AND (mentor_membership.semester_id = mentor_semesters.semester_id) AND (mentor_membership.profile_id = (
-    select auth.uid() as uid)) AND (mentor_membership.status = ANY (ARRAY['onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status]))))))
+    select private.current_profile_id(( select auth.uid() as uid)) as current_profile_id)) AND
+    (mentor_membership.status = ANY (ARRAY['onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status]))))))
   with check ((EXISTS ( SELECT 1
    FROM public.semester_memberships mentor_membership
   WHERE
     ((mentor_membership.id = mentor_semesters.semester_membership_id) AND (mentor_membership.semester_id = mentor_semesters.semester_id) AND (mentor_membership.profile_id = (
-    SELECT auth.uid() AS uid)) AND (mentor_membership.status = ANY (ARRAY['onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status]))))));
+    SELECT private.current_profile_id(( SELECT auth.uid() AS uid)) AS current_profile_id)) AND
+    (mentor_membership.status = ANY (ARRAY['onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status]))))));
 
 create policy "program members read mentor semesters" on "public"."mentor_semesters"
   for select
@@ -2227,13 +2268,13 @@ create policy "program members read mentor semesters" on "public"."mentor_semest
    from public.semester_memberships mentor_membership
   where
     ((mentor_membership.id = mentor_semesters.semester_membership_id) AND (mentor_membership.semester_id = mentor_semesters.semester_id) AND ((mentor_membership.profile_id = (
-    select auth.uid() as uid)) or
+    select private.current_profile_id(( select auth.uid() as uid)) as current_profile_id)) or
     ((mentor_membership.role = 'mentor'::public.user_role) AND (mentor_membership.status = ANY (ARRAY['onboarding'::public.membership_lifecycle_status,
     'active'::public.membership_lifecycle_status, 'alumni'::public.membership_lifecycle_status])) AND (exists ( select 1
            from public.semester_memberships viewer_membership
           where
-            ((viewer_membership.profile_id = ( select auth.uid() as uid)) AND (viewer_membership.status = ANY (ARRAY['onboarding'::public.membership_lifecycle_status,
-            'active'::public.membership_lifecycle_status]))))))))))));
+            ((viewer_membership.profile_id = ( select private.current_profile_id(( select auth.uid() as uid)) as current_profile_id)) AND (viewer_membership.status = ANY
+            (ARRAY['onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status]))))))))))));
 
 create policy "semester admins read outreach activities" on "public"."outreach_activities"
   for select
@@ -2297,23 +2338,24 @@ create policy "semester admins update outreach opportunities" on "public"."outre
 create policy "owners or super admins read platform roles" on "public"."platform_roles"
   for select
   to "authenticated"
-  using (((profile_id = ( select auth.uid() as uid)) or private.is_super_admin(( select auth.uid() as uid))));
+  using (((profile_id = ( select private.current_profile_id(( select auth.uid() as uid)) as current_profile_id)) or private.is_super_admin(( select auth.uid() as uid))));
 
 create policy "program members read profiles" on "public"."profiles"
   for select
   to "authenticated"
-  using (((id = ( select auth.uid() as uid)) or private.is_super_admin(( select auth.uid() as uid)) or (exists ( select 1
+  using
+    (((id = ( select private.current_profile_id(( select auth.uid() as uid)) as current_profile_id)) or private.is_super_admin(( select auth.uid() as uid)) or (exists ( select 1
    from public.semester_memberships administrator
   where
-    ((administrator.profile_id = ( select auth.uid() as uid)) AND (administrator.role = 'admin'::public.user_role) AND (administrator.status = ANY
-    (ARRAY['onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status]))))) or
+    ((administrator.profile_id = ( select private.current_profile_id(( select auth.uid() as uid)) as current_profile_id)) AND (administrator.role = 'admin'::public.user_role) AND
+    (administrator.status = ANY (ARRAY['onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status]))))) or
     private.can_read_mentor_profile(id, ( select auth.uid() as uid))));
 
 create policy "users update their own profile" on "public"."profiles"
   for update
   to "authenticated"
-  using ((id = ( select auth.uid() as uid)))
-  with check ((id = ( SELECT auth.uid() AS uid)));
+  using ((id = ( select private.current_profile_id(( select auth.uid() as uid)) as current_profile_id)))
+  with check ((id = ( SELECT private.current_profile_id(( SELECT auth.uid() AS uid)) AS current_profile_id)));
 
 create policy "semester admins read program audit" on "public"."program_audit_events"
   for select
@@ -2324,8 +2366,10 @@ create policy "members read authorized semester memberships" on "public"."semest
   for select
   to "authenticated"
   using
-    (((profile_id = ( select auth.uid() as uid)) or private.can_manage_semester(semester_id, ( select auth.uid() as uid)) or ((role = 'mentor'::public.user_role) AND (status = ANY
-    (ARRAY['onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status, 'alumni'::public.membership_lifecycle_status])) AND (exists ( select 1
+    (((profile_id = ( select private.current_profile_id(( select auth.uid() as uid)) as current_profile_id)) or private.can_manage_semester(semester_id, ( select auth.uid() as
+    uid)) or
+    ((role = 'mentor'::public.user_role) AND (status = ANY (ARRAY['onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status,
+    'alumni'::public.membership_lifecycle_status])) AND (exists ( select 1
    from public.semesters viewer_semester
   where private.has_semester_role(viewer_semester.id, ARRAY['admin'::public.user_role, 'mentor'::public.user_role, 'startup'::public.user_role], ( select auth.uid() as uid)))))));
 
@@ -2342,14 +2386,14 @@ create policy "admins or mentors update sessions" on "public"."sessions"
      JOIN public.semester_memberships membership on ((membership.id = mentor_term.semester_membership_id)))
   where
     ((mentor_term.id = sessions.mentor_semester_id) AND (mentor_term.semester_id = sessions.semester_id) AND (membership.semester_id = sessions.semester_id) AND
-    (membership.profile_id = ( select auth.uid() as uid)) AND (membership.role = 'mentor'::public.user_role) AND
+    (membership.profile_id = ( select private.current_profile_id(( select auth.uid() as uid)) as current_profile_id)) AND (membership.role = 'mentor'::public.user_role) AND
     (membership.status = ANY (ARRAY['onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status])))))))
   with check ((private.can_manage_semester(semester_id, ( SELECT auth.uid() AS uid)) OR ((status = ANY (ARRAY['confirmed'::text, 'declined'::text])) AND (EXISTS ( SELECT 1
    FROM (public.mentor_semesters mentor_term
      JOIN public.semester_memberships membership ON ((membership.id = mentor_term.semester_membership_id)))
   WHERE
     ((mentor_term.id = sessions.mentor_semester_id) AND (mentor_term.semester_id = sessions.semester_id) AND (membership.semester_id = sessions.semester_id) AND
-    (membership.profile_id = ( SELECT auth.uid() AS uid)) AND (membership.role = 'mentor'::public.user_role) AND
+    (membership.profile_id = ( SELECT private.current_profile_id(( SELECT auth.uid() AS uid)) AS current_profile_id)) AND (membership.role = 'mentor'::public.user_role) AND
     (membership.status = ANY (ARRAY['onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status]))))))));
 
 create policy "participants read sessions" on "public"."sessions"
@@ -2360,12 +2404,12 @@ create policy "participants read sessions" on "public"."sessions"
      JOIN public.semester_memberships membership on ((membership.id = mentor_term.semester_membership_id)))
   where
     ((mentor_term.id = sessions.mentor_semester_id) AND (mentor_term.semester_id = sessions.semester_id) AND (membership.semester_id = sessions.semester_id) AND
-    (membership.profile_id = ( select auth.uid() as uid))))) or (exists ( select 1
+    (membership.profile_id = ( select private.current_profile_id(( select auth.uid() as uid)) as current_profile_id))))) or (exists ( select 1
    from (public.startup_team_memberships team
      JOIN public.semester_memberships membership on ((membership.id = team.semester_membership_id)))
   where
     ((team.startup_semester_id = sessions.startup_semester_id) AND (team.semester_id = sessions.semester_id) AND (membership.semester_id = sessions.semester_id) AND
-    (membership.profile_id = ( select auth.uid() as uid)))))));
+    (membership.profile_id = ( select private.current_profile_id(( select auth.uid() as uid)) as current_profile_id)))))));
 
 create policy "semester admins delete sessions" on "public"."sessions"
   for delete
@@ -2380,7 +2424,7 @@ create policy "startups request sessions" on "public"."sessions"
      JOIN public.semester_memberships membership ON ((membership.id = team.semester_membership_id)))
   WHERE
     ((team.startup_semester_id = sessions.startup_semester_id) AND (team.semester_id = sessions.semester_id) AND (membership.semester_id = sessions.semester_id) AND
-    (membership.profile_id = ( SELECT auth.uid() AS uid)) AND (membership.role = 'startup'::public.user_role) AND
+    (membership.profile_id = ( SELECT private.current_profile_id(( SELECT auth.uid() AS uid)) AS current_profile_id)) AND (membership.role = 'startup'::public.user_role) AND
     (membership.status = ANY (ARRAY['onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status]))))))));
 
 create policy "cohort members read startup organizations" on "public"."startup_organizations"
@@ -2405,14 +2449,14 @@ create policy "startup teams update startup semesters" on "public"."startup_seme
      JOIN public.semester_memberships membership on ((membership.id = team.semester_membership_id)))
   where
     ((team.startup_semester_id = startup_semesters.id) AND (team.semester_id = startup_semesters.semester_id) AND (membership.semester_id = startup_semesters.semester_id) AND
-    (membership.profile_id = ( select auth.uid() as uid)) AND (membership.role = 'startup'::public.user_role) AND
+    (membership.profile_id = ( select private.current_profile_id(( select auth.uid() as uid)) as current_profile_id)) AND (membership.role = 'startup'::public.user_role) AND
     (membership.status = ANY (ARRAY['onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status])))))))
   with check ((private.can_manage_semester(semester_id, ( SELECT auth.uid() AS uid)) OR (EXISTS ( SELECT 1
    FROM (public.startup_team_memberships team
      JOIN public.semester_memberships membership ON ((membership.id = team.semester_membership_id)))
   WHERE
     ((team.startup_semester_id = startup_semesters.id) AND (team.semester_id = startup_semesters.semester_id) AND (membership.semester_id = startup_semesters.semester_id) AND
-    (membership.profile_id = ( SELECT auth.uid() AS uid)) AND (membership.role = 'startup'::public.user_role) AND
+    (membership.profile_id = ( SELECT private.current_profile_id(( SELECT auth.uid() AS uid)) AS current_profile_id)) AND (membership.role = 'startup'::public.user_role) AND
     (membership.status = ANY (ARRAY['onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status])))))));
 
 create policy "owners or admins read startup team memberships" on "public"."startup_team_memberships"
@@ -2422,7 +2466,7 @@ create policy "owners or admins read startup team memberships" on "public"."star
    from public.semester_memberships membership
   where
     ((membership.id = startup_team_memberships.semester_membership_id) AND (membership.semester_id = startup_team_memberships.semester_id) AND (membership.profile_id = ( select
-    auth.uid() as uid)))))));
+    private.current_profile_id(( select auth.uid() as uid)) as current_profile_id)))))));
 
 revoke all on function "private"."actor_can_manage_semester"(uuid, uuid) from public;
 
@@ -2438,15 +2482,15 @@ grant execute on function "private"."actor_is_super_admin"(uuid) to "postgres";
 
 revoke all on function "private"."can_manage_semester"(uuid, uuid) from public;
 
-grant execute on function "private"."can_manage_semester"(uuid, uuid) to "authenticated", "postgres";
+grant execute on function "private"."can_manage_semester"(uuid, uuid) to "postgres";
 
 revoke all on function "private"."can_read_mentor_profile"(uuid, uuid) from public;
 
-grant execute on function "private"."can_read_mentor_profile"(uuid, uuid) to "authenticated", "postgres";
+grant execute on function "private"."can_read_mentor_profile"(uuid, uuid) to "postgres";
 
 revoke all on function "private"."can_read_outreach_relationship_labels"(uuid) from public;
 
-grant execute on function "private"."can_read_outreach_relationship_labels"(uuid) to "authenticated", "postgres";
+grant execute on function "private"."can_read_outreach_relationship_labels"(uuid) to "postgres";
 
 revoke all on function "private"."current_profile_id"(uuid) from public;
 
@@ -2454,39 +2498,39 @@ grant execute on function "private"."current_profile_id"(uuid) to "postgres";
 
 revoke all on function "private"."has_outreach_company_access"(uuid, uuid) from public;
 
-grant execute on function "private"."has_outreach_company_access"(uuid, uuid) to "authenticated", "postgres";
+grant execute on function "private"."has_outreach_company_access"(uuid, uuid) to "postgres";
 
 revoke all on function "private"."has_outreach_contact_access"(uuid, uuid) from public;
 
-grant execute on function "private"."has_outreach_contact_access"(uuid, uuid) to "authenticated", "postgres";
+grant execute on function "private"."has_outreach_contact_access"(uuid, uuid) to "postgres";
 
 revoke all on function "private"."has_semester_role"(uuid, public.user_role[], uuid) from public;
 
-grant execute on function "private"."has_semester_role"(uuid, public.user_role[], uuid) to "authenticated", "postgres";
+grant execute on function "private"."has_semester_role"(uuid, public.user_role[], uuid) to "postgres";
 
 revoke all on function "private"."is_super_admin"(uuid) from public;
 
-grant execute on function "private"."is_super_admin"(uuid) to "authenticated", "postgres";
+grant execute on function "private"."is_super_admin"(uuid) to "postgres";
 
 revoke all on function "public"."authorize_semester_member_identity_update"(uuid, uuid) from public;
 
-grant execute on function "public"."authorize_semester_member_identity_update"(uuid, uuid) to "authenticated", "postgres";
+grant execute on function "public"."authorize_semester_member_identity_update"(uuid, uuid) to "postgres";
 
 revoke all on function "public"."commit_mentor_assignment"(uuid, uuid, smallint, uuid, uuid, text, text, text, text[], text, jsonb) from public;
 
-grant execute on function "public"."commit_mentor_assignment"(uuid, uuid, smallint, uuid, uuid, text, text, text, text[], text, jsonb) to "authenticated", "postgres";
+grant execute on function "public"."commit_mentor_assignment"(uuid, uuid, smallint, uuid, uuid, text, text, text, text[], text, jsonb) to "postgres";
 
 revoke all on function "public"."create_mentor_records"(uuid, uuid, uuid, text, text, text, text[], boolean, text, text, text, text, text) from public;
 
-grant execute on function "public"."create_mentor_records"(uuid, uuid, uuid, text, text, text, text[], boolean, text, text, text, text, text) to "postgres", "service_role";
+grant execute on function "public"."create_mentor_records"(uuid, uuid, uuid, text, text, text, text[], boolean, text, text, text, text, text) to "postgres";
 
 revoke all on function "public"."move_startup_team_membership"(uuid, uuid, uuid) from public;
 
-grant execute on function "public"."move_startup_team_membership"(uuid, uuid, uuid) to "authenticated", "postgres";
+grant execute on function "public"."move_startup_team_membership"(uuid, uuid, uuid) to "postgres";
 
 revoke all on function "public"."replace_draft_meetings"(uuid, jsonb) from public;
 
-grant execute on function "public"."replace_draft_meetings"(uuid, jsonb) to "authenticated", "postgres";
+grant execute on function "public"."replace_draft_meetings"(uuid, jsonb) to "postgres";
 
 revoke all on function "public"."set_platform_super_admin"(uuid, boolean) from public;
 
@@ -2494,29 +2538,27 @@ grant execute on function "public"."set_platform_super_admin"(uuid, boolean) to 
 
 revoke all on function "public"."set_semester_member_access"(uuid, uuid, uuid, public.user_role, boolean, text, text) from public;
 
-grant execute on function "public"."set_semester_member_access"(uuid, uuid, uuid, public.user_role, boolean, text, text) to "postgres", "service_role";
+grant execute on function "public"."set_semester_member_access"(uuid, uuid, uuid, public.user_role, boolean, text, text) to "postgres";
 
 revoke all on function "public"."set_updated_at"() from public;
 
 revoke all on function "public"."update_mentor_records"(uuid, uuid, jsonb) from public;
 
-grant execute on function "public"."update_mentor_records"(uuid, uuid, jsonb) to "postgres", "service_role";
+grant execute on function "public"."update_mentor_records"(uuid, uuid, jsonb) to "postgres";
 
 revoke all on function "public"."update_own_onboarding_progress"(uuid, uuid, jsonb, boolean) from public;
 
-grant execute on function "public"."update_own_onboarding_progress"(uuid, uuid, jsonb, boolean) to "authenticated", "postgres";
+grant execute on function "public"."update_own_onboarding_progress"(uuid, uuid, jsonb, boolean) to "postgres";
 
 revoke all on function "public"."update_startup_records"(uuid, text, text, text, text, text, text[], text[]) from public;
 
-grant execute on function "public"."update_startup_records"(uuid, text, text, text, text, text, text[], text[]) to "authenticated", "postgres";
+grant execute on function "public"."update_startup_records"(uuid, text, text, text, text, text, text[], text[]) to "postgres";
 
 revoke all on function "public"."update_updated_at"() from public;
 
 revoke all on function "public"."upsert_outreach_contact_bundle"(uuid, uuid, text, text, text, text, text, uuid, text, text, text, text, uuid, text, text[], jsonb) from public;
 
-grant execute
-  on function "public"."upsert_outreach_contact_bundle"(uuid, uuid, text, text, text, text, text, uuid, text, text, text, text, uuid, text, text[], jsonb)
-  to "authenticated", "postgres";
+grant execute on function "public"."upsert_outreach_contact_bundle"(uuid, uuid, text, text, text, text, text, uuid, text, text, text, text, uuid, text, text[], jsonb) to "postgres";
 
 grant usage on schema "private" to "authenticated";
 
@@ -2526,30 +2568,6 @@ revoke all on table "public"."invitations" from "authenticated";
 
 grant select on table "public"."invitations" to "authenticated";
 
-revoke all ("is_available") on table "public"."meeting_availability" from "authenticated";
-
-grant insert ("is_available"), update ("is_available") on table "public"."meeting_availability" to "authenticated";
-
-revoke all ("meeting_id") on table "public"."meeting_availability" from "authenticated";
-
-grant insert ("meeting_id"), update ("meeting_id") on table "public"."meeting_availability" to "authenticated";
-
-revoke all ("semester_id") on table "public"."meeting_availability" from "authenticated";
-
-grant insert ("semester_id"), update ("semester_id") on table "public"."meeting_availability" to "authenticated";
-
-revoke all ("semester_membership_id") on table "public"."meeting_availability" from "authenticated";
-
-grant insert ("semester_membership_id"), update ("semester_membership_id") on table "public"."meeting_availability" to "authenticated";
-
-revoke all ("slot") on table "public"."meeting_availability" from "authenticated";
-
-grant insert ("slot"), update ("slot") on table "public"."meeting_availability" to "authenticated";
-
-revoke all ("source") on table "public"."meeting_availability" from "authenticated";
-
-grant insert ("source"), update ("source") on table "public"."meeting_availability" to "authenticated";
-
 revoke all on table "public"."meeting_availability" from "authenticated";
 
 grant delete, select on table "public"."meeting_availability" to "authenticated";
@@ -2557,18 +2575,6 @@ grant delete, select on table "public"."meeting_availability" to "authenticated"
 revoke all on table "public"."meetings" from "authenticated";
 
 grant select on table "public"."meetings" to "authenticated";
-
-revoke all ("label") on table "public"."meetings" from "service_role";
-
-grant insert ("label") on table "public"."meetings" to "service_role";
-
-revoke all ("meeting_date") on table "public"."meetings" from "service_role";
-
-grant insert ("meeting_date") on table "public"."meetings" to "service_role";
-
-revoke all ("semester_id") on table "public"."meetings" from "service_role";
-
-grant insert ("semester_id") on table "public"."meetings" to "service_role";
 
 revoke all on table "public"."meetings" from "service_role";
 
@@ -2598,121 +2604,17 @@ revoke all on table "public"."outreach_companies" from "authenticated";
 
 grant select on table "public"."outreach_companies" to "authenticated";
 
-revoke all ("company_id") on table "public"."outreach_contact_companies" from "authenticated";
-
-grant update ("company_id") on table "public"."outreach_contact_companies" to "authenticated";
-
-revoke all ("contact_id") on table "public"."outreach_contact_companies" from "authenticated";
-
-grant update ("contact_id") on table "public"."outreach_contact_companies" to "authenticated";
-
-revoke all ("is_primary") on table "public"."outreach_contact_companies" from "authenticated";
-
-grant update ("is_primary") on table "public"."outreach_contact_companies" to "authenticated";
-
 revoke all on table "public"."outreach_contact_companies" from "authenticated";
 
 grant select on table "public"."outreach_contact_companies" to "authenticated";
-
-revoke all ("biography") on table "public"."outreach_contacts" from "authenticated";
-
-grant update ("biography") on table "public"."outreach_contacts" to "authenticated";
-
-revoke all ("email") on table "public"."outreach_contacts" from "authenticated";
-
-grant update ("email") on table "public"."outreach_contacts" to "authenticated";
-
-revoke all ("expertise_tags") on table "public"."outreach_contacts" from "authenticated";
-
-grant update ("expertise_tags") on table "public"."outreach_contacts" to "authenticated";
-
-revoke all ("full_name") on table "public"."outreach_contacts" from "authenticated";
-
-grant update ("full_name") on table "public"."outreach_contacts" to "authenticated";
-
-revoke all ("linkedin_url") on table "public"."outreach_contacts" from "authenticated";
-
-grant update ("linkedin_url") on table "public"."outreach_contacts" to "authenticated";
-
-revoke all ("notes") on table "public"."outreach_contacts" from "authenticated";
-
-grant update ("notes") on table "public"."outreach_contacts" to "authenticated";
-
-revoke all ("phone") on table "public"."outreach_contacts" from "authenticated";
-
-grant update ("phone") on table "public"."outreach_contacts" to "authenticated";
 
 revoke all on table "public"."outreach_contacts" from "authenticated";
 
 grant select on table "public"."outreach_contacts" to "authenticated";
 
-revoke all ("committed_at") on table "public"."outreach_imports" from "authenticated";
-
-grant update ("committed_at") on table "public"."outreach_imports" to "authenticated";
-
-revoke all ("created_by") on table "public"."outreach_imports" from "authenticated";
-
-grant insert ("created_by") on table "public"."outreach_imports" to "authenticated";
-
-revoke all ("idempotency_key") on table "public"."outreach_imports" from "authenticated";
-
-grant insert ("idempotency_key"), update ("idempotency_key") on table "public"."outreach_imports" to "authenticated";
-
-revoke all ("result") on table "public"."outreach_imports" from "authenticated";
-
-grant insert ("result"), update ("result") on table "public"."outreach_imports" to "authenticated";
-
-revoke all ("rows") on table "public"."outreach_imports" from "authenticated";
-
-grant insert ("rows") on table "public"."outreach_imports" to "authenticated";
-
-revoke all ("semester_id") on table "public"."outreach_imports" from "authenticated";
-
-grant insert ("semester_id") on table "public"."outreach_imports" to "authenticated";
-
-revoke all ("source_name") on table "public"."outreach_imports" from "authenticated";
-
-grant insert ("source_name") on table "public"."outreach_imports" to "authenticated";
-
-revoke all ("status") on table "public"."outreach_imports" from "authenticated";
-
-grant insert ("status"), update ("status") on table "public"."outreach_imports" to "authenticated";
-
-revoke all ("updated_at") on table "public"."outreach_imports" from "authenticated";
-
-grant update ("updated_at") on table "public"."outreach_imports" to "authenticated";
-
 revoke all on table "public"."outreach_imports" from "authenticated";
 
 grant select on table "public"."outreach_imports" to "authenticated";
-
-revoke all ("contact_id") on table "public"."outreach_opportunities" from "authenticated";
-
-grant update ("contact_id") on table "public"."outreach_opportunities" to "authenticated";
-
-revoke all ("created_by") on table "public"."outreach_opportunities" from "authenticated";
-
-grant update ("created_by") on table "public"."outreach_opportunities" to "authenticated";
-
-revoke all ("owner_profile_id") on table "public"."outreach_opportunities" from "authenticated";
-
-grant update ("owner_profile_id") on table "public"."outreach_opportunities" to "authenticated";
-
-revoke all ("relationship_types") on table "public"."outreach_opportunities" from "authenticated";
-
-grant update ("relationship_types") on table "public"."outreach_opportunities" to "authenticated";
-
-revoke all ("semester_id") on table "public"."outreach_opportunities" from "authenticated";
-
-grant update ("semester_id") on table "public"."outreach_opportunities" to "authenticated";
-
-revoke all ("source_context") on table "public"."outreach_opportunities" from "authenticated";
-
-grant update ("source_context") on table "public"."outreach_opportunities" to "authenticated";
-
-revoke all ("stage") on table "public"."outreach_opportunities" from "authenticated";
-
-grant update ("stage") on table "public"."outreach_opportunities" to "authenticated";
 
 revoke all on table "public"."outreach_opportunities" from "authenticated";
 
@@ -2722,17 +2624,9 @@ revoke all on table "public"."platform_roles" from "authenticated";
 
 grant select on table "public"."platform_roles" to "authenticated";
 
-revoke all ("full_name") on table "public"."profiles" from "authenticated";
-
-grant update ("full_name") on table "public"."profiles" to "authenticated";
-
 revoke all on table "public"."profiles" from "authenticated";
 
 grant select on table "public"."profiles" to "authenticated";
-
-revoke all ("status") on table "public"."profiles" from "service_role";
-
-grant update ("status") on table "public"."profiles" to "service_role";
 
 revoke all on table "public"."profiles" from "service_role";
 
@@ -2742,22 +2636,6 @@ revoke all on table "public"."semester_memberships" from "authenticated";
 
 grant select on table "public"."semester_memberships" to "authenticated";
 
-revoke all ("profile_id") on table "public"."semester_memberships" from "service_role";
-
-grant insert ("profile_id") on table "public"."semester_memberships" to "service_role";
-
-revoke all ("role") on table "public"."semester_memberships" from "service_role";
-
-grant insert ("role") on table "public"."semester_memberships" to "service_role";
-
-revoke all ("semester_id") on table "public"."semester_memberships" from "service_role";
-
-grant insert ("semester_id") on table "public"."semester_memberships" to "service_role";
-
-revoke all ("status") on table "public"."semester_memberships" from "service_role";
-
-grant insert ("status"), update ("status") on table "public"."semester_memberships" to "service_role";
-
 revoke all on table "public"."semester_memberships" from "service_role";
 
 grant select on table "public"."semester_memberships" to "service_role";
@@ -2766,81 +2644,9 @@ revoke all on table "public"."semesters" from "authenticated";
 
 grant select on table "public"."semesters" to "authenticated";
 
-revoke all ("format") on table "public"."sessions" from "authenticated";
-
-grant insert ("format") on table "public"."sessions" to "authenticated";
-
-revoke all ("meeting_id") on table "public"."sessions" from "authenticated";
-
-grant insert ("meeting_id") on table "public"."sessions" to "authenticated";
-
-revoke all ("mentor_semester_id") on table "public"."sessions" from "authenticated";
-
-grant insert ("mentor_semester_id") on table "public"."sessions" to "authenticated";
-
-revoke all ("semester_id") on table "public"."sessions" from "authenticated";
-
-grant insert ("semester_id") on table "public"."sessions" to "authenticated";
-
-revoke all ("slot") on table "public"."sessions" from "authenticated";
-
-grant insert ("slot") on table "public"."sessions" to "authenticated";
-
-revoke all ("startup_semester_id") on table "public"."sessions" from "authenticated";
-
-grant insert ("startup_semester_id") on table "public"."sessions" to "authenticated";
-
-revoke all ("status") on table "public"."sessions" from "authenticated";
-
-grant insert ("status"), update ("status") on table "public"."sessions" to "authenticated";
-
-revoke all ("topic") on table "public"."sessions" from "authenticated";
-
-grant insert ("topic") on table "public"."sessions" to "authenticated";
-
 revoke all on table "public"."sessions" from "authenticated";
 
 grant select on table "public"."sessions" to "authenticated";
-
-revoke all ("format") on table "public"."sessions" from "service_role";
-
-grant insert ("format"), update ("format") on table "public"."sessions" to "service_role";
-
-revoke all ("meeting_id") on table "public"."sessions" from "service_role";
-
-grant insert ("meeting_id") on table "public"."sessions" to "service_role";
-
-revoke all ("mentor_semester_id") on table "public"."sessions" from "service_role";
-
-grant insert ("mentor_semester_id"), update ("mentor_semester_id") on table "public"."sessions" to "service_role";
-
-revoke all ("semester_id") on table "public"."sessions" from "service_role";
-
-grant insert ("semester_id") on table "public"."sessions" to "service_role";
-
-revoke all ("slot") on table "public"."sessions" from "service_role";
-
-grant insert ("slot"), update ("slot") on table "public"."sessions" to "service_role";
-
-revoke all ("startup_absent") on table "public"."sessions" from "service_role";
-
-grant insert ("startup_absent"), update ("startup_absent") on table "public"."sessions" to "service_role";
-
-revoke all ("startup_semester_id") on table "public"."sessions" from "service_role";
-
-grant insert ("startup_semester_id"), update ("startup_semester_id") on table "public"."sessions" to "service_role";
-
-revoke all ("status") on table "public"."sessions" from "service_role";
-
-grant insert ("status"), update ("status") on table "public"."sessions" to "service_role";
-
-revoke all ("substitute_name") on table "public"."sessions" from "service_role";
-
-grant insert ("substitute_name"), update ("substitute_name") on table "public"."sessions" to "service_role";
-
-revoke all ("topic") on table "public"."sessions" from "service_role";
-
-grant insert ("topic"), update ("topic") on table "public"."sessions" to "service_role";
 
 revoke all on table "public"."sessions" from "service_role";
 
@@ -2850,69 +2656,13 @@ revoke all on table "public"."startup_organizations" from "authenticated";
 
 grant select on table "public"."startup_organizations" to "authenticated";
 
-revoke all ("description") on table "public"."startup_organizations" from "service_role";
-
-grant insert ("description") on table "public"."startup_organizations" to "service_role";
-
-revoke all ("industry") on table "public"."startup_organizations" from "service_role";
-
-grant insert ("industry") on table "public"."startup_organizations" to "service_role";
-
-revoke all ("name") on table "public"."startup_organizations" from "service_role";
-
-grant insert ("name") on table "public"."startup_organizations" to "service_role";
-
-revoke all ("slug") on table "public"."startup_organizations" from "service_role";
-
-grant insert ("slug") on table "public"."startup_organizations" to "service_role";
-
 revoke all on table "public"."startup_organizations" from "service_role";
 
 grant select on table "public"."startup_organizations" to "service_role";
 
-revoke all ("goals") on table "public"."startup_semesters" from "authenticated";
-
-grant update ("goals") on table "public"."startup_semesters" to "authenticated";
-
-revoke all ("mentor_need_context") on table "public"."startup_semesters" from "authenticated";
-
-grant update ("mentor_need_context") on table "public"."startup_semesters" to "authenticated";
-
-revoke all ("mentor_need_no_preference") on table "public"."startup_semesters" from "authenticated";
-
-grant update ("mentor_need_no_preference") on table "public"."startup_semesters" to "authenticated";
-
-revoke all ("mentorship_needs") on table "public"."startup_semesters" from "authenticated";
-
-grant update ("mentorship_needs") on table "public"."startup_semesters" to "authenticated";
-
-revoke all ("preferred_expertise_tags") on table "public"."startup_semesters" from "authenticated";
-
-grant update ("preferred_expertise_tags") on table "public"."startup_semesters" to "authenticated";
-
 revoke all on table "public"."startup_semesters" from "authenticated";
 
 grant select on table "public"."startup_semesters" to "authenticated";
-
-revoke all ("preferred_expertise_tags") on table "public"."startup_semesters" from "service_role";
-
-grant insert ("preferred_expertise_tags") on table "public"."startup_semesters" to "service_role";
-
-revoke all ("readiness_status") on table "public"."startup_semesters" from "service_role";
-
-grant insert ("readiness_status") on table "public"."startup_semesters" to "service_role";
-
-revoke all ("semester_id") on table "public"."startup_semesters" from "service_role";
-
-grant insert ("semester_id") on table "public"."startup_semesters" to "service_role";
-
-revoke all ("stage") on table "public"."startup_semesters" from "service_role";
-
-grant insert ("stage") on table "public"."startup_semesters" to "service_role";
-
-revoke all ("startup_organization_id") on table "public"."startup_semesters" from "service_role";
-
-grant insert ("startup_organization_id") on table "public"."startup_semesters" to "service_role";
 
 revoke all on table "public"."startup_semesters" from "service_role";
 
@@ -2922,18 +2672,8 @@ revoke all on table "public"."startup_team_memberships" from "authenticated";
 
 grant select on table "public"."startup_team_memberships" to "authenticated";
 
-revoke all ("semester_id") on table "public"."startup_team_memberships" from "service_role";
-
-grant insert ("semester_id") on table "public"."startup_team_memberships" to "service_role";
-
-revoke all ("semester_membership_id") on table "public"."startup_team_memberships" from "service_role";
-
-grant insert ("semester_membership_id") on table "public"."startup_team_memberships" to "service_role";
-
-revoke all ("startup_semester_id") on table "public"."startup_team_memberships" from "service_role";
-
-grant insert ("startup_semester_id") on table "public"."startup_team_memberships" to "service_role";
-
 revoke all on table "public"."startup_team_memberships" from "service_role";
 
 grant delete, select on table "public"."startup_team_memberships" to "service_role";
+
+alter default privileges for role "postgres" revoke all on FUNCTIONS from public;

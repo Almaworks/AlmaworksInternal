@@ -62,6 +62,7 @@ grant update (mentor_semester_id, startup_semester_id, slot, status, topic, form
 grant delete on table public.startup_team_memberships, public.sessions to service_role;
 
 grant execute on function private.is_super_admin(uuid) to authenticated;
+grant execute on function private.current_profile_id(uuid) to authenticated;
 grant execute on function private.has_semester_role(uuid,public.user_role[],uuid) to authenticated;
 grant execute on function private.can_manage_semester(uuid,uuid) to authenticated;
 grant execute on function private.can_read_outreach_relationship_labels(uuid) to authenticated;

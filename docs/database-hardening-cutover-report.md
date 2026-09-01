@@ -6,23 +6,35 @@ Date: 2026-09-01
 
 The source catalog was read from the linked Supabase project only after verifying project ref `layjdjfvxkowxidwuvbs`. The schema-only fixture at `tests/database-revamp/production-baseline.sql` contains the 20 live Almaworks public tables and no visa or agent tables.
 
-The committed migration was generated mechanically from that fixture to a clean converged target with:
+The CLI's default `migra` engine omitted ACL changes. The schema-filtered pg-delta engine emitted ACLs but omitted the global PUBLIC function default revoke, and its single-file ordering placed table-wide revokes after column grants. The pgAdmin engine was tested against PostgreSQL 17 and a lightweight PostgreSQL 15 Supabase target and failed with `LegacyDbDiffPgAdminError`.
+
+Correctness therefore required two ordered migrations. Both were mechanically generated against a full-platform PostgreSQL 15 Supabase target so an unfiltered pg-delta diff could include the global default ACL without emitting unrelated platform changes. Stage A contains structure, broad revokes, default revokes, and final table-level SELECT/DELETE grants. Stage B contains the final column and RPC grants and no table-wide revokes.
+
+The exact generation commands were:
 
 ```powershell
 npm exec supabase -- db diff `
-  --db-url postgresql://postgres:postgres@127.0.0.1:54322/almaworks_prod_target `
-  --schema public,private `
+  --db-url "postgresql://postgres:postgres@127.0.0.1:55322/postgres?sslmode=disable" `
   --use-pg-delta `
-  -f database_hardening_cutover `
+  -f database_hardening_cutover_stage_a `
+  --workdir .generated-diff
+
+npm exec supabase -- db diff `
+  --db-url "postgresql://postgres:postgres@127.0.0.1:55322/postgres?sslmode=disable" `
+  --use-pg-delta `
+  -f database_hardening_cutover_stage_b `
   --workdir .generated-diff
 ```
 
-- File: `supabase/migrations/20260901171425_database_hardening_cutover.sql`
-- SHA-256: `986387A815B5660E27FD1B81B399E2687958221217D63F07F1C6CD0AC29D3614`
-- Size: 125,767 bytes
-- The generated file was copied byte-for-byte; it was not edited.
+- Stage A: `supabase/migrations/20260901181336_database_hardening_cutover_stage_a.sql`
+  - SHA-256: `85FEBA7C58F1062310281A4DEF39804F359BBC9242A26C3483B75E3D87979763`
+  - Size: 115,411 bytes
+- Stage B: `supabase/migrations/20260901181809_database_hardening_cutover_stage_b.sql`
+  - SHA-256: `A9DD84B7E50484272B79AFEDFB971DCDE153C5FB2A09A195C86F425B40BEF244`
+  - Size: 21,171 bytes
+- Both generated files were moved byte-for-byte and were not edited.
 - The prior unsafe generated cutover was deleted.
-- The final migration contains no visa or agent drops.
+- Neither migration contains visa or agent drops.
 
 ## Identity preservation decision
 
@@ -43,6 +55,9 @@ Seven live approved profiles currently rely only on the legacy role/cohort colum
 - a service-only actor profile can use the private capability helper
 - the auth-bound wrapper rejects the same direct service bypass
 - anonymous roles retain no routine execution
+- the exact authenticated/service table, column, and RPC allowlists match with no missing or extra privileges
+- a function created after the cutover is not executable by PUBLIC or `anon`
+- a historical durable profile with a different attached Auth UUID resolves through `private.current_profile_id`, passes the auth-bound admin helper, and remains visible through profile RLS
 
 The production-aligned pgTAP contract passes 40/40 assertions. Database lint reports no schema errors.
 
@@ -57,4 +72,4 @@ The production-aligned pgTAP contract passes 40/40 assertions. Database lint rep
 
 Read-only `supabase migration list --linked` shows remote-only and local-only migration versions. A verified dry run of normal `supabase db push --linked --dry-run --skip-vault` aborts with `LegacyDbPushMissingLocalError` before applying anything because 24 remote versions are absent locally. `--include-all` is unsafe because it could replay stale local-only migrations. No remote history was repaired or squashed.
 
-Consequently, normal `db push` must not be used for this cutover. The independently reviewed generated SQL is suitable for a single Supabase `apply_migration` management operation, which should append only this cutover after the operator re-verifies the exact project ref and migration hash.
+Consequently, normal `db push` must not be used for this cutover. The independently reviewed generated SQL is suitable for two ordered Supabase `apply_migration` management operations (Stage A, then Stage B), which should append only these cutovers after the operator re-verifies the exact project ref and both migration hashes.

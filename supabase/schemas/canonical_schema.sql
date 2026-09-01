@@ -2780,10 +2780,10 @@ ALTER TABLE ONLY "public"."startup_team_memberships"
 CREATE POLICY "admins or mentors update sessions" ON "public"."sessions" FOR UPDATE TO "authenticated" USING (("private"."can_manage_semester"("semester_id", ( SELECT "auth"."uid"() AS "uid")) OR (EXISTS ( SELECT 1
    FROM ("public"."mentor_semesters" "mentor_term"
      JOIN "public"."semester_memberships" "membership" ON (("membership"."id" = "mentor_term"."semester_membership_id")))
-  WHERE (("mentor_term"."id" = "sessions"."mentor_semester_id") AND ("mentor_term"."semester_id" = "sessions"."semester_id") AND ("membership"."semester_id" = "sessions"."semester_id") AND ("membership"."profile_id" = ( SELECT "auth"."uid"() AS "uid")) AND ("membership"."role" = 'mentor'::"public"."user_role") AND ("membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"]))))))) WITH CHECK (("private"."can_manage_semester"("semester_id", ( SELECT "auth"."uid"() AS "uid")) OR (("status" = ANY (ARRAY['confirmed'::"text", 'declined'::"text"])) AND (EXISTS ( SELECT 1
+  WHERE (("mentor_term"."id" = "sessions"."mentor_semester_id") AND ("mentor_term"."semester_id" = "sessions"."semester_id") AND ("membership"."semester_id" = "sessions"."semester_id") AND ("membership"."profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) AND ("membership"."role" = 'mentor'::"public"."user_role") AND ("membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"]))))))) WITH CHECK (("private"."can_manage_semester"("semester_id", ( SELECT "auth"."uid"() AS "uid")) OR (("status" = ANY (ARRAY['confirmed'::"text", 'declined'::"text"])) AND (EXISTS ( SELECT 1
    FROM ("public"."mentor_semesters" "mentor_term"
      JOIN "public"."semester_memberships" "membership" ON (("membership"."id" = "mentor_term"."semester_membership_id")))
-  WHERE (("mentor_term"."id" = "sessions"."mentor_semester_id") AND ("mentor_term"."semester_id" = "sessions"."semester_id") AND ("membership"."semester_id" = "sessions"."semester_id") AND ("membership"."profile_id" = ( SELECT "auth"."uid"() AS "uid")) AND ("membership"."role" = 'mentor'::"public"."user_role") AND ("membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"]))))))));
+  WHERE (("mentor_term"."id" = "sessions"."mentor_semester_id") AND ("mentor_term"."semester_id" = "sessions"."semester_id") AND ("membership"."semester_id" = "sessions"."semester_id") AND ("membership"."profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) AND ("membership"."role" = 'mentor'::"public"."user_role") AND ("membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"]))))))));
 
 
 
@@ -2816,19 +2816,19 @@ ALTER TABLE "public"."meetings" ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "members delete meeting availability" ON "public"."meeting_availability" FOR DELETE TO "authenticated" USING (("private"."can_manage_semester"("semester_id", ( SELECT "auth"."uid"() AS "uid")) OR (EXISTS ( SELECT 1
    FROM "public"."semester_memberships" "membership"
-  WHERE (("membership"."id" = "meeting_availability"."semester_membership_id") AND ("membership"."semester_id" = "meeting_availability"."semester_id") AND ("membership"."profile_id" = ( SELECT "auth"."uid"() AS "uid")) AND ("membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"])))))));
+  WHERE (("membership"."id" = "meeting_availability"."semester_membership_id") AND ("membership"."semester_id" = "meeting_availability"."semester_id") AND ("membership"."profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) AND ("membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"])))))));
 
 
 
 CREATE POLICY "members insert meeting availability" ON "public"."meeting_availability" FOR INSERT TO "authenticated" WITH CHECK (("private"."can_manage_semester"("semester_id", ( SELECT "auth"."uid"() AS "uid")) OR ((EXISTS ( SELECT 1
    FROM "public"."semester_memberships" "membership"
-  WHERE (("membership"."id" = "meeting_availability"."semester_membership_id") AND ("membership"."semester_id" = "meeting_availability"."semester_id") AND ("membership"."profile_id" = ( SELECT "auth"."uid"() AS "uid")) AND ("membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"]))))) AND (EXISTS ( SELECT 1
+  WHERE (("membership"."id" = "meeting_availability"."semester_membership_id") AND ("membership"."semester_id" = "meeting_availability"."semester_id") AND ("membership"."profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) AND ("membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"]))))) AND (EXISTS ( SELECT 1
    FROM "public"."meetings" "meeting"
   WHERE (("meeting"."id" = "meeting_availability"."meeting_id") AND ("meeting"."semester_id" = "meeting_availability"."semester_id")))))));
 
 
 
-CREATE POLICY "members read authorized semester memberships" ON "public"."semester_memberships" FOR SELECT TO "authenticated" USING ((("profile_id" = ( SELECT "auth"."uid"() AS "uid")) OR "private"."can_manage_semester"("semester_id", ( SELECT "auth"."uid"() AS "uid")) OR (("role" = 'mentor'::"public"."user_role") AND ("status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status", 'alumni'::"public"."membership_lifecycle_status"])) AND (EXISTS ( SELECT 1
+CREATE POLICY "members read authorized semester memberships" ON "public"."semester_memberships" FOR SELECT TO "authenticated" USING ((("profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) OR "private"."can_manage_semester"("semester_id", ( SELECT "auth"."uid"() AS "uid")) OR (("role" = 'mentor'::"public"."user_role") AND ("status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status", 'alumni'::"public"."membership_lifecycle_status"])) AND (EXISTS ( SELECT 1
    FROM "public"."semesters" "viewer_semester"
   WHERE "private"."has_semester_role"("viewer_semester"."id", ARRAY['admin'::"public"."user_role", 'mentor'::"public"."user_role", 'startup'::"public"."user_role"], ( SELECT "auth"."uid"() AS "uid")))))));
 
@@ -2836,9 +2836,9 @@ CREATE POLICY "members read authorized semester memberships" ON "public"."semest
 
 CREATE POLICY "members update meeting availability" ON "public"."meeting_availability" FOR UPDATE TO "authenticated" USING (("private"."can_manage_semester"("semester_id", ( SELECT "auth"."uid"() AS "uid")) OR (EXISTS ( SELECT 1
    FROM "public"."semester_memberships" "membership"
-  WHERE (("membership"."id" = "meeting_availability"."semester_membership_id") AND ("membership"."semester_id" = "meeting_availability"."semester_id") AND ("membership"."profile_id" = ( SELECT "auth"."uid"() AS "uid")) AND ("membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"]))))))) WITH CHECK (("private"."can_manage_semester"("semester_id", ( SELECT "auth"."uid"() AS "uid")) OR ((EXISTS ( SELECT 1
+  WHERE (("membership"."id" = "meeting_availability"."semester_membership_id") AND ("membership"."semester_id" = "meeting_availability"."semester_id") AND ("membership"."profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) AND ("membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"]))))))) WITH CHECK (("private"."can_manage_semester"("semester_id", ( SELECT "auth"."uid"() AS "uid")) OR ((EXISTS ( SELECT 1
    FROM "public"."semester_memberships" "membership"
-  WHERE (("membership"."id" = "meeting_availability"."semester_membership_id") AND ("membership"."semester_id" = "meeting_availability"."semester_id") AND ("membership"."profile_id" = ( SELECT "auth"."uid"() AS "uid")) AND ("membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"]))))) AND (EXISTS ( SELECT 1
+  WHERE (("membership"."id" = "meeting_availability"."semester_membership_id") AND ("membership"."semester_id" = "meeting_availability"."semester_id") AND ("membership"."profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) AND ("membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"]))))) AND (EXISTS ( SELECT 1
    FROM "public"."meetings" "meeting"
   WHERE (("meeting"."id" = "meeting_availability"."meeting_id") AND ("meeting"."semester_id" = "meeting_availability"."semester_id")))))));
 
@@ -2850,15 +2850,15 @@ ALTER TABLE "public"."mentor_profiles" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."mentor_semesters" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "mentors update their own mentor profile" ON "public"."mentor_profiles" FOR UPDATE TO "authenticated" USING (("profile_id" = ( SELECT "auth"."uid"() AS "uid"))) WITH CHECK (("profile_id" = ( SELECT "auth"."uid"() AS "uid")));
+CREATE POLICY "mentors update their own mentor profile" ON "public"."mentor_profiles" FOR UPDATE TO "authenticated" USING (("profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id"))) WITH CHECK (("profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")));
 
 
 
 CREATE POLICY "mentors update their own semester profile" ON "public"."mentor_semesters" FOR UPDATE TO "authenticated" USING ((EXISTS ( SELECT 1
    FROM "public"."semester_memberships" "mentor_membership"
-  WHERE (("mentor_membership"."id" = "mentor_semesters"."semester_membership_id") AND ("mentor_membership"."semester_id" = "mentor_semesters"."semester_id") AND ("mentor_membership"."profile_id" = ( SELECT "auth"."uid"() AS "uid")) AND ("mentor_membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"])))))) WITH CHECK ((EXISTS ( SELECT 1
+  WHERE (("mentor_membership"."id" = "mentor_semesters"."semester_membership_id") AND ("mentor_membership"."semester_id" = "mentor_semesters"."semester_id") AND ("mentor_membership"."profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) AND ("mentor_membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"])))))) WITH CHECK ((EXISTS ( SELECT 1
    FROM "public"."semester_memberships" "mentor_membership"
-  WHERE (("mentor_membership"."id" = "mentor_semesters"."semester_membership_id") AND ("mentor_membership"."semester_id" = "mentor_semesters"."semester_id") AND ("mentor_membership"."profile_id" = ( SELECT "auth"."uid"() AS "uid")) AND ("mentor_membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"]))))));
+  WHERE (("mentor_membership"."id" = "mentor_semesters"."semester_membership_id") AND ("mentor_membership"."semester_id" = "mentor_semesters"."semester_id") AND ("mentor_membership"."profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) AND ("mentor_membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"]))))));
 
 
 
@@ -2882,27 +2882,27 @@ ALTER TABLE "public"."outreach_opportunities" ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "owners or admins read meeting availability" ON "public"."meeting_availability" FOR SELECT TO "authenticated" USING (("private"."can_manage_semester"("semester_id", ( SELECT "auth"."uid"() AS "uid")) OR (EXISTS ( SELECT 1
    FROM "public"."semester_memberships" "membership"
-  WHERE (("membership"."id" = "meeting_availability"."semester_membership_id") AND ("membership"."semester_id" = "meeting_availability"."semester_id") AND ("membership"."profile_id" = ( SELECT "auth"."uid"() AS "uid")))))));
+  WHERE (("membership"."id" = "meeting_availability"."semester_membership_id") AND ("membership"."semester_id" = "meeting_availability"."semester_id") AND ("membership"."profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")))))));
 
 
 
 CREATE POLICY "owners or admins read startup team memberships" ON "public"."startup_team_memberships" FOR SELECT TO "authenticated" USING (("private"."can_manage_semester"("semester_id", ( SELECT "auth"."uid"() AS "uid")) OR (EXISTS ( SELECT 1
    FROM "public"."semester_memberships" "membership"
-  WHERE (("membership"."id" = "startup_team_memberships"."semester_membership_id") AND ("membership"."semester_id" = "startup_team_memberships"."semester_id") AND ("membership"."profile_id" = ( SELECT "auth"."uid"() AS "uid")))))));
+  WHERE (("membership"."id" = "startup_team_memberships"."semester_membership_id") AND ("membership"."semester_id" = "startup_team_memberships"."semester_id") AND ("membership"."profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")))))));
 
 
 
-CREATE POLICY "owners or super admins read platform roles" ON "public"."platform_roles" FOR SELECT TO "authenticated" USING ((("profile_id" = ( SELECT "auth"."uid"() AS "uid")) OR "private"."is_super_admin"(( SELECT "auth"."uid"() AS "uid"))));
+CREATE POLICY "owners or super admins read platform roles" ON "public"."platform_roles" FOR SELECT TO "authenticated" USING ((("profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) OR "private"."is_super_admin"(( SELECT "auth"."uid"() AS "uid"))));
 
 
 
 CREATE POLICY "participants read sessions" ON "public"."sessions" FOR SELECT TO "authenticated" USING (("private"."can_manage_semester"("semester_id", ( SELECT "auth"."uid"() AS "uid")) OR (EXISTS ( SELECT 1
    FROM ("public"."mentor_semesters" "mentor_term"
      JOIN "public"."semester_memberships" "membership" ON (("membership"."id" = "mentor_term"."semester_membership_id")))
-  WHERE (("mentor_term"."id" = "sessions"."mentor_semester_id") AND ("mentor_term"."semester_id" = "sessions"."semester_id") AND ("membership"."semester_id" = "sessions"."semester_id") AND ("membership"."profile_id" = ( SELECT "auth"."uid"() AS "uid"))))) OR (EXISTS ( SELECT 1
+  WHERE (("mentor_term"."id" = "sessions"."mentor_semester_id") AND ("mentor_term"."semester_id" = "sessions"."semester_id") AND ("membership"."semester_id" = "sessions"."semester_id") AND ("membership"."profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id"))))) OR (EXISTS ( SELECT 1
    FROM ("public"."startup_team_memberships" "team"
      JOIN "public"."semester_memberships" "membership" ON (("membership"."id" = "team"."semester_membership_id")))
-  WHERE (("team"."startup_semester_id" = "sessions"."startup_semester_id") AND ("team"."semester_id" = "sessions"."semester_id") AND ("membership"."semester_id" = "sessions"."semester_id") AND ("membership"."profile_id" = ( SELECT "auth"."uid"() AS "uid")))))));
+  WHERE (("team"."startup_semester_id" = "sessions"."startup_semester_id") AND ("team"."semester_id" = "sessions"."semester_id") AND ("membership"."semester_id" = "sessions"."semester_id") AND ("membership"."profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")))))));
 
 
 
@@ -2912,23 +2912,23 @@ ALTER TABLE "public"."platform_roles" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."profiles" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "program members read mentor profiles" ON "public"."mentor_profiles" FOR SELECT TO "authenticated" USING ((("profile_id" = ( SELECT "auth"."uid"() AS "uid")) OR "private"."is_super_admin"(( SELECT "auth"."uid"() AS "uid")) OR (EXISTS ( SELECT 1
+CREATE POLICY "program members read mentor profiles" ON "public"."mentor_profiles" FOR SELECT TO "authenticated" USING ((("profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) OR "private"."is_super_admin"(( SELECT "auth"."uid"() AS "uid")) OR (EXISTS ( SELECT 1
    FROM "public"."semester_memberships" "viewer_membership"
-  WHERE (("viewer_membership"."profile_id" = ( SELECT "auth"."uid"() AS "uid")) AND ("viewer_membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"])))))));
+  WHERE (("viewer_membership"."profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) AND ("viewer_membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"])))))));
 
 
 
 CREATE POLICY "program members read mentor semesters" ON "public"."mentor_semesters" FOR SELECT TO "authenticated" USING (("private"."can_manage_semester"("semester_id", ( SELECT "auth"."uid"() AS "uid")) OR (EXISTS ( SELECT 1
    FROM "public"."semester_memberships" "mentor_membership"
-  WHERE (("mentor_membership"."id" = "mentor_semesters"."semester_membership_id") AND ("mentor_membership"."semester_id" = "mentor_semesters"."semester_id") AND (("mentor_membership"."profile_id" = ( SELECT "auth"."uid"() AS "uid")) OR (("mentor_membership"."role" = 'mentor'::"public"."user_role") AND ("mentor_membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status", 'alumni'::"public"."membership_lifecycle_status"])) AND (EXISTS ( SELECT 1
+  WHERE (("mentor_membership"."id" = "mentor_semesters"."semester_membership_id") AND ("mentor_membership"."semester_id" = "mentor_semesters"."semester_id") AND (("mentor_membership"."profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) OR (("mentor_membership"."role" = 'mentor'::"public"."user_role") AND ("mentor_membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status", 'alumni'::"public"."membership_lifecycle_status"])) AND (EXISTS ( SELECT 1
            FROM "public"."semester_memberships" "viewer_membership"
-          WHERE (("viewer_membership"."profile_id" = ( SELECT "auth"."uid"() AS "uid")) AND ("viewer_membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"]))))))))))));
+          WHERE (("viewer_membership"."profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) AND ("viewer_membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"]))))))))))));
 
 
 
-CREATE POLICY "program members read profiles" ON "public"."profiles" FOR SELECT TO "authenticated" USING ((("id" = ( SELECT "auth"."uid"() AS "uid")) OR "private"."is_super_admin"(( SELECT "auth"."uid"() AS "uid")) OR (EXISTS ( SELECT 1
+CREATE POLICY "program members read profiles" ON "public"."profiles" FOR SELECT TO "authenticated" USING ((("id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) OR "private"."is_super_admin"(( SELECT "auth"."uid"() AS "uid")) OR (EXISTS ( SELECT 1
    FROM "public"."semester_memberships" "administrator"
-  WHERE (("administrator"."profile_id" = ( SELECT "auth"."uid"() AS "uid")) AND ("administrator"."role" = 'admin'::"public"."user_role") AND ("administrator"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"]))))) OR "private"."can_read_mentor_profile"("id", ( SELECT "auth"."uid"() AS "uid"))));
+  WHERE (("administrator"."profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) AND ("administrator"."role" = 'admin'::"public"."user_role") AND ("administrator"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"]))))) OR "private"."can_read_mentor_profile"("id", ( SELECT "auth"."uid"() AS "uid"))));
 
 
 
@@ -3003,10 +3003,10 @@ ALTER TABLE "public"."sessions" ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "startup teams update startup semesters" ON "public"."startup_semesters" FOR UPDATE TO "authenticated" USING (("private"."can_manage_semester"("semester_id", ( SELECT "auth"."uid"() AS "uid")) OR (EXISTS ( SELECT 1
    FROM ("public"."startup_team_memberships" "team"
      JOIN "public"."semester_memberships" "membership" ON (("membership"."id" = "team"."semester_membership_id")))
-  WHERE (("team"."startup_semester_id" = "startup_semesters"."id") AND ("team"."semester_id" = "startup_semesters"."semester_id") AND ("membership"."semester_id" = "startup_semesters"."semester_id") AND ("membership"."profile_id" = ( SELECT "auth"."uid"() AS "uid")) AND ("membership"."role" = 'startup'::"public"."user_role") AND ("membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"]))))))) WITH CHECK (("private"."can_manage_semester"("semester_id", ( SELECT "auth"."uid"() AS "uid")) OR (EXISTS ( SELECT 1
+  WHERE (("team"."startup_semester_id" = "startup_semesters"."id") AND ("team"."semester_id" = "startup_semesters"."semester_id") AND ("membership"."semester_id" = "startup_semesters"."semester_id") AND ("membership"."profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) AND ("membership"."role" = 'startup'::"public"."user_role") AND ("membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"]))))))) WITH CHECK (("private"."can_manage_semester"("semester_id", ( SELECT "auth"."uid"() AS "uid")) OR (EXISTS ( SELECT 1
    FROM ("public"."startup_team_memberships" "team"
      JOIN "public"."semester_memberships" "membership" ON (("membership"."id" = "team"."semester_membership_id")))
-  WHERE (("team"."startup_semester_id" = "startup_semesters"."id") AND ("team"."semester_id" = "startup_semesters"."semester_id") AND ("membership"."semester_id" = "startup_semesters"."semester_id") AND ("membership"."profile_id" = ( SELECT "auth"."uid"() AS "uid")) AND ("membership"."role" = 'startup'::"public"."user_role") AND ("membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"])))))));
+  WHERE (("team"."startup_semester_id" = "startup_semesters"."id") AND ("team"."semester_id" = "startup_semesters"."semester_id") AND ("membership"."semester_id" = "startup_semesters"."semester_id") AND ("membership"."profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) AND ("membership"."role" = 'startup'::"public"."user_role") AND ("membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"])))))));
 
 
 
@@ -3022,11 +3022,11 @@ ALTER TABLE "public"."startup_team_memberships" ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "startups request sessions" ON "public"."sessions" FOR INSERT TO "authenticated" WITH CHECK (("private"."can_manage_semester"("semester_id", ( SELECT "auth"."uid"() AS "uid")) OR (("status" = 'requested'::"text") AND (EXISTS ( SELECT 1
    FROM ("public"."startup_team_memberships" "team"
      JOIN "public"."semester_memberships" "membership" ON (("membership"."id" = "team"."semester_membership_id")))
-  WHERE (("team"."startup_semester_id" = "sessions"."startup_semester_id") AND ("team"."semester_id" = "sessions"."semester_id") AND ("membership"."semester_id" = "sessions"."semester_id") AND ("membership"."profile_id" = ( SELECT "auth"."uid"() AS "uid")) AND ("membership"."role" = 'startup'::"public"."user_role") AND ("membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"]))))))));
+  WHERE (("team"."startup_semester_id" = "sessions"."startup_semester_id") AND ("team"."semester_id" = "sessions"."semester_id") AND ("membership"."semester_id" = "sessions"."semester_id") AND ("membership"."profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) AND ("membership"."role" = 'startup'::"public"."user_role") AND ("membership"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"]))))))));
 
 
 
-CREATE POLICY "users update their own profile" ON "public"."profiles" FOR UPDATE TO "authenticated" USING (("id" = ( SELECT "auth"."uid"() AS "uid"))) WITH CHECK (("id" = ( SELECT "auth"."uid"() AS "uid")));
+CREATE POLICY "users update their own profile" ON "public"."profiles" FOR UPDATE TO "authenticated" USING (("id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id"))) WITH CHECK (("id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")));
 
 
 

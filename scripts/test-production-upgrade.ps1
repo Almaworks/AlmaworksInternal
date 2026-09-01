@@ -7,12 +7,13 @@ $baseline = Join-Path $root "tests/database-revamp/production-baseline.sql"
 $bootstrap = Join-Path $root "tests/database-revamp/production-bootstrap.sql"
 $seed = Join-Path $root "tests/database-revamp/production-upgrade-seed.sql"
 $assertions = Join-Path $root "tests/database-revamp/production-upgrade-assertions.sql"
-$migration = Get-ChildItem (Join-Path $root "supabase/migrations/*_database_hardening_cutover.sql")
+$migrations = Get-ChildItem (Join-Path $root "supabase/migrations/*_database_hardening_cutover_stage_*.sql") |
+  Sort-Object Name
 
 if ((docker ps --format "{{.Names}}" | Where-Object { $_ -eq $container }).Count -ne 1) {
   throw "Expected the exact local Supabase database container $container."
 }
-if ($migration.Count -ne 1) { throw "Expected exactly one generated database hardening cutover migration." }
+if ($migrations.Count -ne 2) { throw "Expected exactly two ordered generated database hardening cutover migrations." }
 
 function Invoke-SqlFile([string]$path) {
   Get-Content -LiteralPath $path -Raw |
@@ -26,7 +27,7 @@ try {
   Invoke-SqlFile $bootstrap
   Invoke-SqlFile $baseline
   Invoke-SqlFile $seed
-  @("BEGIN;") + (Get-Content -LiteralPath $migration.FullName) + @("COMMIT;") |
+  @("BEGIN;") + ($migrations | ForEach-Object { Get-Content -LiteralPath $_.FullName }) + @("COMMIT;") |
     docker exec -i $container psql -U postgres -d $database -v ON_ERROR_STOP=1 | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "Generated migration failed against the production-shaped clone." }
   Invoke-SqlFile $assertions

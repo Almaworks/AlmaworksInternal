@@ -27,6 +27,8 @@
 | `outreach_contacts` | Global outreach identity, intentionally independent from program profiles |
 | `outreach_opportunities` | Per-semester outreach stage, ownership, and resettable workflow state |
 
+Use the canonical vocabulary in database adapters: a semester is the cohort term, a meeting is one Friday date, and a session is one mentor-startup conversation in numeric slot 1 or 2. Do not introduce `sessionDate` or `timeSlot` aliases.
+
 ## After any schema change — run this
 ```bash
 supabase gen types typescript --local > src/db/types.ts
