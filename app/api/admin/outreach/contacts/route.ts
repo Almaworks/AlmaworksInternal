@@ -61,6 +61,9 @@ export async function POST(request: Request) {
       p_company_title: body.title,
     }).single();
     if (bundleResult.error !== null || bundleResult.data === null) {
+      if (bundleResult.error?.message.includes("outreach_company_identity_conflict")) {
+        throw new OutreachHttpError(409, "duplicate_record", "Company details conflict with an existing outreach record.");
+      }
       if (bundleResult.error?.code === "23505") throw new OutreachHttpError(409, "duplicate_record", "A contact with that email or LinkedIn URL already exists.");
       throw new OutreachHttpError(400, "database_error", bundleResult.error?.message ?? "Contact could not be created.");
     }

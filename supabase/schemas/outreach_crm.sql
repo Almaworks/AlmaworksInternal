@@ -108,7 +108,9 @@ create table public.outreach_companies (
 create unique index outreach_companies_domain_key
   on public.outreach_companies (domain)
   where domain is not null;
-create index outreach_companies_normalized_name_idx
+-- Company identity is global. This uniqueness boundary pairs with the bundle
+-- command's transaction locks so concurrent imports reuse one canonical row.
+create unique index outreach_companies_normalized_name_key
   on public.outreach_companies (normalized_name);
 create index outreach_companies_created_by_idx
   on public.outreach_companies (created_by)

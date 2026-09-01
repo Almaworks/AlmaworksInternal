@@ -319,6 +319,12 @@ declare
   resolved_contact_id uuid := p_contact_id;
   resolved_company_id uuid := p_company_id;
   resolved_opportunity_id uuid;
+  normalized_company_name text;
+  normalized_company_domain text;
+  company_identity_lock text;
+  matched_company_id uuid;
+  matched_company_name text;
+  matched_company_domain text;
 begin
   if actor_id is null or not private.can_manage_semester(p_semester_id, actor_id) then
     raise exception 'Semester administrator access required' using errcode = '42501';
@@ -344,14 +350,75 @@ begin
       raise exception 'Company is outside the administrator outreach scope' using errcode = '42501';
     end if;
   elsif nullif(btrim(p_company_name), '') is not null then
-    insert into public.outreach_companies (name, normalized_name, domain, created_by)
-    values (
-      btrim(p_company_name),
-      coalesce(nullif(btrim(p_company_normalized_name), ''), lower(btrim(p_company_name))),
-      lower(nullif(btrim(p_company_domain), '')),
-      actor_id
-    )
-    returning id into resolved_company_id;
+    normalized_company_name := lower(coalesce(
+      nullif(btrim(p_company_normalized_name), ''),
+      btrim(p_company_name)
+    ));
+    normalized_company_domain := lower(nullif(btrim(p_company_domain), ''));
+
+    -- Lock every supplied identity key in lexical order. Calls for the same
+    -- normalized name or domain serialize even before a company row exists.
+    for company_identity_lock in
+      select identity_key
+      from (
+        values
+          ('company-domain:' || normalized_company_domain),
+          ('company-name:' || normalized_company_name)
+      ) as identity_keys(identity_key)
+      where identity_key is not null
+      order by identity_key
+    loop
+      perform pg_advisory_xact_lock(hashtextextended(company_identity_lock, 0));
+    end loop;
+
+    select company.id, company.normalized_name, company.domain
+    into matched_company_id, matched_company_name, matched_company_domain
+    from public.outreach_companies as company
+    where company.normalized_name = normalized_company_name
+      or (
+        normalized_company_domain is not null
+        and company.domain = normalized_company_domain
+      )
+    order by company.id
+    limit 1;
+
+    if matched_company_id is not null then
+      if matched_company_name <> normalized_company_name
+        or (
+          normalized_company_domain is not null
+          and matched_company_domain is distinct from normalized_company_domain
+        )
+        or exists (
+          select 1
+          from public.outreach_companies as conflicting_company
+          where conflicting_company.id <> matched_company_id
+            and (
+              conflicting_company.normalized_name = normalized_company_name
+              or (
+                normalized_company_domain is not null
+                and conflicting_company.domain = normalized_company_domain
+              )
+            )
+        )
+        or not private.has_outreach_company_access(matched_company_id, actor_id)
+      then
+        raise exception 'outreach_company_identity_conflict' using errcode = '23505';
+      end if;
+
+      resolved_company_id := matched_company_id;
+    end if;
+
+    if resolved_company_id is null then
+      begin
+        insert into public.outreach_companies (name, normalized_name, domain, created_by)
+        values (
+          btrim(p_company_name), normalized_company_name, normalized_company_domain, actor_id
+        )
+        returning id into resolved_company_id;
+      exception when unique_violation then
+        raise exception 'outreach_company_identity_conflict' using errcode = '23505';
+      end;
+    end if;
   end if;
 
   insert into public.outreach_opportunities (
