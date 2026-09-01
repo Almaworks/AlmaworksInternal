@@ -87,6 +87,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const effectiveRole = resolveDashboardPersona(profile?.role ?? null, canManageAdmin, viewAs)
   const isOnboarding = pathname === '/dashboard/onboarding'
+  const isParticipantWorkspace = pathname === '/dashboard/mentor' || pathname === '/dashboard/startup'
 
   const navItems =
     effectiveRole === 'admin'
@@ -142,7 +143,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     router.push(dest)
   }
 
-  if (isOnboarding) return <>{children}</>
+  if (isOnboarding || isParticipantWorkspace) return <>{children}</>
 
   return (
     <div className="flex h-screen bg-gray-50">

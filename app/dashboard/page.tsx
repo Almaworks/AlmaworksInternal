@@ -1,31 +1,38 @@
-'use client'
+"use client";
 
-import { createClient } from '@/utils/supabase/client'
-import { useRouter } from 'next/navigation'
-import { useEffect } from 'react'
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+
+import { authenticatedFetch } from "@/src/auth/authenticated-fetch";
+import { createClient } from "@/utils/supabase/client";
 
 export default function DashboardRoot() {
-  const supabase = createClient()
-  const router = useRouter()
+  const router = useRouter();
 
   useEffect(() => {
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) { router.push('/'); return }
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role, status')
-        .eq('id', user.id)
-        .single()
-      if (!profile || profile.status !== 'approved') { router.push('/pending'); return }
-      if (profile.role === 'admin') router.push('/dashboard/admin')
-      else if (profile.role === 'mentor') router.push('/dashboard/mentor')
-      else router.push('/dashboard/startup')
-    })
-  }, [supabase, router])
+    const supabase = createClient();
+    void supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) { router.replace("/"); return; }
+      try {
+        const capabilityResponse = await authenticatedFetch("/api/auth/capabilities");
+        const capabilityPayload = await capabilityResponse.json() as { data?: { canManageAdmin?: boolean } };
+        if (capabilityResponse.ok && capabilityPayload.data?.canManageAdmin) { router.replace("/dashboard/admin"); return; }
+      } catch {
+        // Participant routing still works when the optional admin capability check is unavailable.
+      }
+      const { data: semester } = await supabase.from("semesters").select("id").eq("is_active", true).maybeSingle();
+      if (!semester) { router.replace("/pending"); return; }
+      const { data: membership } = await supabase.from("semester_memberships")
+        .select("role,status")
+        .eq("semester_id", semester.id)
+        .eq("profile_id", user.id)
+        .in("status", ["invited", "onboarding", "active"])
+        .maybeSingle();
+      if (membership?.role === "mentor") router.replace("/dashboard/mentor");
+      else if (membership?.role === "startup") router.replace("/dashboard/startup");
+      else router.replace("/pending");
+    });
+  }, [router]);
 
-  return (
-    <div className="flex items-center justify-center h-40">
-      <div className="w-5 h-5 border-2 border-[#002147] border-t-transparent rounded-full animate-spin" />
-    </div>
-  )
+  return <div className="flex h-40 items-center justify-center"><div className="h-5 w-5 animate-spin rounded-full border-2 border-[#002147] border-t-transparent" /></div>;
 }

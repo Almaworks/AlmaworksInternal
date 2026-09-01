@@ -1,0 +1,302 @@
+export type ParticipantRole = "mentor" | "startup";
+export type ParticipantMembershipStatus = "invited" | "onboarding" | "active" | "alumni" | "suspended";
+
+export interface ParticipantNotification {
+  id: string;
+  semesterId: string;
+  recipientProfileIds: string[];
+  startupSemesterId: string | null;
+  title: string;
+  body: string;
+  createdAt: string;
+  read: boolean;
+}
+
+export interface ParticipantSession {
+  id: string;
+  semesterId: string;
+  mentorProfileId: string;
+  startupSemesterId: string;
+  partnerName: string;
+  date: string;
+  topic: string;
+  format: string;
+  status: "confirmed" | "completed" | "cancelled";
+}
+
+export interface ParticipantNetworkEntry {
+  id: string;
+  semesterId: string;
+  kind: ParticipantRole;
+  name: string;
+  headline: string;
+  tags: string[];
+  summary: string;
+}
+
+export interface ParticipantDashboardSource {
+  notifications: ParticipantNotification[];
+  sessions: ParticipantSession[];
+  network: ParticipantNetworkEntry[];
+}
+
+export interface ActivationState {
+  emailVerified: boolean;
+  profileComplete: boolean;
+  semesterActive: boolean;
+  roleSetupComplete: boolean;
+}
+
+export interface ActivationStep {
+  id: string;
+  status: "complete" | "current" | "locked";
+}
+
+export function scopeParticipantDashboard(input: {
+  role: ParticipantRole;
+  profileId: string;
+  startupSemesterId: string | null;
+  activeSemesterId: string;
+  source: ParticipantDashboardSource;
+}) {
+  const { role, profileId, startupSemesterId, activeSemesterId, source } = input;
+  return {
+    notifications: source.notifications
+      .filter((notification) => (
+        notification.semesterId === activeSemesterId
+        && (
+          notification.recipientProfileIds.includes(profileId)
+          || (role === "startup" && startupSemesterId !== null && notification.startupSemesterId === startupSemesterId)
+        )
+      ))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+    sessions: source.sessions.filter((session) => (
+      session.semesterId === activeSemesterId
+      && (role === "mentor" ? session.mentorProfileId === profileId : session.startupSemesterId === startupSemesterId)
+    )),
+    network: source.network.filter((entry) => (
+      entry.semesterId === activeSemesterId
+      && entry.kind === (role === "mentor" ? "startup" : "mentor")
+    )),
+  };
+}
+
+export function buildActivationSteps(role: ParticipantRole, state: ActivationState): ActivationStep[] {
+  const definitions = [
+    { id: "email", complete: state.emailVerified },
+    { id: "profile", complete: state.profileComplete },
+    { id: "semester", complete: state.semesterActive },
+    { id: role === "mentor" ? "availability" : "mentor-needs", complete: state.roleSetupComplete },
+  ];
+  const firstIncomplete = definitions.findIndex((step) => !step.complete);
+  return definitions.map((step, index) => ({
+    id: step.id,
+    status: step.complete ? "complete" : index === firstIncomplete ? "current" : "locked",
+  }));
+}
+
+export interface ParticipantMembershipInput {
+  id: string;
+  semesterId: string;
+  profileId: string;
+  role: ParticipantRole | "admin";
+  status: ParticipantMembershipStatus;
+}
+
+export type ParticipantContext =
+  | { kind: "unavailable" }
+  | { kind: "pending"; semesterId: string; semesterName: string }
+  | {
+      kind: "participant";
+      semesterId: string;
+      semesterName: string;
+      membershipId: string;
+      role: ParticipantRole;
+      status: ParticipantMembershipStatus;
+    };
+
+export function selectParticipantContext(input: {
+  activeSemester: { id: string; name: string } | null;
+  memberships: ParticipantMembershipInput[];
+}): ParticipantContext {
+  if (!input.activeSemester) return { kind: "unavailable" };
+  const membership = input.memberships.find((candidate) => (
+    candidate.semesterId === input.activeSemester?.id
+    && (candidate.role === "mentor" || candidate.role === "startup")
+    && candidate.status !== "alumni"
+    && candidate.status !== "suspended"
+  ));
+  if (!membership) {
+    return { kind: "pending", semesterId: input.activeSemester.id, semesterName: input.activeSemester.name };
+  }
+  return {
+    kind: "participant",
+    semesterId: input.activeSemester.id,
+    semesterName: input.activeSemester.name,
+    membershipId: membership.id,
+    role: membership.role as ParticipantRole,
+    status: membership.status,
+  };
+}
+
+export interface ParticipantSessionInput {
+  id: string;
+  semesterId: string;
+  mentorSemesterId: string;
+  startupSemesterId: string;
+  partnerName: string;
+  meetingDate: string;
+  startsAt: string;
+  endsAt: string;
+  topic: string | null;
+  format: string | null;
+  status: string;
+}
+
+export interface ParticipantDirectoryEntry extends ParticipantNetworkEntry {
+  websiteUrl: string | null;
+  photoUrl: string | null;
+}
+
+export interface ParticipantDashboardView {
+  state: "participant";
+  role: ParticipantRole;
+  membershipStatus: ParticipantMembershipStatus;
+  semester: { id: string; name: string };
+  identity: { profileId: string; fullName: string; email: string; emailVerified: boolean };
+  activation: ActivationStep[];
+  sessions: Array<ParticipantSessionInput & { timing: "upcoming" | "past" }>;
+  network: ParticipantDirectoryEntry[];
+  notifications: Array<{
+    id: string;
+    kind: "activation" | "session";
+    title: string;
+    body: string;
+    createdAt: string;
+  }>;
+  profile: {
+    headline: string;
+    summary: string;
+    tags: string[];
+    websiteUrl: string;
+    linkedinUrl: string;
+  };
+}
+
+function dateStart(value: string): number {
+  return Date.parse(`${value}T00:00:00Z`);
+}
+
+export function buildParticipantDashboard(input: {
+  now: string;
+  context: Extract<ParticipantContext, { kind: "participant" }>;
+  identity: ParticipantDashboardView["identity"];
+  startupSemesterId: string | null;
+  mentorSemesterId: string | null;
+  profileComplete: boolean;
+  roleSetupComplete: boolean;
+  sessions: ParticipantSessionInput[];
+  network: ParticipantDirectoryEntry[];
+  profile?: ParticipantDashboardView["profile"];
+}): ParticipantDashboardView {
+  const activation = buildActivationSteps(input.context.role, {
+    emailVerified: input.identity.emailVerified,
+    profileComplete: input.profileComplete,
+    semesterActive: input.context.status === "active",
+    roleSetupComplete: input.roleSetupComplete,
+  });
+  const now = Date.parse(input.now);
+  const sessions = input.sessions
+    .filter((session) => (
+      session.semesterId === input.context.semesterId
+      && (input.context.role === "mentor"
+        ? session.mentorSemesterId === input.mentorSemesterId
+        : session.startupSemesterId === input.startupSemesterId)
+    ))
+    .map((session) => ({ ...session, timing: dateStart(session.meetingDate) < now ? "past" as const : "upcoming" as const }))
+    .sort((left, right) => left.meetingDate.localeCompare(right.meetingDate));
+  const network = input.network.filter((entry) => (
+    entry.semesterId === input.context.semesterId
+    && entry.kind === (input.context.role === "mentor" ? "startup" : "mentor")
+  ));
+  const notifications: ParticipantDashboardView["notifications"] = [];
+  const currentStep = activation.find((step) => step.status === "current");
+  if (currentStep) {
+    notifications.push({
+      id: `activation-${currentStep.id}`,
+      kind: "activation",
+      title: currentStep.id === "semester" ? "Activation is pending" : "Continue account setup",
+      body: currentStep.id === "semester"
+        ? "Your setup is ready for an Almaworks administrator to activate."
+        : "Complete the next activation step to get ready for scheduling.",
+      createdAt: input.now,
+    });
+  }
+  for (const session of sessions.filter((candidate) => candidate.status === "confirmed")) {
+    notifications.push({
+      id: `session-${session.id}`,
+      kind: "session",
+      title: session.timing === "upcoming" ? "Session confirmed" : "Session completed",
+      body: `${session.partnerName} · ${session.meetingDate}`,
+      createdAt: `${session.meetingDate}T00:00:00Z`,
+    });
+  }
+  notifications.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  return {
+    state: "participant",
+    role: input.context.role,
+    membershipStatus: input.context.status,
+    semester: { id: input.context.semesterId, name: input.context.semesterName },
+    identity: input.identity,
+    activation,
+    sessions,
+    network,
+    notifications,
+    profile: input.profile ?? { headline: "", summary: "", tags: [], websiteUrl: "", linkedinUrl: "" },
+  };
+}
+
+function clean(value: string): string {
+  return value.trim();
+}
+
+function tagsFrom(value: string): string[] {
+  const seen = new Set<string>();
+  return value.split(",").map(clean).filter((tag) => {
+    const key = tag.toLowerCase();
+    if (!tag || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function buildProfileUpdate(role: ParticipantRole, input: {
+  fullName: string;
+  headline: string;
+  summary: string;
+  tags: string;
+  websiteUrl: string;
+  linkedinUrl: string;
+}) {
+  const profile = { full_name: clean(input.fullName) };
+  if (role === "mentor") {
+    return {
+      profile,
+      mentorProfile: {
+        title: clean(input.headline),
+        biography: clean(input.summary),
+        expertise_tags: tagsFrom(input.tags),
+        website_url: clean(input.websiteUrl),
+        linkedin_url: clean(input.linkedinUrl),
+      },
+    };
+  }
+  return {
+    profile,
+    startupSemester: {
+      company_snapshot: clean(input.summary),
+      preferred_expertise_tags: tagsFrom(input.tags),
+      mentor_need_context: clean(input.headline),
+    },
+  };
+}

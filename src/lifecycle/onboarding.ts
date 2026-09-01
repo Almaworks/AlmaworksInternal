@@ -148,3 +148,36 @@ export function calculateOnboardingProgress(
     next: checklist.find((item) => !completedKeys.has(item.key)) ?? null,
   };
 }
+
+export function buildOnboardingWrites(input: {
+  role: "mentor" | "startup";
+  name: string;
+  organization: string;
+  description: string;
+  expertise: string;
+  teamContact: string;
+  finalize: boolean;
+}) {
+  const tags = input.expertise.split(",").map((item) => item.trim()).filter(Boolean);
+  const profile = { full_name: input.name.trim() };
+  if (input.role === "mentor") {
+    return {
+      profile,
+      mentorProfile: {
+        company: input.organization.trim(),
+        biography: input.description.trim(),
+        expertise_tags: tags,
+      },
+      mentorSemester: { readiness_status: input.finalize ? "ready" : "in_progress" },
+    };
+  }
+  return {
+    profile,
+    startupSemester: {
+      company_snapshot: input.description.trim(),
+      mentor_need_context: input.teamContact.trim(),
+      preferred_expertise_tags: tags,
+      readiness_status: input.finalize ? "ready" : "in_progress",
+    },
+  };
+}
