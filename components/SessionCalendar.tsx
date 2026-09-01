@@ -4,7 +4,7 @@ export type CalSession = {
   id: string
   date: string // YYYY-MM-DD
   partnerName: string | null
-  timeSlot: string | null
+  slotLabel: string | null
   format: string | null
   status: string
   topic: string | null
@@ -76,7 +76,7 @@ export default function SessionCalendar({ sessions }: { sessions: CalSession[] }
                   <div
                     key={i}
                     className={`h-7 flex flex-col items-center justify-center rounded-md ${bg}`}
-                    title={has ? daySessions.map(s => `${s.partnerName ?? '—'} ${s.timeSlot ?? ''}`).join('\n') : undefined}
+                    title={has ? daySessions.map(s => `${s.partnerName ?? '—'} ${s.slotLabel ?? ''}`).join('\n') : undefined}
                   >
                     <span className={`text-[11px] font-medium leading-none ${has ? 'text-[#002147] font-bold' : 'text-gray-400'}`}>
                       {day}
@@ -106,7 +106,7 @@ export default function SessionCalendar({ sessions }: { sessions: CalSession[] }
                       <span className="text-[10px] text-gray-600 truncate">
                         {new Date(s.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                         {s.partnerName ? ` · ${s.partnerName}` : ''}
-                        {s.timeSlot ? ` · ${s.timeSlot}` : ''}
+                        {s.slotLabel ? ` · ${s.slotLabel}` : ''}
                       </span>
                     </div>
                   ))}

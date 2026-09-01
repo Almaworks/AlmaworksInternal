@@ -8,11 +8,57 @@ import { useEffect, useMemo, useState } from 'react'
 type SessionRow = {
   id: string
   session_date: string
-  time_slot: string | null
+  slot_label: string | null
   format: string | null
   is_confirmed: boolean
   mentor: { id: string; full_name: string; email: string | null } | null
   startup: { id: string; name: string; founders: Record<string, string>[] | null } | null
+}
+
+type CanonicalSessionRow = {
+  id: string
+  slot: number
+  format: string | null
+  status: string
+  meeting: { meeting_date: string } | { meeting_date: string }[] | null
+  mentor: {
+    membership: {
+      profile: { id: string; full_name: string | null; email: string | null } | { id: string; full_name: string | null; email: string | null }[] | null
+    } | { profile: { id: string; full_name: string | null; email: string | null } | { id: string; full_name: string | null; email: string | null }[] | null }[] | null
+  } | null
+  startup: {
+    organization: { id: string; name: string } | { id: string; name: string }[] | null
+    team: { membership: { profile: { email: string | null } | { email: string | null }[] | null } | { profile: { email: string | null } | { email: string | null }[] | null }[] | null }[] | null
+  } | null
+}
+
+function first<T>(value: T | T[] | null): T | null {
+  return Array.isArray(value) ? value[0] ?? null : value
+}
+
+function mapCanonicalSession(row: CanonicalSessionRow): SessionRow {
+  const meeting = first(row.meeting)
+  const mentorMembership = first(row.mentor?.membership ?? null)
+  const mentorProfile = first(mentorMembership?.profile ?? null)
+  const organization = first(row.startup?.organization ?? null)
+  const founders = (row.startup?.team ?? []).flatMap(member => {
+    const membership = first(member.membership)
+    const profile = first(membership?.profile ?? null)
+    return profile?.email ? [{ email: profile.email }] : []
+  })
+  return {
+    id: row.id,
+    session_date: meeting?.meeting_date ?? '',
+    slot_label: row.slot === 1 ? '3:30-4:15' : '4:15-5:00',
+    format: row.format,
+    is_confirmed: row.status === 'confirmed',
+    mentor: mentorProfile ? {
+      id: mentorProfile.id,
+      full_name: mentorProfile.full_name ?? mentorProfile.email ?? 'Unnamed mentor',
+      email: mentorProfile.email,
+    } : null,
+    startup: organization ? { id: organization.id, name: organization.name, founders } : null,
+  }
 }
 
 type SendResult = {
@@ -63,7 +109,7 @@ function founderEmail(founders: Record<string, string>[] | null): string | null 
 export default function AdminNotifyPage() {
   const supabase = useMemo(() => createClient(), [])
 
-  const [sessionDate, setSessionDate] = useState(nextFriday)
+  const [meetingDate, setMeetingDate] = useState(nextFriday)
   const [sessions, setSessions] = useState<SessionRow[]>([])
   const [loadingsessions, setLoadingSessions] = useState(false)
 
@@ -73,7 +119,7 @@ export default function AdminNotifyPage() {
 
   useEffect(() => {
     void loadSessions()
-  }, [sessionDate]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [meetingDate]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadSessions() {
     setLoadingSessions(true)
@@ -81,10 +127,29 @@ export default function AdminNotifyPage() {
     setSelected(new Set())
     const { data } = await supabase
       .from('sessions')
-      .select('id, session_date, time_slot, format, is_confirmed, mentor:mentor_id(id, full_name, email), startup:startup_id(id, name, founders)')
-      .eq('session_date', sessionDate)
-      .order('time_slot')
-    setSessions((data as unknown as SessionRow[]) ?? [])
+      .select(`
+        id,
+        slot,
+        format,
+        status,
+        meeting:meetings!inner(meeting_date),
+        mentor:mentor_semesters!inner(
+          membership:semester_memberships!inner(
+            profile:profiles!inner(id,full_name,email)
+          )
+        ),
+        startup:startup_semesters!inner(
+          organization:startup_organizations!inner(id,name),
+          team:startup_team_memberships(
+            membership:semester_memberships!inner(
+              profile:profiles!inner(email)
+            )
+          )
+        )
+      `)
+      .eq('meeting.meeting_date', meetingDate)
+      .order('slot')
+    setSessions(((data as unknown as CanonicalSessionRow[]) ?? []).map(mapCanonicalSession))
     setLoadingSessions(false)
   }
 
@@ -99,7 +164,8 @@ export default function AdminNotifyPage() {
   function toggleOne(id: string) {
     setSelected(prev => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
   }
@@ -112,15 +178,15 @@ export default function AdminNotifyPage() {
       name: string
       email: string
       counterpartName: string
-      sessionDate: string
-      timeSlot: string
+      meetingDate: string
+      slotLabel: string
       format: string
       role: 'mentor' | 'startup'
     }[] = []
 
     for (const s of toSend) {
       const dateLabel = formatDate(s.session_date)
-      const slotLabel = s.time_slot ? (SLOT_LABELS[s.time_slot] ?? s.time_slot) : 'TBD'
+      const slotLabel = s.slot_label ? (SLOT_LABELS[s.slot_label] ?? s.slot_label) : 'TBD'
       const fmtLabel = s.format ? (FORMAT_LABELS[s.format] ?? s.format) : 'TBD'
 
       if (s.mentor?.email) {
@@ -128,8 +194,8 @@ export default function AdminNotifyPage() {
           name: s.mentor.full_name,
           email: s.mentor.email,
           counterpartName: s.startup?.name ?? 'your startup',
-          sessionDate: dateLabel,
-          timeSlot: slotLabel,
+          meetingDate: dateLabel,
+          slotLabel,
           format: fmtLabel,
           role: 'mentor',
         })
@@ -141,8 +207,8 @@ export default function AdminNotifyPage() {
           name: s.startup.name,
           email: sEmail,
           counterpartName: s.mentor?.full_name ?? 'your mentor',
-          sessionDate: dateLabel,
-          timeSlot: slotLabel,
+          meetingDate: dateLabel,
+          slotLabel,
           format: fmtLabel,
           role: 'startup',
         })
@@ -197,11 +263,11 @@ export default function AdminNotifyPage() {
           <div className="flex items-center gap-3">
             <input
               type="date"
-              value={sessionDate}
-              onChange={e => setSessionDate(e.target.value)}
+              value={meetingDate}
+              onChange={e => setMeetingDate(e.target.value)}
               className="text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
             />
-            <span className="text-sm text-gray-500">{formatDate(sessionDate)}</span>
+            <span className="text-sm text-gray-500">{formatDate(meetingDate)}</span>
           </div>
         </div>
 
@@ -248,7 +314,7 @@ export default function AdminNotifyPage() {
                             {s.mentor?.full_name ?? '(no mentor)'} → {s.startup?.name ?? '(no startup)'}
                           </p>
                           <p className="text-xs text-gray-500 mt-0.5">
-                            {s.time_slot ? (SLOT_LABELS[s.time_slot] ?? s.time_slot) : 'TBD'} ·{' '}
+                            {s.slot_label ? (SLOT_LABELS[s.slot_label] ?? s.slot_label) : 'TBD'} ·{' '}
                             {s.format ? (FORMAT_LABELS[s.format] ?? s.format) : 'Format TBD'}
                           </p>
                         </div>

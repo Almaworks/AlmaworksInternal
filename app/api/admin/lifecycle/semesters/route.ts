@@ -42,15 +42,15 @@ export async function GET(request: Request) {
     if (semesterError) throw semesterError;
 
     const ids = (semesters ?? []).map((semester) => semester.id);
-    const { data: sessionDates, error: datesError } = ids.length === 0
+    const { data: meetings, error: meetingsError } = ids.length === 0
       ? { data: [], error: null }
       : await userClient
-        .from("session_dates")
-        .select("id,semester_id,date,label")
+        .from("meetings")
+        .select("id,semester_id,date:meeting_date,label")
         .in("semester_id", ids)
-        .order("date", { ascending: true });
-    if (datesError) throw datesError;
-    return NextResponse.json({ semesters: semesters ?? [], sessionDates: sessionDates ?? [] });
+        .order("meeting_date", { ascending: true });
+    if (meetingsError) throw meetingsError;
+    return NextResponse.json({ semesters: semesters ?? [], meetings: meetings ?? [] });
   } catch (error) {
     return errorResponse(error);
   }

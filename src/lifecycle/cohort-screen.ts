@@ -47,6 +47,15 @@ export function membershipsForRecord(
   return membershipsInScope(members, scope).filter((membership) => recordMatchesMembership(record, membership));
 }
 
+export function roleForProfileInSemester(
+  members: readonly CohortMember[],
+  profileId: string,
+  semesterId: string | null,
+): ProgramRole | null {
+  if (semesterId === null) return null;
+  return members.find((member) => member.profileId === profileId && member.semesterId === semesterId)?.role ?? null;
+}
+
 export function membershipIdsForRecords(
   records: readonly CohortRecordReference[],
   members: readonly CohortMember[],

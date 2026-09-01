@@ -43,8 +43,13 @@ export function createSupabaseAdminCapabilitySource(
 ): AdminCapabilitySource {
   return {
     isSuperAdmin: async (profileId) => {
-      const result = await client.rpc("is_super_admin", { candidate_id: profileId });
-      return { data: result.data === true, error: result.error };
+      const result = await client
+        .from("platform_roles")
+        .select("role")
+        .eq("profile_id", profileId)
+        .eq("role", "super_admin")
+        .maybeSingle();
+      return { data: result.data !== null, error: result.error };
     },
     hasActiveSemesterAdminMembership: async (profileId) => {
       const result = await client

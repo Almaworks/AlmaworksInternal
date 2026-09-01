@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/utils/supabase/client'
+import { loadMentorDirectory } from '@/src/program/canonical-repository'
 
 type WeekAvailability = { slot: string; format: string }
 
@@ -64,12 +65,8 @@ export default function MentorProfilePage() {
 
   useEffect(() => {
     async function load() {
-      const { data } = await supabase
-        .from('mentors')
-        .select('id, full_name, slug, email, company, role_title, linkedin_url, bio, expertise_tags, is_active, general_availability, preferred_format, per_week_availability, opening_talk')
-        .eq('slug', slug)
-        .single()
-      setMentor(data as Mentor | null)
+      const data = (await loadMentorDirectory(supabase)).find((row) => row.slug === slug) ?? null
+      setMentor(data as unknown as Mentor | null)
       setLoading(false)
     }
     load()

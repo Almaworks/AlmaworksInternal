@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/utils/supabase/client'
+import { loadStartupDirectory } from '@/src/program/canonical-repository'
 
 type Founder = {
   name: string
@@ -34,11 +35,13 @@ export default function StartupProfilePage() {
 
   useEffect(() => {
     async function load() {
-      const { data, error } = await supabase
-        .from('startups')
-        .select('id, name, slug, description, industry, stage, logo_url, website, preferred_tags, founders')
-        .eq('slug', slug)
-        .single()
+      let data = null
+      let error: Error | null = null
+      try {
+        data = (await loadStartupDirectory(supabase)).find((row) => row.slug === slug) ?? null
+      } catch (cause) {
+        error = cause instanceof Error ? cause : new Error('Unable to load startup')
+      }
 
       if (error || !data) {
         setNotFound(true)

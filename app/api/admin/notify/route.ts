@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireActiveSemesterAdmin } from '@/src/program/canonical-access'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -7,8 +8,8 @@ type Recipient = {
   name: string
   email: string
   counterpartName: string
-  sessionDate: string   // e.g. "Friday, April 4, 2026"
-  timeSlot: string      // e.g. "3:30 – 4:15 PM"
+  meetingDate: string   // e.g. "Friday, April 4, 2026"
+  slotLabel: string     // e.g. "3:30 – 4:15 PM"
   format: string        // e.g. "In-person" | "Online"
   location?: string
   role: 'mentor' | 'startup'
@@ -57,11 +58,11 @@ function buildEmailHtml(r: Recipient): string {
                 <tr>
                   <td style="padding:6px 12px 6px 0;width:50%;">
                     <p style="margin:0;font-size:12px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">Date</p>
-                    <p style="margin:4px 0 0;font-size:15px;color:#111827;font-weight:600;">${r.sessionDate}</p>
+                    <p style="margin:4px 0 0;font-size:15px;color:#111827;font-weight:600;">${r.meetingDate}</p>
                   </td>
                   <td style="padding:6px 0;width:50%;">
                     <p style="margin:0;font-size:12px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">Time</p>
-                    <p style="margin:4px 0 0;font-size:15px;color:#111827;font-weight:600;">${r.timeSlot}</p>
+                    <p style="margin:4px 0 0;font-size:15px;color:#111827;font-weight:600;">${r.slotLabel}</p>
                   </td>
                 </tr>
                 <tr>
@@ -104,8 +105,8 @@ function buildEmailText(r: Recipient): string {
     '',
     greeting,
     '',
-    `Date: ${r.sessionDate}`,
-    `Time: ${r.timeSlot}`,
+    `Date: ${r.meetingDate}`,
+    `Time: ${r.slotLabel}`,
     `Format: ${r.format}${r.location ? ` — ${r.location}` : ''}`,
     '',
     'If you have any questions or need to reschedule, please reach out to the Almaworks admin team.',
@@ -136,8 +137,7 @@ export async function POST(req: Request) {
     const { data: authData, error: authErr } = await userClient.auth.getUser()
     if (authErr || !authData.user) return NextResponse.json({ error: 'Invalid auth token.' }, { status: 401 })
 
-    const { data: profile } = await userClient.from('profiles').select('role').eq('id', authData.user.id).single()
-    if (profile?.role !== 'admin') return NextResponse.json({ error: 'Admin access required.' }, { status: 403 })
+    await requireActiveSemesterAdmin(userClient, authData.user.id)
 
     // Parse body
     const body = await req.json() as NotifyRequest
@@ -153,7 +153,7 @@ export async function POST(req: Request) {
     if (!apiKey) {
       const preview = recipients.map(r => ({
         to: r.email,
-        subject: `Your Almaworks session on ${r.sessionDate}`,
+        subject: `Your Almaworks session on ${r.meetingDate}`,
         body_preview: buildEmailText(r),
         dry_run: true,
         message: 'RESEND_API_KEY is not set — this email would have been sent successfully.',
@@ -175,7 +175,7 @@ export async function POST(req: Request) {
           body: JSON.stringify({
             from: fromAddress,
             to: [r.email],
-            subject: `Your Almaworks session on ${r.sessionDate}`,
+            subject: `Your Almaworks session on ${r.meetingDate}`,
             html: buildEmailHtml(r),
             text: buildEmailText(r),
           }),
@@ -193,6 +193,9 @@ export async function POST(req: Request) {
     const sent = results.filter(r => r.ok).length
     return NextResponse.json({ sent, dry_run: false, results })
   } catch (err) {
+    if (err instanceof Error && err.message === 'Semester administrator access required.') {
+      return NextResponse.json({ error: err.message }, { status: 403 })
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Unexpected server error.' },
       { status: 500 },

@@ -1,91 +1,45 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 
-type CreateUserPayload = {
-  email: string
-  fullName: string
-  role: 'mentor' | 'startup' | 'admin'
-}
+import { AuthorizationError, requireAuthenticatedUser } from '@/src/auth/server'
+import { requireActiveSemesterAdmin } from '@/src/program/canonical-access'
+import { setSemesterMemberAccess } from '@/src/program/server/canonical-admin'
+import { provisionSemesterMemberAccess, ReconciliationRequiredError } from '@/src/program/server/user-access'
 
-export async function POST(req: Request) {
+type CreateUserPayload = { email: string; fullName: string; role: 'mentor' | 'startup' | 'admin' }
+
+export async function POST(request: Request) {
   try {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    if (!url || !anonKey || !serviceRoleKey) {
-      return NextResponse.json({ error: 'Missing Supabase environment variables.' }, { status: 500 })
-    }
-
-    // Verify caller is an authenticated admin
-    const authHeader = req.headers.get('authorization') ?? ''
-    const accessToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
-    if (!accessToken) {
-      return NextResponse.json({ error: 'Missing bearer token.' }, { status: 401 })
-    }
-
-    const userClient = createClient(url, anonKey, {
-      global: { headers: { Authorization: `Bearer ${accessToken}` } },
-      auth: { persistSession: false, autoRefreshToken: false },
-    })
-    const { data: authData, error: authErr } = await userClient.auth.getUser()
-    if (authErr || !authData.user) {
-      return NextResponse.json({ error: 'Invalid auth token.' }, { status: 401 })
-    }
-    const adminCheck = await userClient.from('profiles').select('role').eq('id', authData.user.id).single()
-    if (adminCheck.error || adminCheck.data?.role !== 'admin') {
-      return NextResponse.json({ error: 'Admin access required.' }, { status: 403 })
-    }
-
-    // Validate payload
-    const payload = (await req.json()) as CreateUserPayload
+    const { user, profileId, userClient, adminClient } = await requireAuthenticatedUser(request)
+    const semesterId = await requireActiveSemesterAdmin(userClient, user.id)
+    const payload = (await request.json()) as CreateUserPayload
     const email = (payload.email ?? '').trim().toLowerCase()
     const fullName = (payload.fullName ?? '').trim()
     const role = payload.role
     if (!email || !fullName || !['mentor', 'startup', 'admin'].includes(role)) {
       return NextResponse.json({ error: 'email, fullName, and a valid role are required.' }, { status: 400 })
     }
-
-    const adminClient = createClient(url, serviceRoleKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
+    const existingProfile = await adminClient.from('profiles').select('id').eq('email', email).maybeSingle()
+    if (existingProfile.error) return NextResponse.json({ error: existingProfile.error.message }, { status: 400 })
+    if (existingProfile.data) return NextResponse.json({ error: 'A user with this email already exists.' }, { status: 409 })
+    const redirectTo = `${new URL(request.url).origin}/auth/callback`
+    const link = await adminClient.auth.admin.generateLink({
+      type: 'invite', email, options: { redirectTo, data: { full_name: fullName } },
     })
-
-    // Generate magic link — this creates the auth.users record and emails the invite
-    const redirectTo = `${new URL(req.url).origin}/auth/callback`
-    const { data: linkData, error: linkErr } = await adminClient.auth.admin.generateLink({
-      type: 'magiclink',
-      email,
-      options: {
-        redirectTo,
-        data: { full_name: fullName },
-      },
+    if (link.error || !link.data.user?.id) {
+      return NextResponse.json({ error: link.error?.message ?? 'Could not generate magic link.' }, { status: 400 })
+    }
+    await provisionSemesterMemberAccess({
+      authAdmin: adminClient.auth.admin,
+      input: { actorProfileId: profileId, approve: true, email, fullName, profileId: link.data.user.id, role, semesterId },
+      setAccess: (accessInput) => setSemesterMemberAccess(adminClient, accessInput),
     })
-    if (linkErr || !linkData.user?.id) {
-      return NextResponse.json({ error: linkErr?.message ?? 'Could not generate magic link.' }, { status: 400 })
-    }
-
-    const userId = linkData.user.id
-
-    // Upsert profile — pre-approved with the chosen role so they go straight to their dashboard
-    const { error: profileErr } = await adminClient.from('profiles').upsert(
-      {
-        id: userId,
-        email,
-        full_name: fullName,
-        role,
-        status: 'approved',
-        is_active: true,
-      },
-      { onConflict: 'id' },
-    )
-    if (profileErr) {
-      return NextResponse.json({ error: profileErr.message }, { status: 400 })
-    }
-
     return NextResponse.json({ ok: true, email, role })
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Unexpected server error.' },
-      { status: 500 },
-    )
+  } catch (error) {
+    if (error instanceof AuthorizationError) return NextResponse.json({ error: error.message }, { status: error.status })
+    if (error instanceof ReconciliationRequiredError) {
+      return NextResponse.json({ error: error.message, reconciliationRequired: true }, { status: 500 })
+    }
+    const status = error instanceof Error && error.message.includes('Semester administrator access required') ? 403 : 500
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Unexpected server error.' }, { status })
   }
 }

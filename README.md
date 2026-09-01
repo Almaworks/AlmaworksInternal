@@ -63,7 +63,7 @@ Founders and teams enrolled in the Almaworks program for the current semester. S
 
 ### Mentors
 Experienced professionals who volunteer to mentor startups in the Almaworks program. Mentors use the platform to:
-- Complete an onboarding form at the start of each semester confirming which session dates they are available and what expertise they want to bring
+- Complete an onboarding form at the start of each semester confirming which Friday meeting dates they are available and what expertise they want to bring
 - View and manage their own profile
 - Browse the startup directory to understand the companies in the current cohort
 - See their confirmed upcoming and past sessions
@@ -94,14 +94,14 @@ Internal Almaworks staff who run the program. Admins use the platform to:
 Triggered automatically when a new account is created, and re-triggered at the start of each semester.
 
 **Startup onboarding form collects:**
-- Availability across all scheduled session dates for the semester
+- Availability across all scheduled Friday meeting dates for the semester
 - Mentor preferences in free text ("I want a mentor who is strong in GTM strategy")
 - Preferred expertise tags (multi-select: GTM, Fundraising, Product, Biotech, Operations, Legal, etc.)
 - Top three goals for the semester
 - Startup stage (idea, MVP, growth) and industry
 
 **Mentor onboarding form collects:**
-- Availability across all scheduled session dates for the semester (checkbox per date)
+- Availability across all scheduled Friday meeting dates for the semester (checkbox per date)
 - Expertise tags (multi-select)
 - What they want to bring to mentorship (free text)
 
@@ -123,7 +123,7 @@ Each mentor has their own profile page at `/mentors/[slug]` containing:
 - A "Request a session" CTA that opens the session request flow
 
 ### Session Request Flow
-- Startup selects a mentor and submits a request with a topic and preferred dates
+- Startup selects a mentor and submits a request with a topic and preferred meeting dates
 - Request appears in the admin dashboard with status: pending
 - Admin approves, declines, or reschedules the request
 - On confirmation, both mentor and startup are notified (email + optional GCal invite)
@@ -192,23 +192,20 @@ At any point during a semester, the admin can run a gap analysis which:
 
 The database is anchored to the `semesters` table. Every record that is semester-specific carries a `semester_id` foreign key. This means historical data is never deleted — it stays queryable for the mentor directory and AI gap analysis across all past cohorts.
 
-### Core tables
+### Canonical 20-table model
 
-**`semesters`** — one row per cohort, `is_active = true` for the current one
+- Program operations: `profiles`, `platform_roles`, `semesters`, `semester_memberships`, `invitations`, `mentor_profiles`, `mentor_semesters`, `startup_organizations`, `startup_semesters`, `startup_team_memberships`, `meetings`, `meeting_availability`, `sessions`, and `program_audit_events`.
+- Outreach: `outreach_contacts`, `outreach_companies`, `outreach_contact_companies`, `outreach_opportunities`, `outreach_activities`, and `outreach_imports`.
 
-**`users`** — Supabase Auth users extended with `role` (mentor | startup | admin) and `semester_id`
+`profiles.id` is the durable identity. Its nullable `auth_user_id` links only identities that can log in. Roles and semester access come exclusively from `platform_roles` and `semester_memberships`; legacy `profiles.role` and `profiles.semester_id` remain temporarily for safe migration and are never authoritative.
 
-**`mentors`** — profile data: `full_name`, `company`, `bio`, `linkedin_url`, `photo_url`, `expertise_tags[]`, `mentorship_goals`, `is_active`
+A semester is a cohort term such as Fall 2026. A meeting is one Friday program date. A session is one mentor-startup conversation in slot 1 or 2 during that meeting. Outreach contacts remain independent from program profiles even when the same person appears in both domains.
 
-**`startups`** — profile data: `name`, `description`, `industry`, `stage`, `logo_url`, `website`, `mentor_preferences`, `preferred_tags[]`, `semester_goals[]`
+### Migration safety
 
-**`session_dates`** — all scheduled mentorship dates for a semester (e.g. every Thursday)
+The active local replay chain intentionally contains three migrations: one production-shaped baseline followed by Stage A and Stage B of the database hardening cutover. Run `npm run db:migration-safety` before any migration operation.
 
-**`availability`** — junction table: one row per user per session date, recording `is_available`
-
-**`sessions`** — confirmed or pending sessions: links `startup_id`, `mentor_id`, `session_date_id`, with `status` (pending | confirmed | declined), `topic`, and timestamps
-
-**`outreach`** — reach out pipeline: `prospect_name`, `prospect_email`, `linkedin_url`, `expertise_tags[]`, `status` (prospect | contacted | responded | onboarded), `notes`, `last_contacted_at`
+The file ending in `production_baseline_local_replay_only.sql` exists only so `supabase db reset` can build a faithful local starting point. Never push or apply that baseline to production. Because local and remote migration histories do not match, do not use normal `supabase db push` for this cutover. Production deployment must apply only the two files ending in `database_hardening_cutover_stage_a.sql` and `database_hardening_cutover_stage_b.sql`, in that order, after verifying project ref `layjdjfvxkowxidwuvbs`.
 
 ---
 

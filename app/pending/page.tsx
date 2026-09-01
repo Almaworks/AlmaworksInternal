@@ -3,10 +3,11 @@
 import { createClient } from '@/utils/supabase/client'
 import { AlmaworksBrand } from '@/components/AlmaworksBrand'
 import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { loadCanonicalAccess } from '@/src/program/canonical-access'
 
 export default function PendingPage() {
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
   const router = useRouter()
   const [email, setEmail] = useState<string | null>(null)
 
@@ -15,16 +16,12 @@ export default function PendingPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
       setEmail(user.email ?? null)
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role, status, is_active')
-        .eq('id', user.id)
-        .single()
-      if (!profile || profile.status !== 'approved') return
-      if ((profile as typeof profile & { is_active?: boolean }).is_active === false) return
+      const access = await loadCanonicalAccess(supabase, user.id)
+      if (!access || access.status !== 'approved' || !access.role) return
+      if (access.is_active === false) return
       const dest =
-        profile.role === 'admin' ? '/dashboard/admin' :
-        profile.role === 'mentor' ? '/dashboard/mentor' :
+        access.role === 'admin' ? '/dashboard/admin' :
+        access.role === 'mentor' ? '/dashboard/mentor' :
         '/dashboard/startup'
       router.replace(dest)
     }

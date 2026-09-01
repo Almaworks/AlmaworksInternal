@@ -5,14 +5,14 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { CohortMember } from "@/src/lifecycle/cohort-management";
-import { buildWeeklySessionDates, type ReviewableSessionDate } from "@/src/lifecycle/semester-transition";
+import { buildWeeklyMeetingDates, type ReviewableMeetingDate } from "@/src/lifecycle/semester-transition";
 import { createClient } from "@/utils/supabase/client";
 import styles from "./semester-transition.module.css";
 
 type Step = "details" | "dates" | "people" | "review";
 interface SemesterRow { id: string; name: string; start_date: string; end_date: string; is_active: boolean; lifecycle_status: "draft" | "active" | "closed" | "archived"; configuration: unknown; }
-interface SessionDateRow { id: string; semester_id: string; date: string; label: string; }
-interface SemesterResponse { semesters: SemesterRow[]; sessionDates: SessionDateRow[]; }
+interface MeetingRow { id: string; semester_id: string; date: string; label: string; }
+interface SemesterResponse { semesters: SemesterRow[]; meetings: MeetingRow[]; }
 interface CohortResponse { members: CohortMember[]; }
 
 const STEPS: { id: Step; label: string }[] = [
@@ -34,7 +34,7 @@ export default function SemesterOperations() {
   const [step, setStep] = useState<Step>("details");
   const [source, setSource] = useState<SemesterRow | null>(null);
   const [draft, setDraft] = useState<SemesterRow | null>(null);
-  const [dates, setDates] = useState<ReviewableSessionDate[]>([]);
+  const [dates, setDates] = useState<ReviewableMeetingDate[]>([]);
   const [members, setMembers] = useState<CohortMember[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [name, setName] = useState("Fall 2026");
@@ -62,7 +62,7 @@ export default function SemesterOperations() {
       setSource(activeSemester); setDraft(draftSemester);
       if (draftSemester) {
         setName(draftSemester.name); setStartDate(draftSemester.start_date); setEndDate(draftSemester.end_date);
-        const saved = result.sessionDates.filter((date) => date.semester_id === draftSemester.id);
+        const saved = result.meetings.filter((meeting) => meeting.semester_id === draftSemester.id);
         if (saved.length > 0) { setDates(saved.map((date) => ({ date: date.date, label: date.label, included: true }))); setFirstMeetingDate(saved[0].date); }
       }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load semester setup."); }
@@ -75,15 +75,15 @@ export default function SemesterOperations() {
     try {
       const created = await requestJson<{ id: string; name: string }>("/api/admin/lifecycle/semesters", { method: "POST", body: JSON.stringify({ sourceSemesterId: source.id, name, startDate, endDate, location, sessionCadence: "weekly", defaultFormat: format }) });
       setDraft({ id: created.id, name: created.name, start_date: startDate, end_date: endDate, is_active: false, lifecycle_status: "draft", configuration: { location, sessionCadence: "weekly", defaultFormat: format } });
-      setDates(buildWeeklySessionDates(firstMeetingDate, endDate)); setStep("dates"); setNotice("Draft created. Now choose the weeks when meetings will happen.");
+      setDates(buildWeeklyMeetingDates(firstMeetingDate, endDate)); setStep("dates"); setNotice("Draft created. Now choose the weeks when meetings will happen.");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to create the draft."); }
     finally { setWorking(false); }
   }
-  function generateDates() { try { setDates(buildWeeklySessionDates(firstMeetingDate, endDate)); setError(null); } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to generate meeting dates."); } }
+  function generateDates() { try { setDates(buildWeeklyMeetingDates(firstMeetingDate, endDate)); setError(null); } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to generate meeting dates."); } }
   async function saveDates() {
     if (!draft) return; setWorking(true); setError(null);
     try {
-      await requestJson("/api/admin/lifecycle/semesters/session-dates", { method: "POST", body: JSON.stringify({ semesterId: draft.id, dates }) });
+      await requestJson("/api/admin/lifecycle/semesters/meetings", { method: "POST", body: JSON.stringify({ semesterId: draft.id, dates }) });
       setNotice(`${activeDates.length} meeting dates saved; ${skippedDates} break ${skippedDates === 1 ? "week" : "weeks"} excluded.`); setStep("people");
       if (source && members.length === 0) {
         const response = await requestJson<CohortResponse>(`/api/admin/lifecycle/cohorts?semesterId=${encodeURIComponent(source.id)}&scope=semester`);

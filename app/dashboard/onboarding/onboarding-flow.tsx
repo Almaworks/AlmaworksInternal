@@ -16,7 +16,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { AlmaworksBrand } from "@/components/AlmaworksBrand";
-import { buildOnboardingWrites, calculateOnboardingProgress, getOnboardingChecklist } from "@/src/lifecycle/onboarding";
+import { calculateOnboardingProgress, getOnboardingChecklist } from "@/src/lifecycle/onboarding";
 import type { ProgramRole } from "@/src/lifecycle/types";
 import { createClient } from "@/utils/supabase/client";
 
@@ -52,11 +52,10 @@ export default function OnboardingFlow() {
       setEmail(user.email ?? "");
       const { data } = await supabase
         .from("profiles")
-        .select("full_name, role")
+        .select("full_name")
         .eq("id", user.id)
         .maybeSingle();
       if (data?.full_name) setName(data.full_name);
-      if (data?.role === "mentor" || data?.role === "startup") setRole(data.role);
       const { data: membership } = await supabase
         .from("semester_memberships")
         .select("id, semester_id, status, role")
@@ -96,37 +95,28 @@ export default function OnboardingFlow() {
     }
     setSaving(true);
     setSaveError(null);
-    const writes = buildOnboardingWrites({ role, name, organization, description, expertise, teamContact, finalize });
-    const profileUpdate = await supabase.from("profiles").update(writes.profile).eq("id", user.id);
+    const profileUpdate = await supabase.from("profiles").update({ full_name: name.trim() }).eq("id", user.id);
     if (profileUpdate.error) {
       setSaveError(profileUpdate.error.message);
       setSaving(false);
       return false;
     }
-    if (role === "mentor" && "mentorProfile" in writes && writes.mentorProfile && "mentorSemester" in writes && writes.mentorSemester) {
-      const [profileResult, semesterResult] = await Promise.all([
-        supabase.from("mentor_profiles").update(writes.mentorProfile).eq("profile_id", user.id),
-        supabase.from("mentor_semesters").update(writes.mentorSemester).eq("semester_id", semesterId).eq("semester_membership_id", membershipId),
-      ]);
-      if (profileResult.error || semesterResult.error) {
-        setSaveError(profileResult.error?.message ?? semesterResult.error?.message ?? "Mentor setup could not be saved.");
-        setSaving(false);
-        return false;
-      }
-    }
-    if (role === "startup" && "startupSemester" in writes && writes.startupSemester) {
-      const teamResult = await supabase.from("startup_team_memberships").select("startup_semester_id").eq("semester_id", semesterId).eq("semester_membership_id", membershipId).maybeSingle();
-      if (teamResult.error || !teamResult.data) {
-        setSaveError(teamResult.error?.message ?? "Your startup team assignment is still being prepared.");
-        setSaving(false);
-        return false;
-      }
-      const startupResult = await supabase.from("startup_semesters").update(writes.startupSemester).eq("semester_id", semesterId).eq("id", teamResult.data.startup_semester_id);
-      if (startupResult.error) {
-        setSaveError(startupResult.error.message);
-        setSaving(false);
-        return false;
-      }
+    const rows = [
+      { item_key: "identity", is_required: true, completed_at: name.trim() && email.trim() ? new Date().toISOString() : null, payload: { name: name.trim(), email: email.trim(), role } },
+      { item_key: role === "startup" ? "company_snapshot" : "mentor_profile", is_required: true, completed_at: organization.trim() && description.trim() ? new Date().toISOString() : null, payload: { organization: organization.trim(), description: description.trim() } },
+      { item_key: role === "startup" ? "team_contacts" : "expertise", is_required: true, completed_at: (role === "startup" ? teamContact.trim() : expertise.trim()) ? new Date().toISOString() : null, payload: role === "startup" ? { teamContact: teamContact.trim() } : { expertise: expertise.split(",").map((item) => item.trim()).filter(Boolean) } },
+      { item_key: "availability", is_required: true, completed_at: selectedWindows.size > 0 ? new Date().toISOString() : null, payload: { windows: Array.from(selectedWindows) } },
+    ];
+    const progressResult = await supabase.rpc("update_own_onboarding_progress", {
+      p_membership_id: membershipId,
+      p_semester_id: semesterId,
+      p_onboarding_data: rows,
+      p_finalize: finalize,
+    });
+    if (progressResult.error) {
+      setSaveError(progressResult.error.message);
+      setSaving(false);
+      return false;
     }
     if (finalize && selectedWindows.size > 0) {
       const availability = meetingWindows.map((window) => ({ semester_id: semesterId, semester_membership_id: membershipId, meeting_id: window.meetingId, slot: window.slot, is_available: selectedWindows.has(window.id), source: "onboarding" }));
@@ -237,7 +227,7 @@ export default function OnboardingFlow() {
 
           {step === 4 && (
             <section className={styles.completeState}>
-              <span><Check size={28} /></span><p className={styles.eyebrow}>Essentials complete</p><h2>Your setup is ready for {semesterName}.</h2><p>Your information is saved. Almaworks will activate your semester membership; your dashboard will show the current status while you wait.</p>
+              <span><Check size={28} /></span><p className={styles.eyebrow}>Essentials complete</p><h2>You’re ready for {semesterName}.</h2><p>We’ll take you to your dashboard. Optional details stay in a short checklist, so your profile can get stronger over time without blocking you today.</p>
               <div className={styles.summaryCard}><div><strong>{progress.required.completed}/{progress.required.total}</strong><small>Required tasks</small></div><div><strong>{selectedWindows.size}</strong><small>Available windows</small></div><div><strong>{role === "startup" ? "Shared" : "Personal"}</strong><small>Profile access</small></div></div>
               <div className={styles.nextChecklist}><strong>Keep improving when you have a minute</strong>{checklist.filter((item) => !item.required).map((item) => <span key={item.key}><i />{item.label}</span>)}</div>
               <button className={styles.primaryButton} onClick={() => router.push(role === "mentor" ? "/dashboard/mentor" : "/dashboard/startup")}>Go to my dashboard <ArrowRight size={16} /></button>

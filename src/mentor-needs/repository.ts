@@ -63,7 +63,6 @@ export async function saveStartupMentorNeeds(
     mentorship_needs: selection.needs,
     mentor_need_context: selection.context,
     mentor_need_no_preference: selection.noPreference,
-    updated_at: new Date().toISOString(),
   }).eq("id", startupSemesterId);
   if (result.error !== null) fail("save mentor needs", result.error.message);
 }

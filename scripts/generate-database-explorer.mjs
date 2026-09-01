@@ -10,11 +10,10 @@ function cleanInline(value) {
   return value.replaceAll("`", "").trim();
 }
 
-function classifyTable(name, domain) {
-  if (/visa|agent/i.test(domain)) return "external";
-  if (/legacy/i.test(domain) || ["availability", "mentors", "outreach", "outreach_activity_log", "startups"].includes(name)) return "legacy";
-  if (["sessions", "mentor_assignment_requests", "mentor_assignment_audit"].includes(name)) return "bridge";
-  return "current";
+function classifyTable(domain) {
+  if (domain.startsWith("Outreach:")) return "outreach";
+  if (domain.startsWith("Program:")) return "program";
+  return "shared";
 }
 
 function parseDatabaseMap(markdown) {
@@ -36,7 +35,7 @@ function parseDatabaseMap(markdown) {
         name: tableMatch[1],
         domain,
         purpose: "",
-        status: classifyTable(tableMatch[1], domain),
+        status: classifyTable(domain),
         columns: [],
         connections: [],
       };
@@ -139,9 +138,9 @@ function renderArtifact(schema) {
     .table-button::before { content: ""; position: absolute; left: 10px; top: 14px; width: 6px; height: 6px; border-radius: 50%; background: var(--status-color, #829187); }
     .table-button:hover { background: rgba(255,255,255,.06); color: white; }
     .table-button.active { background: white; color: var(--forest); }
-    .table-button[data-status="legacy"] { --status-color: var(--orange); }
-    .table-button[data-status="external"] { --status-color: var(--purple); }
-    .table-button[data-status="bridge"] { --status-color: var(--blue); }
+    .table-button[data-status="program"] { --status-color: var(--blue); }
+    .table-button[data-status="outreach"] { --status-color: var(--orange); }
+    .table-button[data-status="shared"] { --status-color: var(--lime); }
 
     .main { min-width: 0; padding: 38px clamp(22px, 4vw, 64px) 72px; }
     .topbar { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; margin-bottom: 30px; }
@@ -181,9 +180,9 @@ function renderArtifact(schema) {
     .table-purpose { margin: 13px 0 0; max-width: 720px; color: var(--ink-soft); line-height: 1.6; }
     .badges { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 16px; }
     .badge { border: 1px solid var(--line); border-radius: 999px; background: var(--panel); padding: 6px 9px; color: var(--ink-soft); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
-    .badge.status-legacy { border-color: #e3a288; color: #9b3f20; background: #fff2ec; }
-    .badge.status-external { border-color: #c8b5dc; color: #634487; background: #f6effd; }
-    .badge.status-bridge { border-color: #a9bbe9; color: #31539d; background: #eef3ff; }
+    .badge.status-program { border-color: #a9bbe9; color: #31539d; background: #eef3ff; }
+    .badge.status-outreach { border-color: #e3a288; color: #9b3f20; background: #fff2ec; }
+    .badge.status-shared { border-color: #b9cf75; color: #40521c; background: #f4f9e5; }
 
     .map-panel, .columns-panel { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); box-shadow: 0 1px 0 rgba(255,255,255,.8) inset; }
     .map-panel { padding: 22px; margin-bottom: 14px; }
@@ -243,15 +242,15 @@ function renderArtifact(schema) {
       <div class="brand">
         <p class="eyebrow">Almaworks internal</p>
         <h1>Database explorer</h1>
-        <p>Trace how identity, cohorts, sessions, and outreach data fit together.</p>
+        <p>Trace how semesters, Friday meetings, mentorship sessions, and outreach fit together.</p>
       </div>
       <div class="sidebar-tools">
         <label class="search-label" for="schema-search">Find a table or column</label>
         <input id="schema-search" class="search" type="search" placeholder="Try “mentor” or “semester_id”" autocomplete="off">
         <div class="scope-row" role="group" aria-label="Table scope">
           <button class="scope-button active" type="button" data-scope="all">All</button>
-          <button class="scope-button" type="button" data-scope="legacy">Legacy</button>
-          <button class="scope-button" type="button" data-scope="external">Separate</button>
+          <button class="scope-button" type="button" data-scope="program">Program</button>
+          <button class="scope-button" type="button" data-scope="outreach">Outreach</button>
         </div>
       </div>
       <div id="schema-nav" class="nav-scroll"></div>
@@ -339,16 +338,16 @@ function renderArtifact(schema) {
           return '<button type="button" class="domain-card" data-domain="' + escapeHtml(domain) + '">' +
             '<div class="domain-card-index"><span>0' + (index + 1) + '</span><span>' + tables.length + ' tables</span></div>' +
             '<h3>' + escapeHtml(domain) + '</h3>' +
-            '<p>' + columns + ' columns · ' + tables.filter(function (table) { return table.status === "legacy"; }).length + ' legacy tables</p>' +
+            '<p>' + columns + ' documented columns · ' + tables[0].status + ' scope</p>' +
             '<div class="domain-card-bar"><span style="width:' + Math.round((tables.length / maxTables) * 100) + '%"></span></div>' +
           '</button>';
         }).join("");
         content.innerHTML =
-          '<section><p class="section-kicker">System landscape</p><h3 class="section-title">Seven domains, one shared schema</h3><div class="overview-grid">' + cards + '</div></section>' +
+          '<section><p class="section-kicker">Canonical landscape</p><h3 class="section-title">One schema, two operating mandates</h3><div class="overview-grid">' + cards + '</div></section>' +
           '<section class="signals" aria-label="Structural findings">' +
-            '<article class="signal"><span class="signal-label">Primary finding</span><strong>Two generations of the data model coexist.</strong><p>Current cohort-aware records sit beside legacy mentor, startup, session, and outreach structures.</p></article>' +
-            '<article class="signal"><span class="signal-label">Dependency seam</span><strong>Sessions bridge old and new.</strong><p>Assignment records are current, while the resulting session still points to legacy mentors and startups.</p></article>' +
-            '<article class="signal"><span class="signal-label">Boundary</span><strong>Visa data is a separate product.</strong><p>Seven agent and visa tables share the schema without joining to Almaworks cohorts.</p></article>' +
+            '<article class="signal"><span class="signal-label">Program model</span><strong>Durable people, semester-specific participation.</strong><p>Mentor and startup details are reusable; memberships and semester records produce cohort history.</p></article>' +
+            '<article class="signal"><span class="signal-label">Scheduling vocabulary</span><strong>Friday meetings contain two mentorship-session slots.</strong><p>Sessions connect canonical mentor-semester and startup-semester records to a meeting and slot.</p></article>' +
+            '<article class="signal"><span class="signal-label">Outreach boundary</span><strong>Contacts persist; pipeline state resets each semester.</strong><p>New opportunities retain durable notes and history without carrying stale availability forward.</p></article>' +
           '</section>';
       }
 

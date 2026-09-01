@@ -5,6 +5,7 @@ import {
   filterRecordsForCohort,
   membershipsForRecord,
   membershipIdsForRecords,
+  roleForProfileInSemester,
   type CohortRecordReference,
 } from "../../src/lifecycle/cohort-screen.ts";
 import type { CohortMember } from "../../src/lifecycle/cohort-management.ts";
@@ -49,4 +50,14 @@ test("a screen row resolves the membership status for its exact cohort", () => {
     membershipsForRecord(records[1], memberships, { semesterId: "fall-2025", role: "mentor" }).map((member) => member.status),
     ["alumni"],
   );
+});
+
+test("member editing resolves the role from the selected semester instead of another active history row", () => {
+  const roleHistory: CohortMember[] = [
+    ...memberships,
+    { membershipId: "prior-admin", profileId: "profile-2", name: "Beta", email: "beta@example.com", role: "admin", status: "active", semesterId: "fall-2025", semesterName: "Fall 2025" },
+  ];
+  assert.equal(roleForProfileInSemester(roleHistory, "profile-2", "spring-2026"), "startup");
+  assert.equal(roleForProfileInSemester(roleHistory, "profile-2", "fall-2025"), "admin");
+  assert.equal(roleForProfileInSemester(roleHistory, "profile-2", null), null);
 });

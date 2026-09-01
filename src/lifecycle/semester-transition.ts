@@ -20,13 +20,13 @@ export interface ActivateSemesterInput {
   closeAcknowledged: boolean;
 }
 
-export interface ReviewableSessionDate {
+export interface ReviewableMeetingDate {
   date: string;
   label: string;
   included: boolean;
 }
 
-export interface ReplaceSessionDatesInput {
+export interface ReplaceMeetingsInput {
   semesterId: string;
   dates: { date: string; label: string }[];
 }
@@ -57,9 +57,9 @@ export interface SemesterTransitionRpcClient {
     active_semester_id: string;
     alumni_count: number;
   }[]>>;
-  replaceSessionDates(args: {
+  replaceMeetings(args: {
     p_semester_id: string;
-    p_dates: Json;
+    p_meetings: Json;
   }): Promise<RpcResponse<number>>;
 }
 
@@ -142,10 +142,10 @@ export function parseActivateSemesterRequest(value: unknown): ActivateSemesterIn
   return { sourceSemesterId, targetSemesterId, closeAcknowledged: true };
 }
 
-export function buildWeeklySessionDates(
+export function buildWeeklyMeetingDates(
   firstMeetingDate: string,
   semesterEndDate: string,
-): ReviewableSessionDate[] {
+): ReviewableMeetingDate[] {
   const first = isoDate(firstMeetingDate, "firstMeetingDate");
   const end = isoDate(semesterEndDate, "semesterEndDate");
   if (end < first) {
@@ -154,7 +154,7 @@ export function buildWeeklySessionDates(
       "validation_error",
     );
   }
-  const dates: ReviewableSessionDate[] = [];
+  const dates: ReviewableMeetingDate[] = [];
   const cursor = new Date(`${first}T00:00:00Z`);
   const last = new Date(`${end}T00:00:00Z`);
   while (cursor <= last && dates.length < 30) {
@@ -173,7 +173,7 @@ export function buildWeeklySessionDates(
   return dates;
 }
 
-export function parseReplaceSessionDatesRequest(value: unknown): ReplaceSessionDatesInput {
+export function parseReplaceMeetingsRequest(value: unknown): ReplaceMeetingsInput {
   const input = objectInput(value);
   const semesterId = requiredText(input.semesterId, "semesterId");
   if (!Array.isArray(input.dates) || input.dates.length < 1 || input.dates.length > 30) {
@@ -241,16 +241,16 @@ export function createActivateSemesterCommand(authorize: AuthorizeTransition<"ac
   };
 }
 
-export function createReplaceSessionDatesCommand(authorize: AuthorizeTransition<"replaceSessionDates">) {
-  return async function replaceDates(input: ReplaceSessionDatesInput & { request: Request }) {
+export function createReplaceMeetingsCommand(authorize: AuthorizeTransition<"replaceMeetings">) {
+  return async function replaceMeetings(input: ReplaceMeetingsInput & { request: Request }) {
     const client = await authorize(input.request, input.semesterId);
-    const { data, error } = await client.replaceSessionDates({
-      p_dates: input.dates,
+    const { data, error } = await client.replaceMeetings({
+      p_meetings: input.dates,
       p_semester_id: input.semesterId,
     });
     if (error !== null) throw new SemesterTransitionError(error.message, error.code);
     if (data === null || data !== input.dates.length) {
-      throw new SemesterTransitionError("Session date replacement returned an invalid result.");
+      throw new SemesterTransitionError("Meeting replacement returned an invalid result.");
     }
     return { saved: data };
   };

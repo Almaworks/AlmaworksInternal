@@ -1,5 +1,4 @@
 import { requireSemesterAdmin } from "@/src/auth/server";
-import type { Database } from "@/src/db/types";
 import { handleOutreachJson, OutreachHttpError } from "@/src/outreach/server/http";
 
 type CreateContactBody = {
@@ -48,55 +47,37 @@ function parseBody(value: unknown): CreateContactBody {
 
 export async function POST(request: Request) {
   return await handleOutreachJson(request, parseBody, async (body) => {
-    const { user, userClient } = await requireSemesterAdmin(request, body.semesterId);
-    const contactInsert: Database["public"]["Tables"]["outreach_contacts"]["Insert"] = {
-      full_name: body.fullName,
-      email: body.email,
-      linkedin_url: body.linkedinUrl,
-      phone: body.phone,
-      biography: body.biography,
-      created_by: user.id,
-    };
-    const contactResult = await userClient
-      .from("outreach_contacts")
-      .insert(contactInsert)
-      .select("id, full_name, email, linkedin_url, phone, biography, expertise_tags, notes, created_at, updated_at")
-      .single();
-    if (contactResult.error !== null || contactResult.data === null) {
-      if (contactResult.error?.code === "23505") throw new OutreachHttpError(409, "duplicate_record", "A contact with that email or LinkedIn URL already exists.");
-      throw new OutreachHttpError(400, "database_error", contactResult.error?.message ?? "Contact could not be created.");
+    const { userClient } = await requireSemesterAdmin(request, body.semesterId);
+    const bundleResult = await userClient.rpc("upsert_outreach_contact_bundle", {
+      p_semester_id: body.semesterId,
+      p_full_name: body.fullName,
+      p_email: body.email ?? undefined,
+      p_linkedin_url: body.linkedinUrl ?? undefined,
+      p_phone: body.phone ?? undefined,
+      p_biography: body.biography ?? undefined,
+      p_company_name: body.companyName ?? undefined,
+      p_company_normalized_name: body.companyName?.toLowerCase() ?? undefined,
+      p_company_domain: body.companyDomain ?? undefined,
+      p_company_title: body.title ?? undefined,
+    }).single();
+    if (bundleResult.error !== null || bundleResult.data === null) {
+      if (bundleResult.error?.message.includes("outreach_company_identity_conflict")) {
+        throw new OutreachHttpError(409, "duplicate_record", "Company details conflict with an existing outreach record.");
+      }
+      if (bundleResult.error?.code === "23505") throw new OutreachHttpError(409, "duplicate_record", "A contact with that email or LinkedIn URL already exists.");
+      throw new OutreachHttpError(400, "database_error", bundleResult.error?.message ?? "Contact could not be created.");
     }
 
-    const opportunityResult = await userClient
-      .from("outreach_opportunities")
-      .insert({ semester_id: body.semesterId, contact_id: contactResult.data.id, created_by: user.id })
-      .select("id, semester_id, contact_id, stage, cadence_days, next_follow_up_at, owner_profile_id, priority, created_at, updated_at")
-      .single();
-    if (opportunityResult.error !== null || opportunityResult.data === null) {
-      throw new OutreachHttpError(400, "database_error", opportunityResult.error?.message ?? "Opportunity could not be created.");
-    }
-
-    let company: Database["public"]["Tables"]["outreach_companies"]["Row"] | null = null;
-    if (body.companyName !== null) {
-      const companyResult = await userClient
-        .from("outreach_companies")
-        .insert({ name: body.companyName, normalized_name: body.companyName.toLowerCase(), domain: body.companyDomain, created_by: user.id })
-        .select("*")
-        .single();
-      if (companyResult.error !== null || companyResult.data === null) {
-        throw new OutreachHttpError(400, "database_error", companyResult.error?.message ?? "Company could not be created.");
-      }
-      company = companyResult.data;
-      const relationshipResult = await userClient.from("outreach_contact_companies").insert({
-        contact_id: contactResult.data.id,
-        company_id: company.id,
-        title: body.title,
-        is_primary: true,
-      });
-      if (relationshipResult.error !== null) {
-        throw new OutreachHttpError(400, "database_error", relationshipResult.error.message);
-      }
-    }
-    return { contact: contactResult.data, company, opportunity: opportunityResult.data };
+    const [contactResult, opportunityResult, companyResult] = await Promise.all([
+      userClient.from("outreach_contacts").select("id, full_name, email, linkedin_url, phone, biography, expertise_tags, notes, created_at, updated_at").eq("id", bundleResult.data.contact_id).single(),
+      userClient.from("outreach_opportunities").select("id, semester_id, contact_id, stage, cadence_days, next_follow_up_at, owner_profile_id, priority, created_at, updated_at").eq("id", bundleResult.data.opportunity_id).single(),
+      bundleResult.data.company_id === null
+        ? Promise.resolve({ data: null, error: null })
+        : userClient.from("outreach_companies").select("*").eq("id", bundleResult.data.company_id).single(),
+    ]);
+    if (contactResult.error !== null || contactResult.data === null) throw new OutreachHttpError(400, "database_error", contactResult.error?.message ?? "Contact could not be loaded.");
+    if (opportunityResult.error !== null || opportunityResult.data === null) throw new OutreachHttpError(400, "database_error", opportunityResult.error?.message ?? "Opportunity could not be loaded.");
+    if (companyResult.error !== null) throw new OutreachHttpError(400, "database_error", companyResult.error.message);
+    return { contact: contactResult.data, company: companyResult.data, opportunity: opportunityResult.data };
   }, 201);
 }

@@ -15,6 +15,7 @@ export class AuthorizationError extends Error {
 
 export interface AuthenticatedRlsContext {
   user: User;
+  profileId: string;
   userClient: SupabaseClient<Database>;
 }
 
@@ -105,8 +106,17 @@ export async function requireAuthenticatedUserWithRls(request: Request): Promise
   const { data, error } = await userClient.auth.getUser();
   if (error || !data.user) throw new AuthorizationError("Invalid authentication token.", 401);
 
+  const profile = await userClient
+    .from("profiles")
+    .select("id")
+    .eq("auth_user_id", data.user.id)
+    .maybeSingle();
+  if (profile.error) throw new AuthorizationError("Could not resolve authenticated profile.", 500);
+  if (!profile.data) throw new AuthorizationError("Authenticated profile not found.", 403);
+
   return {
     user: data.user,
+    profileId: profile.data.id,
     userClient,
   };
 }

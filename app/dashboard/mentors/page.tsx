@@ -1,10 +1,8 @@
 'use client'
 
 import { createClient } from '@/utils/supabase/client'
-import Link from 'next/link'
+import { createSessionRequest, loadMentorDirectory } from '@/src/program/canonical-repository'
 import { useEffect, useMemo, useState } from 'react'
-import { mentorDirectoryScheduleEntry } from '@/src/assignments/schedule-navigation'
-import { authenticatedFetch } from '@/src/auth/authenticated-fetch'
 
 type MentorCard = {
   id: string
@@ -18,7 +16,7 @@ type MentorCard = {
   photo_url: string | null
 }
 
-type SessionDate = { id: string; date: string; label: string | null }
+type MeetingDate = { id: string; date: string; label: string | null }
 
 export default function MentorDirectoryPage() {
   const supabase = useMemo(() => createClient(), [])
@@ -29,16 +27,16 @@ export default function MentorDirectoryPage() {
 
   // For request-a-mentor flow
   const [userRole, setUserRole] = useState<string | null>(null)
-  const [canManageAdmin, setCanManageAdmin] = useState(false)
   const [startupId, setStartupId] = useState<string | null>(null)
   const [activeSemesterId, setActiveSemesterId] = useState<string | null>(null)
-  const [sessionDates, setSessionDates] = useState<SessionDate[]>([])
+  const [meetingDates, setMeetingDates] = useState<MeetingDate[]>([])
 
   // Request modal state
   const [requestMentor, setRequestMentor] = useState<MentorCard | null>(null)
   const [requestDateId, setRequestDateId] = useState('')
   const [requestTopic, setRequestTopic] = useState('')
   const [requestFormat, setRequestFormat] = useState('online')
+  const [requestSlot, setRequestSlot] = useState<1 | 2>(1)
   const [requesting, setRequesting] = useState(false)
   const [requestSuccess, setRequestSuccess] = useState(false)
   const [requestError, setRequestError] = useState<string | null>(null)
@@ -48,69 +46,38 @@ export default function MentorDirectoryPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { setLoading(false); return }
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role, email')
-        .eq('id', user.id)
-        .single()
-      setUserRole(profile?.role ?? null)
-      try {
-        const capabilityResponse = await authenticatedFetch('/api/auth/capabilities')
-        const capabilityPayload: unknown = await capabilityResponse.json().catch(() => null)
-        setCanManageAdmin(
-          capabilityResponse.ok
-          && typeof capabilityPayload === 'object'
-          && capabilityPayload !== null
-          && 'data' in capabilityPayload
-          && typeof capabilityPayload.data === 'object'
-          && capabilityPayload.data !== null
-          && 'canManageAdmin' in capabilityPayload.data
-          && capabilityPayload.data.canManageAdmin === true,
-        )
-      } catch {
-        setCanManageAdmin(false)
-      }
+      const { data: membership } = await supabase
+        .from('semester_memberships')
+        .select('id, role, semester_id, semester:semesters!inner(is_active)')
+        .eq('profile_id', user.id)
+        .eq('semester.is_active', true)
+        .maybeSingle()
+      setUserRole(membership?.role ?? null)
 
       // Fetch mentors
-      const { data: mentorData } = await supabase
-        .from('mentors')
-        .select('id, full_name, company, role_title, linkedin_url, bio, expertise_tags, is_active, photo_url')
-        .eq('is_active', true)
-        .order('full_name')
-      setMentors((mentorData as MentorCard[]) ?? [])
+      const mentorData = await loadMentorDirectory(supabase)
+      setMentors(mentorData.filter((mentor) => mentor.is_active))
       setLoading(false)
 
       // If startup user, find their startup and load session dates
-      if (profile?.role === 'startup' && profile.email) {
-        const { data: semData } = await supabase
-          .from('semesters')
-          .select('id')
-          .eq('is_active', true)
-          .maybeSingle()
-        if (semData) {
-          setActiveSemesterId(semData.id)
+      if (membership?.role === 'startup') {
+        setActiveSemesterId(membership.semester_id)
+        if (membership.semester_id) {
           const { data: dateRows } = await supabase
-            .from('session_dates')
-            .select('id, date, label')
-            .eq('semester_id', semData.id)
-            .order('date')
-          setSessionDates((dateRows as SessionDate[]) ?? [])
+            .from('meetings')
+            .select('id, meeting_date, label')
+            .eq('semester_id', membership.semester_id)
+            .order('meeting_date')
+          setMeetingDates((dateRows ?? []).map((row) => ({ id: row.id, date: row.meeting_date, label: row.label })))
         }
 
         // Find startup by founder email — use ilike on jsonb cast as text
-        const { data: startups } = await supabase
-          .from('startups')
-          .select('id')
-        // Filter client-side since jsonb contains queries vary by Supabase version
-        if (startups) {
-          const { data: fullStartups } = await supabase
-            .from('startups')
-            .select('id, founders')
-          const match = (fullStartups ?? []).find((s: { id: string; founders: { email?: string }[] }) =>
-            (s.founders ?? []).some((f: { email?: string }) => f.email?.toLowerCase() === profile.email?.toLowerCase())
-          )
-          if (match) setStartupId(match.id)
-        }
+        const { data: team } = await supabase
+          .from('startup_team_memberships')
+          .select('startup_semester_id')
+          .eq('semester_membership_id', membership.id)
+          .maybeSingle()
+        if (team) setStartupId(team.startup_semester_id)
       }
     }
     void init()
@@ -129,22 +96,24 @@ export default function MentorDirectoryPage() {
     })
   }, [mentors, search, tagFilter])
 
-  const scheduleEntry = mentorDirectoryScheduleEntry(canManageAdmin)
-
   async function submitRequest() {
     if (!requestMentor || !startupId || !activeSemesterId || !requestDateId) return
     setRequesting(true)
     setRequestError(null)
-    const { error } = await supabase.from('sessions').insert({
-      mentor_id: requestMentor.id,
-      startup_id: startupId,
-      session_date_id: requestDateId,
-      semester_id: activeSemesterId,
-      status: 'requested',
-      topic: requestTopic.trim() || null,
-      format: requestFormat,
-      is_confirmed: false,
-    } as never)
+    let error: Error | null = null
+    try {
+      await createSessionRequest(supabase, {
+        format: requestFormat,
+        meetingId: requestDateId,
+        mentorSemesterId: requestMentor.id,
+        semesterId: activeSemesterId,
+        slot: requestSlot,
+        startupSemesterId: startupId,
+        topic: requestTopic.trim() || null,
+      })
+    } catch (cause) {
+      error = cause instanceof Error ? cause : new Error('Unable to request session')
+    }
     setRequesting(false)
     if (error) {
       setRequestError(error.message)
@@ -156,6 +125,7 @@ export default function MentorDirectoryPage() {
         setRequestDateId('')
         setRequestTopic('')
         setRequestFormat('online')
+        setRequestSlot(1)
         setRequestError(null)
       }, 1800)
     }
@@ -163,19 +133,9 @@ export default function MentorDirectoryPage() {
 
   return (
     <div className="max-w-4xl">
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-[#002147]">Mentor Directory</h1>
-          <p className="text-sm text-gray-500 mt-1">Browse mentors and their areas of expertise.</p>
-        </div>
-        {scheduleEntry && (
-          <Link
-            href={scheduleEntry.href}
-            className="inline-flex w-fit items-center justify-center rounded-xl bg-[#002147] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#12365f] focus:outline-none focus:ring-2 focus:ring-[#75AADB] focus:ring-offset-2"
-          >
-            {scheduleEntry.label}
-          </Link>
-        )}
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold text-[#002147]">Mentor Directory</h1>
+        <p className="text-sm text-gray-500 mt-1">Browse mentors and their areas of expertise.</p>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3 mb-5">
@@ -250,7 +210,7 @@ export default function MentorDirectoryPage() {
                       LinkedIn
                     </a>
                   )}
-                  {userRole === 'startup' && startupId && sessionDates.length > 0 && (
+                  {userRole === 'startup' && startupId && meetingDates.length > 0 && (
                     <button
                       onClick={() => { setRequestMentor(m); setRequestError(null); setRequestSuccess(false) }}
                       className="text-[11px] font-medium px-2.5 py-1 bg-[#002147] text-white rounded-lg hover:bg-[#002147]/90 transition-colors"
@@ -306,11 +266,22 @@ export default function MentorDirectoryPage() {
                       className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
                     >
                       <option value="">Select a date…</option>
-                      {sessionDates.map(d => (
+                      {meetingDates.map(d => (
                         <option key={d.id} value={d.id}>
                           {d.label ?? d.date} · {d.date}
                         </option>
                       ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Slot</label>
+                    <select
+                      value={requestSlot}
+                      onChange={e => setRequestSlot(e.target.value === '2' ? 2 : 1)}
+                      className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
+                    >
+                      <option value={1}>3:30 â€“ 4:15 PM</option>
+                      <option value={2}>4:15 â€“ 5:00 PM</option>
                     </select>
                   </div>
                   <div>

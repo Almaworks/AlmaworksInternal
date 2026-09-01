@@ -18,6 +18,8 @@ const ids = {
   date: "10000000-0000-4000-8000-000000000003",
   mentor: "10000000-0000-4000-8000-000000000004",
   firstSlotMentor: "10000000-0000-4000-8000-000000000005",
+  mentorSemester: "10000000-0000-4000-8000-000000000007",
+  firstSlotMentorSemester: "10000000-0000-4000-8000-000000000008",
 };
 
 const candidateData: CandidateSourceData = {
@@ -37,8 +39,8 @@ const candidateData: CandidateSourceData = {
   },
   mentors: [
     {
-      id: "schedule-mentor-1",
-      scheduleMentorIds: ["schedule-mentor-1"],
+      id: ids.mentorSemester,
+      scheduleMentorIds: [ids.mentorSemester],
       profileId: ids.mentor,
       name: "Available mentor",
       expertise: ["Enterprise sales"],
@@ -46,8 +48,8 @@ const candidateData: CandidateSourceData = {
       capacity: 3,
     },
     {
-      id: "schedule-mentor-2",
-      scheduleMentorIds: ["schedule-mentor-2"],
+      id: ids.firstSlotMentorSemester,
+      scheduleMentorIds: [ids.firstSlotMentorSemester],
       profileId: ids.firstSlotMentor,
       name: "First slot mentor",
       expertise: ["Fundraising strategy"],
@@ -61,7 +63,7 @@ const candidateData: CandidateSourceData = {
   ],
   sessions: [
     {
-      mentorScheduleId: "schedule-mentor-2",
+      mentorScheduleId: ids.firstSlotMentorSemester,
       startupScheduleId: "schedule-startup-selected",
       sessionDateId: ids.date,
       timeSlot: "3:30-4:15",
@@ -76,8 +78,8 @@ function createSource(overrides: Partial<AssignmentDataSource> = {}): Assignment
       if (
         input.semesterId !== ids.semester
         || input.startupSemesterId !== ids.startup
-        || input.sessionDateId !== ids.date
-        || input.timeSlot !== "4:15-5:00"
+        || input.meetingId !== ids.date
+        || input.slot !== 2
       ) {
         throw new AssignmentHttpError(400, "validation_error", "Slot and startup must belong to the selected semester.");
       }
@@ -87,9 +89,9 @@ function createSource(overrides: Partial<AssignmentDataSource> = {}): Assignment
       if (
         input.semesterId !== ids.semester
         || input.startupSemesterId !== ids.startup
-        || input.sessionDateId !== ids.date
-        || input.timeSlot !== "4:15-5:00"
-        || input.mentorProfileId !== ids.mentor
+        || input.meetingId !== ids.date
+        || input.slot !== 2
+        || input.mentorSemesterId !== ids.mentorSemester
         || input.idempotencyKey !== "retry-001"
       ) {
         throw new AssignmentHttpError(400, "validation_error", "Commit identifiers were not preserved.");
@@ -112,8 +114,8 @@ function routesFor(source: AssignmentDataSource, authorization?: AuthorizationEr
 function candidateRequest(search = new URLSearchParams({
   semesterId: ids.semester,
   startupSemesterId: ids.startup,
-  sessionDateId: ids.date,
-  timeSlot: "4:15-5:00",
+  meetingId: ids.date,
+  slot: "2",
 }).toString()): Request {
   return new Request(`https://almaworks.test/api/admin/assignments/candidates?${search}`);
 }
@@ -129,9 +131,9 @@ function commitRequest(body: unknown, headers: HeadersInit = {}): Request {
 const validCommit = {
   semesterId: ids.semester,
   startupSemesterId: ids.startup,
-  sessionDateId: ids.date,
-  timeSlot: "4:15-5:00",
-  mentorProfileId: ids.mentor,
+  meetingId: ids.date,
+  slot: 2,
+  mentorSemesterId: ids.mentorSemester,
   format: "in_person",
   rankingContext: { score: 85, rank: 1 },
 };
@@ -289,14 +291,14 @@ const enrichedData = (sessions: Array<Record<string, unknown>>): CandidateSource
 
 test("second-slot exclusion applies only to the selected startup", async () => {
   const selectedStartup = enrichedData([{
-    mentorScheduleId: "schedule-mentor-2",
+    mentorScheduleId: ids.firstSlotMentorSemester,
     startupScheduleId: "schedule-startup-selected",
     sessionDateId: ids.date,
     timeSlot: "3:30-4:15",
     status: "confirmed",
   }]);
   const differentStartup = enrichedData([{
-    mentorScheduleId: "schedule-mentor-2",
+    mentorScheduleId: ids.firstSlotMentorSemester,
     startupScheduleId: "schedule-startup-other",
     sessionDateId: ids.date,
     timeSlot: "3:30-4:15",
@@ -316,14 +318,14 @@ test("second-slot exclusion applies only to the selected startup", async () => {
 test("candidate metadata identifies every RPC override needed before commit", async () => {
   const data = enrichedData([
     {
-      mentorScheduleId: "schedule-mentor-2",
+      mentorScheduleId: ids.firstSlotMentorSemester,
       startupScheduleId: "schedule-startup-selected",
       sessionDateId: ids.date,
       timeSlot: "3:30-4:15",
       status: "confirmed",
     },
     {
-      mentorScheduleId: "schedule-mentor-2",
+      mentorScheduleId: ids.firstSlotMentorSemester,
       startupScheduleId: "schedule-startup-selected",
       sessionDateId: "10000000-0000-4000-8000-000000000006",
       timeSlot: "3:30-4:15",
@@ -347,14 +349,14 @@ test("candidate metadata identifies every RPC override needed before commit", as
 
 test("candidate hard-conflict metadata distinguishes occupied mentor and startup slots", async () => {
   const mentorOccupied = enrichedData([{
-    mentorScheduleId: "schedule-mentor-1",
+    mentorScheduleId: ids.mentorSemester,
     startupScheduleId: "schedule-startup-other",
     sessionDateId: ids.date,
     timeSlot: "4:15-5:00",
     status: "confirmed",
   }]);
   const startupOccupied = enrichedData([{
-    mentorScheduleId: "schedule-mentor-2",
+    mentorScheduleId: ids.firstSlotMentorSemester,
     startupScheduleId: "schedule-startup-selected",
     sessionDateId: ids.date,
     timeSlot: "4:15-5:00",
@@ -374,9 +376,9 @@ test("candidate hard-conflict metadata distinguishes occupied mentor and startup
 test("recency counts only prior sessions for the selected mentor and startup", async () => {
   const priorDateId = "10000000-0000-4000-8000-000000000006";
   const data = enrichedData([
-    { mentorScheduleId: "schedule-mentor-1", startupScheduleId: "schedule-startup-selected", sessionDateId: ids.date, timeSlot: "3:30-4:15", status: "confirmed" },
-    { mentorScheduleId: "schedule-mentor-1", startupScheduleId: "schedule-startup-other", sessionDateId: priorDateId, timeSlot: "3:30-4:15", status: "confirmed" },
-    { mentorScheduleId: "schedule-mentor-1", startupScheduleId: "schedule-startup-selected", sessionDateId: priorDateId, timeSlot: "3:30-4:15", status: "confirmed" },
+    { mentorScheduleId: ids.mentorSemester, startupScheduleId: "schedule-startup-selected", sessionDateId: ids.date, timeSlot: "3:30-4:15", status: "confirmed" },
+    { mentorScheduleId: ids.mentorSemester, startupScheduleId: "schedule-startup-other", sessionDateId: priorDateId, timeSlot: "3:30-4:15", status: "confirmed" },
+    { mentorScheduleId: ids.mentorSemester, startupScheduleId: "schedule-startup-selected", sessionDateId: priorDateId, timeSlot: "3:30-4:15", status: "confirmed" },
   ]);
   for (const mentor of data.mentors) mentor.capacity = 5;
   const payload = await (await routesFor(createSource({ loadCandidateData: async () => data })).getCandidates(candidateRequest())).json() as { data: { candidates: Array<{ mentor: { id: string; recentMeetingCount: number } }> } };
@@ -500,7 +502,7 @@ test("Supabase candidate source maps lifecycle mentors and the selected schedule
     meeting_availability: { rows: [{ semester_membership_id: "mentor-membership", meeting_id: ids.date, slot: 1, is_available: true }] },
     sessions: { rows: [] },
   }));
-  const result = await source.loadCandidateData({ semesterId: ids.semester, startupSemesterId: ids.startup, sessionDateId: ids.date, timeSlot: "3:30-4:15", format: "online" } as unknown as Parameters<typeof source.loadCandidateData>[0]);
+  const result = await source.loadCandidateData({ semesterId: ids.semester, startupSemesterId: ids.startup, meetingId: ids.date, slot: 1, format: "online" });
 
   assert.equal(result.startupScheduleId, ids.startup);
   assert.deepEqual(result.mentors, [{ id: "mentor-semester", scheduleMentorIds: ["mentor-semester"], profileId: ids.mentor, name: "Lifecycle mentor", expertise: ["Enterprise sales"], preferredFormat: "online", capacity: 3 }]);

@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --experimental-strip-types --test tests/**/*.test.mts"
+    "test": "node --experimental-strip-types --test tests/**/*.test.mts",
+    "db:migration-safety": "node scripts/check-database-migration-safety.mjs"
   },
   "dependencies": {
     "@supabase/auth-ui-react": "^0.4.7",
