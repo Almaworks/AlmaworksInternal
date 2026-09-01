@@ -777,33 +777,50 @@ export type Database = {
       }
       profiles: {
         Row: {
+          auth_user_id: string | null
           created_at: string
           email: string
           full_name: string | null
           id: string
           is_active: boolean
+          role: Database["public"]["Enums"]["user_role"]
+          semester_id: string | null
           status: string
           updated_at: string
         }
         Insert: {
+          auth_user_id?: string | null
           created_at?: string
           email: string
           full_name?: string | null
           id: string
           is_active?: boolean
+          role: Database["public"]["Enums"]["user_role"]
+          semester_id?: string | null
           status?: string
           updated_at?: string
         }
         Update: {
+          auth_user_id?: string | null
           created_at?: string
           email?: string
           full_name?: string | null
           id?: string
           is_active?: boolean
+          role?: Database["public"]["Enums"]["user_role"]
+          semester_id?: string | null
           status?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "profiles_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       program_audit_events: {
         Row: {

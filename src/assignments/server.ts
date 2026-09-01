@@ -16,7 +16,7 @@ export class AssignmentHttpError extends Error {
   }
 }
 const uuid = (value: string | null, field: string) => { if (!value || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(value)) throw new AssignmentHttpError(400, "validation_error", `${field} must be a UUID.`, field); return value; };
-const slot = (value: string | null) => { if (value !== "3:30-4:15" && value !== "4:15-5:00") throw new AssignmentHttpError(400, "validation_error", "timeSlot is invalid.", "timeSlot"); return value; };
+const candidateSlot = (value: string | null) => { if (value !== "1" && value !== "2") throw new AssignmentHttpError(400, "validation_error", "slot must be 1 or 2.", "slot"); return Number(value) as 1 | 2; };
 const canonicalSlot = (value: unknown) => {
   if (value !== 1 && value !== 2) {
     throw new AssignmentHttpError(400, "validation_error", "slot must be 1 or 2.", "slot");
@@ -24,7 +24,7 @@ const canonicalSlot = (value: unknown) => {
   return value;
 };
 
-export function parseCandidateQuery(url: URL) { return { semesterId: uuid(url.searchParams.get("semesterId"), "semesterId"), startupSemesterId: uuid(url.searchParams.get("startupSemesterId"), "startupSemesterId"), sessionDateId: uuid(url.searchParams.get("sessionDateId"), "sessionDateId"), timeSlot: slot(url.searchParams.get("timeSlot")) }; }
+export function parseCandidateQuery(url: URL) { return { semesterId: uuid(url.searchParams.get("semesterId"), "semesterId"), startupSemesterId: uuid(url.searchParams.get("startupSemesterId"), "startupSemesterId"), meetingId: uuid(url.searchParams.get("meetingId"), "meetingId"), slot: candidateSlot(url.searchParams.get("slot")) }; }
 export function parseCommitBody(value: unknown, headers: Headers) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new AssignmentHttpError(400, "invalid_json", "Request body must be a JSON object.");
   const body = value as Record<string, unknown>; const text = (key: string) => typeof body[key] === "string" ? body[key] : null;
@@ -35,10 +35,10 @@ export function parseCommitBody(value: unknown, headers: Headers) {
 }
 export async function loadAssignmentCandidates(client: Client, input: ReturnType<typeof parseCandidateQuery>) {
   const [{ data: meeting }, { data: startup }, { data: mentorTerms }, { data: availability }, { data: sessions }] = await Promise.all([
-    client.from("meetings").select("id, meeting_date, semester_id").eq("id", input.sessionDateId).eq("semester_id", input.semesterId).maybeSingle(),
+    client.from("meetings").select("id, meeting_date, semester_id, slot_1_starts_at, slot_1_ends_at, slot_2_starts_at, slot_2_ends_at").eq("id", input.meetingId).eq("semester_id", input.semesterId).maybeSingle(),
     client.from("startup_semesters").select("id, mentorship_needs").eq("id", input.startupSemesterId).eq("semester_id", input.semesterId).maybeSingle(),
     client.from("mentor_semesters").select("id, semester_membership_id, capacity, preferred_format").eq("semester_id", input.semesterId).eq("readiness_status", "ready"),
-    client.from("meeting_availability").select("semester_membership_id, meeting_id, slot, is_available").eq("meeting_id", input.sessionDateId),
+    client.from("meeting_availability").select("semester_membership_id, meeting_id, slot, is_available").eq("meeting_id", input.meetingId),
     client.from("sessions").select("mentor_semester_id, slot").eq("semester_id", input.semesterId),
   ]);
   if (!meeting || !startup) throw new AssignmentHttpError(400, "validation_error", "Slot and startup must belong to the selected semester.");
@@ -56,9 +56,11 @@ export async function loadAssignmentCandidates(client: Client, input: ReturnType
   const membershipById = new Map((memberships ?? []).map((membership) => [membership.id, membership]));
   const profileById = new Map((profiles ?? []).map((profile) => [profile.id, profile]));
   const mentorProfileById = new Map((mentorProfiles ?? []).map((profile) => [profile.profile_id, profile]));
-  const selectedSlot = input.timeSlot === "3:30-4:15" ? 1 : 2;
+  const selectedSlot = input.slot;
   const assignedFirst = (sessions ?? []).filter((session) => session.slot === 1).map((session) => session.mentor_semester_id);
-  const assignmentSlot = { id: `${input.sessionDateId}:${input.timeSlot}`, semesterId: input.semesterId, date: meeting.meeting_date, start: input.timeSlot.split("-")[0], end: input.timeSlot.split("-")[1], format: "in_person" as MeetingFormat };
+  const startsAt = selectedSlot === 1 ? meeting.slot_1_starts_at : meeting.slot_2_starts_at;
+  const endsAt = selectedSlot === 1 ? meeting.slot_1_ends_at : meeting.slot_2_ends_at;
+  const assignmentSlot = { id: `${input.meetingId}:${input.slot}`, semesterId: input.semesterId, date: meeting.meeting_date, start: startsAt.slice(0, 5), end: endsAt.slice(0, 5), format: "in_person" as MeetingFormat };
   const candidates = (mentorTerms ?? []).flatMap((term) => {
     const membership = membershipById.get(term.semester_membership_id);
     const profile = membership && profileById.get(membership.profile_id);
@@ -67,7 +69,7 @@ export async function loadAssignmentCandidates(client: Client, input: ReturnType
     return [{ id: term.id, name: profile.full_name ?? profile.email, expertise: mentorProfile.expertise_tags, availability: (availability ?? []).filter((row) => row.semester_membership_id === membership.id && row.slot === selectedSlot && row.is_available).map((row) => row.meeting_id), recentMeetingCount: 0, assignmentLoad: (sessions ?? []).filter((session) => session.mentor_semester_id === term.id).length, formats: [term.preferred_format === "remote" ? "remote" : "in_person"] as MeetingFormat[] }];
   });
   const needs = startup.mentorship_needs;
-  return { slot: assignmentSlot, candidates: rankMentorCandidates({ primaryNeed: needs[0] ?? undefined, secondaryNeed: needs[1] ?? undefined, slot: assignmentSlot, excludeMentorIds: input.timeSlot === "4:15-5:00" ? assignedFirst : [], mentors: candidates }) };
+  return { slot: assignmentSlot, candidates: rankMentorCandidates({ primaryNeed: needs[0] ?? undefined, secondaryNeed: needs[1] ?? undefined, slot: assignmentSlot, excludeMentorIds: input.slot === 2 ? assignedFirst : [], mentors: candidates }) };
 }
 interface AssignmentCommitClient {
   rpc(name: string, args: Record<string, unknown>): PromiseLike<{

@@ -20,9 +20,12 @@
 |---|---|
 | `semesters` | Only one can have `is_active = true` at a time |
 | `semester_memberships` | Role and cohort access source of truth; never trust auth metadata |
-| `availability` | Unique constraint on (user_id, session_date_id) |
-| `sessions` | Status enum is strict: pending, confirmed, declined only |
-| `outreach` | Status enum: prospect, contacted, responded, onboarded |
+| `profiles` | Durable identity; nullable `auth_user_id` is the login link. Legacy role/semester columns are non-authoritative. |
+| `meetings` | One Friday program date within a semester |
+| `meeting_availability` | Unique per semester membership, meeting, and numeric slot (1 or 2) |
+| `sessions` | One mentor-startup conversation in a meeting slot |
+| `outreach_contacts` | Global outreach identity, intentionally independent from program profiles |
+| `outreach_opportunities` | Per-semester outreach stage, ownership, and resettable workflow state |
 
 ## After any schema change — run this
 ```bash

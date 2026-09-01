@@ -6,39 +6,173 @@ alter default privileges for role "postgres" in schema "public" revoke all on se
 
 alter default privileges for role "postgres" in schema "public" revoke all on sequences from "service_role";
 
+alter default privileges for role "postgres" in schema "public" revoke all on FUNCTIONS from "anon";
+
+alter default privileges for role "postgres" in schema "public" revoke all on FUNCTIONS from "authenticated";
+
+alter default privileges for role "postgres" in schema "public" revoke all on FUNCTIONS from "service_role";
+
 alter default privileges for role "postgres" in schema "public" revoke all on tables from "anon";
 
 alter default privileges for role "postgres" in schema "public" revoke all on tables from "authenticated";
 
 alter default privileges for role "postgres" in schema "public" revoke all on tables from "service_role";
 
+revoke all on function "public"."activate_semester_transition"(uuid, uuid) from "anon";
+
+revoke all on function "public"."activate_semester_transition"(uuid, uuid) from "service_role";
+
+revoke all on function "public"."bulk_set_membership_activity"(uuid, uuid[], boolean) from "anon";
+
+revoke all on function "public"."bulk_set_membership_activity"(uuid, uuid[], boolean) from "service_role";
+
+revoke all on function "public"."can_manage_any_outreach"(uuid) from "anon";
+
+revoke all on function "public"."can_manage_any_outreach"(uuid) from "service_role";
+
+revoke all on function "public"."can_manage_semester"(uuid, uuid) from "anon";
+
+revoke all on function "public"."can_manage_semester"(uuid, uuid) from "service_role";
+
+revoke all on function "public"."carry_forward_outreach_contacts"(uuid, uuid, uuid[]) from "anon";
+
+revoke all on function "public"."carry_forward_outreach_contacts"(uuid, uuid, uuid[]) from "service_role";
+
+revoke all on function "public"."create_semester_draft"(uuid, text, date, date, jsonb) from "anon";
+
+revoke all on function "public"."create_semester_draft"(uuid, text, date, date, jsonb) from "service_role";
+
+revoke all on function "public"."handle_new_user"() from "anon";
+
+revoke all on function "public"."handle_new_user"() from "authenticated";
+
+revoke all on function "public"."handle_new_user"() from "service_role";
+
+revoke all on function "public"."import_prior_semester_memberships"(uuid, uuid, uuid[]) from "anon";
+
+revoke all on function "public"."import_prior_semester_memberships"(uuid, uuid, uuid[]) from "service_role";
+
+revoke all
+  on function "public"."log_outreach_activity"(uuid, public.outreach_activity_kind, timestamp with time zone, public.outreach_channel, text, jsonb, timestamp
+    with time zone, public.outreach_stage, timestamp with time zone)
+  from "anon";
+
+revoke all
+  on function "public"."log_outreach_activity"(uuid, public.outreach_activity_kind, timestamp with time zone, public.outreach_channel, text, jsonb, timestamp
+    with time zone, public.outreach_stage, timestamp with time zone)
+  from "service_role";
+
+revoke all on function "public"."prevent_outreach_activity_mutation"() from "anon";
+
+revoke all on function "public"."prevent_outreach_activity_mutation"() from "authenticated";
+
+revoke all on function "public"."prevent_outreach_activity_mutation"() from "service_role";
+
+revoke all on function "public"."release_inactive_owner_work"(uuid) from "anon";
+
+revoke all on function "public"."release_inactive_owner_work"(uuid) from "service_role";
+
+revoke all on function "public"."reset_outreach_opportunities"(uuid, uuid[]) from "anon";
+
+revoke all on function "public"."reset_outreach_opportunities"(uuid, uuid[]) from "service_role";
+
+revoke all on function "public"."set_outreach_silence"(uuid, boolean, text, timestamp with time zone, timestamp with time zone) from "anon";
+
+revoke all on function "public"."set_outreach_silence"(uuid, boolean, text, timestamp with time zone, timestamp with time zone) from "service_role";
+
+revoke all on function "public"."set_outreach_snooze"(uuid, timestamp with time zone, text, timestamp with time zone) from "anon";
+
+revoke all on function "public"."set_outreach_snooze"(uuid, timestamp with time zone, text, timestamp with time zone) from "service_role";
+
+revoke all on function "public"."set_updated_at"() from "anon";
+
+revoke all on function "public"."set_updated_at"() from "authenticated";
+
+revoke all on function "public"."set_updated_at"() from "service_role";
+
+revoke all on function "public"."suspend_outreach_membership"(uuid, uuid, text, timestamp with time zone) from "anon";
+
+revoke all on function "public"."suspend_outreach_membership"(uuid, uuid, text, timestamp with time zone) from "service_role";
+
+revoke all on function "public"."transfer_outreach_owner"(uuid, uuid, text, timestamp with time zone) from "anon";
+
+revoke all on function "public"."transfer_outreach_owner"(uuid, uuid, text, timestamp with time zone) from "service_role";
+
+revoke all on function "public"."update_updated_at"() from "anon";
+
+revoke all on function "public"."update_updated_at"() from "authenticated";
+
+revoke all on function "public"."update_updated_at"() from "service_role";
+
+revoke all on function "public"."validate_outreach_owner_membership"() from "anon";
+
+revoke all on function "public"."validate_outreach_owner_membership"() from "authenticated";
+
+revoke all on function "public"."validate_outreach_owner_membership"() from "service_role";
+
+revoke all on table "public"."invitations" from "anon";
+
 revoke all on table "public"."invitations" from "service_role";
+
+revoke all on table "public"."meeting_availability" from "anon";
 
 revoke all on table "public"."meeting_availability" from "service_role";
 
-revoke all on table "public"."mentor_profiles" from "service_role";
+revoke all on table "public"."meetings" from "anon";
 
-revoke all on table "public"."mentor_semesters" from "service_role";
+revoke all on table "public"."mentor_profiles" from "anon";
+
+revoke all on table "public"."mentor_semesters" from "anon";
+
+revoke all on table "public"."outreach_activities" from "anon";
 
 revoke all on table "public"."outreach_activities" from "service_role";
 
+revoke all on table "public"."outreach_companies" from "anon";
+
 revoke all on table "public"."outreach_companies" from "service_role";
+
+revoke all on table "public"."outreach_contact_companies" from "anon";
 
 revoke all on table "public"."outreach_contact_companies" from "service_role";
 
+revoke all on table "public"."outreach_contacts" from "anon";
+
 revoke all on table "public"."outreach_contacts" from "service_role";
+
+revoke all on table "public"."outreach_imports" from "anon";
 
 revoke all on table "public"."outreach_imports" from "service_role";
 
+revoke all on table "public"."outreach_opportunities" from "anon";
+
 revoke all on table "public"."outreach_opportunities" from "service_role";
 
+revoke all on table "public"."platform_roles" from "anon";
+
 revoke all on table "public"."platform_roles" from "service_role";
+
+revoke all on table "public"."profiles" from "anon";
+
+revoke all on table "public"."program_audit_events" from "anon";
 
 revoke all on table "public"."program_audit_events" from "authenticated";
 
 revoke all on table "public"."program_audit_events" from "service_role";
 
+revoke all on table "public"."semester_memberships" from "anon";
+
+revoke all on table "public"."semesters" from "anon";
+
 revoke all on table "public"."semesters" from "service_role";
+
+revoke all on table "public"."sessions" from "anon";
+
+revoke all on table "public"."startup_organizations" from "anon";
+
+revoke all on table "public"."startup_semesters" from "anon";
+
+revoke all on table "public"."startup_team_memberships" from "anon";
 
 drop policy "semester admins manage invitations" on "public"."invitations";
 
@@ -108,6 +242,8 @@ drop policy "members read own semester memberships" on "public"."semester_member
 
 drop policy "semester admins manage semester memberships" on "public"."semester_memberships";
 
+drop policy "authenticated users read semesters" on "public"."semesters";
+
 drop policy "admins can delete sessions" on "public"."sessions";
 
 drop policy "admins can insert sessions" on "public"."sessions";
@@ -136,14 +272,6 @@ drop policy "semester admins manage startup team memberships" on "public"."start
 
 drop policy "startup teams read their memberships" on "public"."startup_team_memberships";
 
-drop policy "data_keys_select_own_agent" on "public"."visa_application_data_keys";
-
-drop policy "orders_select_for_agent" on "public"."visa_application_orders";
-
-drop policy "orders_update_for_agent" on "public"."visa_application_orders";
-
-drop policy "payloads_select_for_agent" on "public"."visa_application_passenger_payloads";
-
 drop trigger "sync_session_compatibility_columns" on "public"."sessions";
 
 drop index "public"."outreach_companies_normalized_name_idx";
@@ -152,32 +280,11 @@ drop index "public"."profiles_auth_user_id_key";
 
 drop view "public"."availability";
 
-alter table "public"."agent_registration_requests"
-  drop constraint "agent_registration_requests_reviewed_by_fkey";
-
-alter table "public"."agents"
-  drop constraint "agents_user_id_fkey";
-
-alter table "public"."profiles"
-  drop constraint "profiles_auth_user_id_fkey";
-
 alter table "public"."profiles"
   drop constraint "profiles_semester_id_fkey";
 
-alter table "public"."visa_application_data_keys"
-  drop constraint "visa_application_data_keys_agent_id_fkey";
-
-alter table "public"."visa_application_data_keys"
-  drop constraint "visa_application_data_keys_order_id_fkey";
-
-alter table "public"."visa_application_orders"
-  drop constraint "visa_application_orders_draft_id_fkey";
-
-alter table "public"."visa_application_passenger_payloads"
-  drop constraint "visa_application_passenger_payloads_order_id_fkey";
-
-alter table "public"."visa_business_key"
-  drop constraint "visa_business_key_updated_by_fkey";
+alter table "public"."semesters"
+  drop constraint "semesters_active_lifecycle_status_check";
 
 drop function "public"."can_read_outreach_relationship_labels"(uuid);
 
@@ -231,15 +338,6 @@ drop type "public"."outreach_status";
 
 drop type "public"."session_status";
 
-alter table "public"."profiles"
-  drop column "auth_user_id";
-
-alter table "public"."profiles"
-  drop column "role";
-
-alter table "public"."profiles"
-  drop column "semester_id";
-
 alter table "public"."sessions"
   drop column "is_confirmed";
 
@@ -258,21 +356,40 @@ alter table "public"."sessions"
 alter table "public"."sessions"
   drop column "time_slot";
 
-drop table "public"."agent_registration_requests";
-
-drop table "public"."agents";
-
-drop table "public"."visa_application_data_keys";
-
-drop table "public"."visa_application_drafts";
-
-drop table "public"."visa_application_orders";
-
-drop table "public"."visa_application_passenger_payloads";
-
-drop table "public"."visa_business_key";
-
 create schema "private";
+
+create or replace function private.actor_can_manage_semester (
+  target_semester_id uuid,
+  actor_profile_id   uuid
+)
+  returns boolean
+  language sql
+  stable
+  security definer
+  set search_path to ''
+  AS $function$ select private.actor_is_super_admin(actor_profile_id) or private.actor_has_semester_role(target_semester_id,array['admin']::public.user_role[],actor_profile_id) $function$;
+
+create or replace function private.actor_has_semester_role (
+  target_semester_id uuid,
+  allowed_roles      public.user_role[],
+  actor_profile_id   uuid
+)
+  returns boolean
+  language sql
+  stable
+  security definer
+  set search_path to ''
+  AS $function$ select actor_profile_id is not null and exists (select 1 from public.semester_memberships where semester_id=target_semester_id and profile_id=actor_profile_id and role=any(allowed_roles) and status='active') $function$;
+
+create or replace function private.actor_is_super_admin (
+  actor_profile_id uuid
+)
+  returns boolean
+  language sql
+  stable
+  security definer
+  set search_path to ''
+  AS $function$ select actor_profile_id is not null and exists (select 1 from public.platform_roles where profile_id=actor_profile_id and role='super_admin') $function$;
 
 create or replace function private.can_manage_semester (
   target_semester_id uuid,
@@ -283,7 +400,7 @@ create or replace function private.can_manage_semester (
   stable
   security definer
   set search_path to ''
-  AS $function$ select private.is_super_admin(candidate_id) or private.has_semester_role(target_semester_id,array['admin']::public.user_role[],candidate_id) $function$;
+  AS $function$ select candidate_id is not null and candidate_id is not distinct from auth.uid() and private.actor_can_manage_semester(target_semester_id, private.current_profile_id(candidate_id)) $function$;
 
 create or replace function private.can_read_mentor_profile (
   target_profile_id uuid,
@@ -300,7 +417,7 @@ create or replace function private.can_read_mentor_profile (
     and exists (
       select 1
       from public.semester_memberships candidate_membership
-      where candidate_membership.profile_id = candidate_id
+        where candidate_membership.profile_id = private.current_profile_id(candidate_id)
         and candidate_membership.status in ('onboarding', 'active')
     )
     and exists (
@@ -320,7 +437,17 @@ create or replace function private.can_read_outreach_relationship_labels (
   stable
   security definer
   set search_path to ''
-  AS $function$ select private.is_super_admin(candidate_id) or exists(select 1 from public.semester_memberships where profile_id=candidate_id and role='admin' and status='active') $function$;
+  AS $function$ select private.is_super_admin(candidate_id) or (candidate_id is not null and candidate_id is not distinct from auth.uid() and exists(select 1 from public.semester_memberships where profile_id=private.current_profile_id(candidate_id) and role='admin' and status='active')) $function$;
+
+create or replace function private.current_profile_id (
+  candidate_auth_user_id uuid default auth.uid()
+)
+  returns uuid
+  language sql
+  stable
+  security definer
+  set search_path to ''
+  AS $function$ select id from public.profiles where auth_user_id = candidate_auth_user_id $function$;
 
 create or replace function private.has_outreach_company_access (
   target_company_id uuid,
@@ -354,7 +481,7 @@ create or replace function private.has_semester_role (
   stable
   security definer
   set search_path to ''
-  AS $function$ select candidate_id is not null and candidate_id is not distinct from auth.uid() and exists (select 1 from public.semester_memberships where semester_id=target_semester_id and profile_id=candidate_id and role=any(allowed_roles) and status='active') $function$;
+  AS $function$ select candidate_id is not null and candidate_id is not distinct from auth.uid() and private.actor_has_semester_role(target_semester_id, allowed_roles, private.current_profile_id(candidate_id)) $function$;
 
 create or replace function private.is_super_admin (
   candidate_id uuid default auth.uid()
@@ -364,7 +491,7 @@ create or replace function private.is_super_admin (
   stable
   security definer
   set search_path to ''
-  AS $function$ select candidate_id is not null and candidate_id is not distinct from auth.uid() and exists (select 1 from public.platform_roles where profile_id=candidate_id and role='super_admin') $function$;
+  AS $function$ select candidate_id is not null and candidate_id is not distinct from auth.uid() and private.actor_is_super_admin(private.current_profile_id(candidate_id)) $function$;
 
 create or replace function public.activate_semester_transition (
   p_source_semester_id uuid,
@@ -389,8 +516,8 @@ begin
   update public.semesters set is_active=false,lifecycle_status='closed',closed_at=now(),updated_at=now() where id=p_source_semester_id;
   update public.semesters set is_active=true,lifecycle_status='active',closed_at=null,updated_at=now() where id=p_target_semester_id;
   insert into public.program_audit_events(semester_id,actor_profile_id,action,subject_type,subject_id,details) values
-    (p_source_semester_id,auth.uid(),'semester.closed','semester',p_source_semester_id,jsonb_build_object('next_semester_id',p_target_semester_id,'alumni_count',v_alumni_count)),
-    (p_target_semester_id,auth.uid(),'semester.activated','semester',p_target_semester_id,jsonb_build_object('previous_semester_id',p_source_semester_id));
+    (p_source_semester_id,private.current_profile_id(),'semester.closed','semester',p_source_semester_id,jsonb_build_object('next_semester_id',p_target_semester_id,'alumni_count',v_alumni_count)),
+    (p_target_semester_id,private.current_profile_id(),'semester.activated','semester',p_target_semester_id,jsonb_build_object('previous_semester_id',p_source_semester_id));
   return query select p_source_semester_id,p_target_semester_id,v_alumni_count;
 end;
 $function$;
@@ -416,7 +543,7 @@ begin
   if v_membership_id is null then
     raise exception 'Semester member not found' using errcode = 'P0002';
   end if;
-  if private.is_super_admin(p_profile_id) and not private.is_super_admin(auth.uid()) then
+  if private.actor_is_super_admin(p_profile_id) and not private.is_super_admin(auth.uid()) then
     raise exception 'Platform super-administrator access required for this identity' using errcode = '42501';
   end if;
   return v_membership_id;
@@ -443,7 +570,7 @@ begin
  update public.semester_memberships set status=v_status,activated_at=case when p_is_active then coalesce(activated_at,now()) else activated_at end,suspended_at=case when p_is_active then null else now() end,updated_at=now() where semester_id=p_semester_id and id=any(p_membership_ids);
  get diagnostics v_updated_count=row_count;
  insert into public.program_audit_events(semester_id,actor_profile_id,action,subject_type,subject_id,details)
- select p_semester_id,auth.uid(),case when p_is_active then 'membership.activated' else 'membership.suspended' end,'semester_membership',membership_id,jsonb_build_object('bulk',true,'status',v_status) from unnest(p_membership_ids) membership_id;
+ select p_semester_id,private.current_profile_id(),case when p_is_active then 'membership.activated' else 'membership.suspended' end,'semester_membership',membership_id,jsonb_build_object('bulk',true,'status',v_status) from unnest(p_membership_ids) membership_id;
  return v_updated_count;
 end; $function$;
 
@@ -493,7 +620,7 @@ begin
   select p_target_semester_id, source.contact_id, source.relationship_types, 'not_contacted', null,
     null, null, false, null, null, null, null,
     jsonb_build_object('carried_from_semester_id', p_source_semester_id, 'carried_from_opportunity_id', source.id),
-    auth.uid()
+    private.current_profile_id()
   from public.outreach_opportunities source
   where source.semester_id = p_source_semester_id and source.contact_id = any(p_contact_ids)
   on conflict (semester_id, contact_id) do nothing;
@@ -538,7 +665,7 @@ begin
     case when cardinality(p_override_types) > 0 then concat('Assignment override: ', p_override_reason) end, p_idempotency_key)
   returning id into v_session_id;
   insert into public.program_audit_events(semester_id, actor_profile_id, action, subject_type, subject_id, details)
-  values(p_semester_id, auth.uid(), 'session.assigned', 'session', v_session_id, jsonb_build_object('override_types', p_override_types, 'ranking_context', p_ranking_context));
+  values(p_semester_id, private.current_profile_id(), 'session.assigned', 'session', v_session_id, jsonb_build_object('override_types', p_override_types, 'ranking_context', p_ranking_context));
   return jsonb_build_object('sessionId', v_session_id, 'replayed', false);
 end;
 $function$;
@@ -570,10 +697,10 @@ declare
   v_membership_id uuid;
   v_mentor_semester_id uuid;
 begin
-  if p_actor_profile_id is null or not private.can_manage_semester(p_semester_id, p_actor_profile_id) then
+  if p_actor_profile_id is null or not private.actor_can_manage_semester(p_semester_id, p_actor_profile_id) then
     raise exception 'Semester administrator access required' using errcode = '42501';
   end if;
-  if private.is_super_admin(p_profile_id) and not private.is_super_admin(p_actor_profile_id) then
+  if private.actor_is_super_admin(p_profile_id) and not private.actor_is_super_admin(p_actor_profile_id) then
     raise exception 'Platform super-administrator access required for this identity' using errcode = '42501';
   end if;
 
@@ -667,8 +794,8 @@ begin
   if auth.uid() is null or not private.can_manage_semester(p_source_semester_id, auth.uid()) then raise exception 'Semester administrator access required' using errcode = '42501'; end if;
   if nullif(trim(p_name), '') is null or p_end_date <= p_start_date then raise exception 'Valid semester name and date range are required' using errcode = '22023'; end if;
   insert into public.semesters(name,start_date,end_date,is_active,lifecycle_status,configuration) values(trim(p_name),p_start_date,p_end_date,false,'draft',coalesce(p_configuration,'{}')) returning id into v_semester_id;
-  insert into public.semester_memberships(semester_id,profile_id,role,status,activated_at) values(v_semester_id,auth.uid(),'admin','active',now());
-  insert into public.program_audit_events(semester_id,actor_profile_id,action,subject_type,subject_id,details) values(v_semester_id,auth.uid(),'semester.draft_created','semester',v_semester_id,jsonb_build_object('source_semester_id',p_source_semester_id));
+  insert into public.semester_memberships(semester_id,profile_id,role,status,activated_at) values(v_semester_id,private.current_profile_id(),'admin','active',now());
+  insert into public.program_audit_events(semester_id,actor_profile_id,action,subject_type,subject_id,details) values(v_semester_id,private.current_profile_id(),'semester.draft_created','semester',v_semester_id,jsonb_build_object('source_semester_id',p_source_semester_id));
   return query select v_semester_id, trim(p_name);
 end;
 $function$;
@@ -678,7 +805,7 @@ create or replace function public.handle_new_user()
   language plpgsql
   security definer
   set search_path to ''
-  AS $function$ begin insert into public.profiles(id,email,status,full_name) values(new.id,lower(new.email),'pending',coalesce(new.raw_user_meta_data->>'full_name',new.raw_user_meta_data->>'name')) on conflict(id) do update set email=excluded.email,full_name=coalesce(public.profiles.full_name,excluded.full_name),updated_at=now(); return new; end; $function$;
+  AS $function$ begin insert into public.profiles(id,auth_user_id,email,role,status,full_name) values(new.id,new.id,lower(new.email),'startup'::public.user_role,'pending',coalesce(new.raw_user_meta_data->>'full_name',new.raw_user_meta_data->>'name')) on conflict(id) do update set auth_user_id=excluded.auth_user_id,email=excluded.email,full_name=coalesce(public.profiles.full_name,excluded.full_name),updated_at=now(); return new; end; $function$;
 
 create or replace function public.import_prior_semester_memberships (
   p_source_semester_id uuid,
@@ -728,7 +855,7 @@ begin
   where source.semester_id=p_source_semester_id and (p_membership_ids is null or source.id=any(p_membership_ids))
   on conflict do nothing;
 
-  insert into public.program_audit_events(semester_id,actor_profile_id,action,subject_type,details) values(p_target_semester_id,auth.uid(),'membership.imported','semester_membership',jsonb_build_object('source_semester_id',p_source_semester_id,'imported_count',v_after-v_before));
+  insert into public.program_audit_events(semester_id,actor_profile_id,action,subject_type,details) values(p_target_semester_id,private.current_profile_id(),'membership.imported','semester_membership',jsonb_build_object('source_semester_id',p_source_semester_id,'imported_count',v_after-v_before));
   return query select v_source_count,v_after-v_before,v_source_count-(v_after-v_before);
 end;
 $function$;
@@ -750,7 +877,7 @@ create or replace function public.log_outreach_activity (
   set search_path to 'public'
   AS $function$
 declare
-  v_actor_id uuid := auth.uid();
+  v_actor_id uuid := private.current_profile_id();
   v_opportunity public.outreach_opportunities%rowtype;
   v_activity public.outreach_activities%rowtype;
   v_next_follow_up_at timestamptz;
@@ -922,7 +1049,7 @@ create or replace function public.release_inactive_owner_work (
   set search_path to 'public'
   AS $function$
 declare
-  v_actor_id uuid := auth.uid();
+  v_actor_id uuid := private.current_profile_id();
   v_candidate record;
   v_released record;
 begin
@@ -1046,7 +1173,7 @@ begin
     insert into public.outreach_activities (
       semester_id, opportunity_id, actor_profile_id, activity_kind, summary, details
     )
-    select p_semester_id, id, auth.uid(), 'stage_change', 'Outreach status reset',
+    select p_semester_id, id, private.current_profile_id(), 'stage_change', 'Outreach status reset',
       jsonb_build_object('stage', 'not_contacted', 'reason', 'new_semester_review')
     from reset_rows returning id
   )
@@ -1068,7 +1195,7 @@ create or replace function public.set_outreach_silence (
   set search_path to 'public'
   AS $function$
 declare
-  v_actor_id uuid := auth.uid();
+  v_actor_id uuid := private.current_profile_id();
   v_opportunity public.outreach_opportunities%rowtype;
 begin
   if v_actor_id is null then
@@ -1155,7 +1282,7 @@ create or replace function public.set_outreach_snooze (
   set search_path to 'public'
   AS $function$
 declare
-  v_actor_id uuid := auth.uid();
+  v_actor_id uuid := private.current_profile_id();
   v_opportunity public.outreach_opportunities%rowtype;
   v_previous_snoozed_until timestamptz;
 begin
@@ -1232,9 +1359,9 @@ begin
   end if;
   if p_enabled then
     insert into public.platform_roles (profile_id, role, granted_by)
-    values (p_profile_id, 'super_admin', auth.uid())
+    values (p_profile_id, 'super_admin', private.current_profile_id())
     on conflict (profile_id, role) do update
-    set granted_by = auth.uid(), granted_at = now();
+    set granted_by = private.current_profile_id(), granted_at = now();
   else
     delete from public.platform_roles
     where profile_id = p_profile_id and role = 'super_admin';
@@ -1262,7 +1389,7 @@ declare
   v_existing_status text;
   v_membership_id uuid;
 begin
-  if p_actor_profile_id is null or not private.can_manage_semester(p_semester_id, p_actor_profile_id) then
+  if p_actor_profile_id is null or not private.actor_can_manage_semester(p_semester_id, p_actor_profile_id) then
     raise exception 'Semester administrator access required' using errcode = '42501';
   end if;
 
@@ -1293,7 +1420,7 @@ begin
     raise exception 'Profile email does not match the Auth-triggered identity' using errcode = '23514';
   end if;
 
-  if private.is_super_admin(p_profile_id) and not private.is_super_admin(p_actor_profile_id) then
+  if private.actor_is_super_admin(p_profile_id) and not private.actor_is_super_admin(p_actor_profile_id) then
     raise exception 'Platform super-administrator access required for this identity' using errcode = '42501';
   end if;
 
@@ -1355,17 +1482,6 @@ begin
 end;
 $function$;
 
-create or replace function public.set_updated_at()
-  returns trigger
-  language plpgsql
-  set search_path to ''
-  AS $function$
-begin
-  new.updated_at = now();
-  return new;
-end;
-$function$;
-
 create or replace function public.suspend_outreach_membership (
   p_semester_id         uuid,
   p_profile_id          uuid,
@@ -1383,7 +1499,7 @@ create or replace function public.suspend_outreach_membership (
   set search_path to 'public'
   AS $function$
 declare
-  v_actor_id uuid := auth.uid();
+  v_actor_id uuid := private.current_profile_id();
   v_membership public.semester_memberships%rowtype;
   v_now timestamptz := now();
   v_released_opportunity_ids uuid[];
@@ -1506,7 +1622,7 @@ create or replace function public.transfer_outreach_owner (
   set search_path to 'public'
   AS $function$
 declare
-  v_actor_id uuid := auth.uid();
+  v_actor_id uuid := private.current_profile_id();
   v_opportunity_semester_id uuid;
   v_opportunity public.outreach_opportunities%rowtype;
   v_new_owner_status public.membership_lifecycle_status;
@@ -1625,10 +1741,10 @@ begin
   if v_profile_id is null then
     raise exception 'Mentor semester not found' using errcode = 'P0002';
   end if;
-  if p_actor_profile_id is null or not private.can_manage_semester(v_semester_id, p_actor_profile_id) then
+  if p_actor_profile_id is null or not private.actor_can_manage_semester(v_semester_id, p_actor_profile_id) then
     raise exception 'Semester administrator access required' using errcode = '42501';
   end if;
-  if private.is_super_admin(v_profile_id) and not private.is_super_admin(p_actor_profile_id) then
+  if private.actor_is_super_admin(v_profile_id) and not private.actor_is_super_admin(p_actor_profile_id) then
     raise exception 'Platform super-administrator access required for this identity' using errcode = '42501';
   end if;
 
@@ -1677,7 +1793,7 @@ create or replace function public.update_own_onboarding_progress (
   set search_path to ''
   AS $function$
 declare
-  actor_id uuid := auth.uid();
+  actor_id uuid := private.current_profile_id();
   membership_record public.semester_memberships%rowtype;
 begin
   if actor_id is null then
@@ -1760,14 +1876,6 @@ begin
 end;
 $function$;
 
-create or replace function public.update_updated_at()
-  returns trigger
-  language plpgsql
-  set search_path to ''
-  AS $function$
-begin new.updated_at = now(); return new; end;
-$function$;
-
 create or replace function public.upsert_outreach_contact_bundle (
   p_semester_id             uuid,
   p_contact_id              uuid   default null::uuid,
@@ -1797,7 +1905,7 @@ create or replace function public.upsert_outreach_contact_bundle (
   AS $function$
 #variable_conflict use_column
 declare
-  actor_id uuid := auth.uid();
+  actor_id uuid := private.current_profile_id();
   resolved_contact_id uuid := p_contact_id;
   resolved_company_id uuid := p_company_id;
   resolved_opportunity_id uuid;
@@ -1979,7 +2087,13 @@ end;
 $function$;
 
 alter table "public"."profiles"
-  add constraint "profiles_id_fkey" foreign key (id) references auth.users(id) on delete cascade;
+  add constraint "profiles_auth_user_id_key" unique (auth_user_id);
+
+alter table "public"."profiles"
+  add constraint "profiles_semester_id_fkey" foreign key (semester_id) references public.semesters(id) on delete set null;
+
+alter table "public"."semesters"
+  add constraint "semesters_active_lifecycle_status_check" check (((NOT is_active) OR (lifecycle_status = 'active'::public.semester_lifecycle_status))) not valid;
 
 create index invitations_invited_by_idx on public.invitations using btree (invited_by);
 
@@ -2310,6 +2424,18 @@ create policy "owners or admins read startup team memberships" on "public"."star
     ((membership.id = startup_team_memberships.semester_membership_id) AND (membership.semester_id = startup_team_memberships.semester_id) AND (membership.profile_id = ( select
     auth.uid() as uid)))))));
 
+revoke all on function "private"."actor_can_manage_semester"(uuid, uuid) from public;
+
+grant execute on function "private"."actor_can_manage_semester"(uuid, uuid) to "postgres";
+
+revoke all on function "private"."actor_has_semester_role"(uuid, public.user_role[], uuid) from public;
+
+grant execute on function "private"."actor_has_semester_role"(uuid, public.user_role[], uuid) to "postgres";
+
+revoke all on function "private"."actor_is_super_admin"(uuid) from public;
+
+grant execute on function "private"."actor_is_super_admin"(uuid) to "postgres";
+
 revoke all on function "private"."can_manage_semester"(uuid, uuid) from public;
 
 grant execute on function "private"."can_manage_semester"(uuid, uuid) to "authenticated", "postgres";
@@ -2321,6 +2447,10 @@ grant execute on function "private"."can_read_mentor_profile"(uuid, uuid) to "au
 revoke all on function "private"."can_read_outreach_relationship_labels"(uuid) from public;
 
 grant execute on function "private"."can_read_outreach_relationship_labels"(uuid) to "authenticated", "postgres";
+
+revoke all on function "private"."current_profile_id"(uuid) from public;
+
+grant execute on function "private"."current_profile_id"(uuid) to "postgres";
 
 revoke all on function "private"."has_outreach_company_access"(uuid, uuid) from public;
 
@@ -2396,6 +2526,30 @@ revoke all on table "public"."invitations" from "authenticated";
 
 grant select on table "public"."invitations" to "authenticated";
 
+revoke all ("is_available") on table "public"."meeting_availability" from "authenticated";
+
+grant insert ("is_available"), update ("is_available") on table "public"."meeting_availability" to "authenticated";
+
+revoke all ("meeting_id") on table "public"."meeting_availability" from "authenticated";
+
+grant insert ("meeting_id"), update ("meeting_id") on table "public"."meeting_availability" to "authenticated";
+
+revoke all ("semester_id") on table "public"."meeting_availability" from "authenticated";
+
+grant insert ("semester_id"), update ("semester_id") on table "public"."meeting_availability" to "authenticated";
+
+revoke all ("semester_membership_id") on table "public"."meeting_availability" from "authenticated";
+
+grant insert ("semester_membership_id"), update ("semester_membership_id") on table "public"."meeting_availability" to "authenticated";
+
+revoke all ("slot") on table "public"."meeting_availability" from "authenticated";
+
+grant insert ("slot"), update ("slot") on table "public"."meeting_availability" to "authenticated";
+
+revoke all ("source") on table "public"."meeting_availability" from "authenticated";
+
+grant insert ("source"), update ("source") on table "public"."meeting_availability" to "authenticated";
+
 revoke all on table "public"."meeting_availability" from "authenticated";
 
 grant delete, select on table "public"."meeting_availability" to "authenticated";
@@ -2403,6 +2557,18 @@ grant delete, select on table "public"."meeting_availability" to "authenticated"
 revoke all on table "public"."meetings" from "authenticated";
 
 grant select on table "public"."meetings" to "authenticated";
+
+revoke all ("label") on table "public"."meetings" from "service_role";
+
+grant insert ("label") on table "public"."meetings" to "service_role";
+
+revoke all ("meeting_date") on table "public"."meetings" from "service_role";
+
+grant insert ("meeting_date") on table "public"."meetings" to "service_role";
+
+revoke all ("semester_id") on table "public"."meetings" from "service_role";
+
+grant insert ("semester_id") on table "public"."meetings" to "service_role";
 
 revoke all on table "public"."meetings" from "service_role";
 
@@ -2412,9 +2578,17 @@ revoke all on table "public"."mentor_profiles" from "authenticated";
 
 grant select on table "public"."mentor_profiles" to "authenticated";
 
+revoke all on table "public"."mentor_profiles" from "service_role";
+
+grant select on table "public"."mentor_profiles" to "service_role";
+
 revoke all on table "public"."mentor_semesters" from "authenticated";
 
 grant select on table "public"."mentor_semesters" to "authenticated";
+
+revoke all on table "public"."mentor_semesters" from "service_role";
+
+grant select on table "public"."mentor_semesters" to "service_role";
 
 revoke all on table "public"."outreach_activities" from "authenticated";
 
@@ -2424,17 +2598,121 @@ revoke all on table "public"."outreach_companies" from "authenticated";
 
 grant select on table "public"."outreach_companies" to "authenticated";
 
+revoke all ("company_id") on table "public"."outreach_contact_companies" from "authenticated";
+
+grant update ("company_id") on table "public"."outreach_contact_companies" to "authenticated";
+
+revoke all ("contact_id") on table "public"."outreach_contact_companies" from "authenticated";
+
+grant update ("contact_id") on table "public"."outreach_contact_companies" to "authenticated";
+
+revoke all ("is_primary") on table "public"."outreach_contact_companies" from "authenticated";
+
+grant update ("is_primary") on table "public"."outreach_contact_companies" to "authenticated";
+
 revoke all on table "public"."outreach_contact_companies" from "authenticated";
 
 grant select on table "public"."outreach_contact_companies" to "authenticated";
+
+revoke all ("biography") on table "public"."outreach_contacts" from "authenticated";
+
+grant update ("biography") on table "public"."outreach_contacts" to "authenticated";
+
+revoke all ("email") on table "public"."outreach_contacts" from "authenticated";
+
+grant update ("email") on table "public"."outreach_contacts" to "authenticated";
+
+revoke all ("expertise_tags") on table "public"."outreach_contacts" from "authenticated";
+
+grant update ("expertise_tags") on table "public"."outreach_contacts" to "authenticated";
+
+revoke all ("full_name") on table "public"."outreach_contacts" from "authenticated";
+
+grant update ("full_name") on table "public"."outreach_contacts" to "authenticated";
+
+revoke all ("linkedin_url") on table "public"."outreach_contacts" from "authenticated";
+
+grant update ("linkedin_url") on table "public"."outreach_contacts" to "authenticated";
+
+revoke all ("notes") on table "public"."outreach_contacts" from "authenticated";
+
+grant update ("notes") on table "public"."outreach_contacts" to "authenticated";
+
+revoke all ("phone") on table "public"."outreach_contacts" from "authenticated";
+
+grant update ("phone") on table "public"."outreach_contacts" to "authenticated";
 
 revoke all on table "public"."outreach_contacts" from "authenticated";
 
 grant select on table "public"."outreach_contacts" to "authenticated";
 
+revoke all ("committed_at") on table "public"."outreach_imports" from "authenticated";
+
+grant update ("committed_at") on table "public"."outreach_imports" to "authenticated";
+
+revoke all ("created_by") on table "public"."outreach_imports" from "authenticated";
+
+grant insert ("created_by") on table "public"."outreach_imports" to "authenticated";
+
+revoke all ("idempotency_key") on table "public"."outreach_imports" from "authenticated";
+
+grant insert ("idempotency_key"), update ("idempotency_key") on table "public"."outreach_imports" to "authenticated";
+
+revoke all ("result") on table "public"."outreach_imports" from "authenticated";
+
+grant insert ("result"), update ("result") on table "public"."outreach_imports" to "authenticated";
+
+revoke all ("rows") on table "public"."outreach_imports" from "authenticated";
+
+grant insert ("rows") on table "public"."outreach_imports" to "authenticated";
+
+revoke all ("semester_id") on table "public"."outreach_imports" from "authenticated";
+
+grant insert ("semester_id") on table "public"."outreach_imports" to "authenticated";
+
+revoke all ("source_name") on table "public"."outreach_imports" from "authenticated";
+
+grant insert ("source_name") on table "public"."outreach_imports" to "authenticated";
+
+revoke all ("status") on table "public"."outreach_imports" from "authenticated";
+
+grant insert ("status"), update ("status") on table "public"."outreach_imports" to "authenticated";
+
+revoke all ("updated_at") on table "public"."outreach_imports" from "authenticated";
+
+grant update ("updated_at") on table "public"."outreach_imports" to "authenticated";
+
 revoke all on table "public"."outreach_imports" from "authenticated";
 
 grant select on table "public"."outreach_imports" to "authenticated";
+
+revoke all ("contact_id") on table "public"."outreach_opportunities" from "authenticated";
+
+grant update ("contact_id") on table "public"."outreach_opportunities" to "authenticated";
+
+revoke all ("created_by") on table "public"."outreach_opportunities" from "authenticated";
+
+grant update ("created_by") on table "public"."outreach_opportunities" to "authenticated";
+
+revoke all ("owner_profile_id") on table "public"."outreach_opportunities" from "authenticated";
+
+grant update ("owner_profile_id") on table "public"."outreach_opportunities" to "authenticated";
+
+revoke all ("relationship_types") on table "public"."outreach_opportunities" from "authenticated";
+
+grant update ("relationship_types") on table "public"."outreach_opportunities" to "authenticated";
+
+revoke all ("semester_id") on table "public"."outreach_opportunities" from "authenticated";
+
+grant update ("semester_id") on table "public"."outreach_opportunities" to "authenticated";
+
+revoke all ("source_context") on table "public"."outreach_opportunities" from "authenticated";
+
+grant update ("source_context") on table "public"."outreach_opportunities" to "authenticated";
+
+revoke all ("stage") on table "public"."outreach_opportunities" from "authenticated";
+
+grant update ("stage") on table "public"."outreach_opportunities" to "authenticated";
 
 revoke all on table "public"."outreach_opportunities" from "authenticated";
 
@@ -2444,9 +2722,17 @@ revoke all on table "public"."platform_roles" from "authenticated";
 
 grant select on table "public"."platform_roles" to "authenticated";
 
+revoke all ("full_name") on table "public"."profiles" from "authenticated";
+
+grant update ("full_name") on table "public"."profiles" to "authenticated";
+
 revoke all on table "public"."profiles" from "authenticated";
 
 grant select on table "public"."profiles" to "authenticated";
+
+revoke all ("status") on table "public"."profiles" from "service_role";
+
+grant update ("status") on table "public"."profiles" to "service_role";
 
 revoke all on table "public"."profiles" from "service_role";
 
@@ -2456,6 +2742,22 @@ revoke all on table "public"."semester_memberships" from "authenticated";
 
 grant select on table "public"."semester_memberships" to "authenticated";
 
+revoke all ("profile_id") on table "public"."semester_memberships" from "service_role";
+
+grant insert ("profile_id") on table "public"."semester_memberships" to "service_role";
+
+revoke all ("role") on table "public"."semester_memberships" from "service_role";
+
+grant insert ("role") on table "public"."semester_memberships" to "service_role";
+
+revoke all ("semester_id") on table "public"."semester_memberships" from "service_role";
+
+grant insert ("semester_id") on table "public"."semester_memberships" to "service_role";
+
+revoke all ("status") on table "public"."semester_memberships" from "service_role";
+
+grant insert ("status"), update ("status") on table "public"."semester_memberships" to "service_role";
+
 revoke all on table "public"."semester_memberships" from "service_role";
 
 grant select on table "public"."semester_memberships" to "service_role";
@@ -2464,9 +2766,81 @@ revoke all on table "public"."semesters" from "authenticated";
 
 grant select on table "public"."semesters" to "authenticated";
 
+revoke all ("format") on table "public"."sessions" from "authenticated";
+
+grant insert ("format") on table "public"."sessions" to "authenticated";
+
+revoke all ("meeting_id") on table "public"."sessions" from "authenticated";
+
+grant insert ("meeting_id") on table "public"."sessions" to "authenticated";
+
+revoke all ("mentor_semester_id") on table "public"."sessions" from "authenticated";
+
+grant insert ("mentor_semester_id") on table "public"."sessions" to "authenticated";
+
+revoke all ("semester_id") on table "public"."sessions" from "authenticated";
+
+grant insert ("semester_id") on table "public"."sessions" to "authenticated";
+
+revoke all ("slot") on table "public"."sessions" from "authenticated";
+
+grant insert ("slot") on table "public"."sessions" to "authenticated";
+
+revoke all ("startup_semester_id") on table "public"."sessions" from "authenticated";
+
+grant insert ("startup_semester_id") on table "public"."sessions" to "authenticated";
+
+revoke all ("status") on table "public"."sessions" from "authenticated";
+
+grant insert ("status"), update ("status") on table "public"."sessions" to "authenticated";
+
+revoke all ("topic") on table "public"."sessions" from "authenticated";
+
+grant insert ("topic") on table "public"."sessions" to "authenticated";
+
 revoke all on table "public"."sessions" from "authenticated";
 
 grant select on table "public"."sessions" to "authenticated";
+
+revoke all ("format") on table "public"."sessions" from "service_role";
+
+grant insert ("format"), update ("format") on table "public"."sessions" to "service_role";
+
+revoke all ("meeting_id") on table "public"."sessions" from "service_role";
+
+grant insert ("meeting_id") on table "public"."sessions" to "service_role";
+
+revoke all ("mentor_semester_id") on table "public"."sessions" from "service_role";
+
+grant insert ("mentor_semester_id"), update ("mentor_semester_id") on table "public"."sessions" to "service_role";
+
+revoke all ("semester_id") on table "public"."sessions" from "service_role";
+
+grant insert ("semester_id") on table "public"."sessions" to "service_role";
+
+revoke all ("slot") on table "public"."sessions" from "service_role";
+
+grant insert ("slot"), update ("slot") on table "public"."sessions" to "service_role";
+
+revoke all ("startup_absent") on table "public"."sessions" from "service_role";
+
+grant insert ("startup_absent"), update ("startup_absent") on table "public"."sessions" to "service_role";
+
+revoke all ("startup_semester_id") on table "public"."sessions" from "service_role";
+
+grant insert ("startup_semester_id"), update ("startup_semester_id") on table "public"."sessions" to "service_role";
+
+revoke all ("status") on table "public"."sessions" from "service_role";
+
+grant insert ("status"), update ("status") on table "public"."sessions" to "service_role";
+
+revoke all ("substitute_name") on table "public"."sessions" from "service_role";
+
+grant insert ("substitute_name"), update ("substitute_name") on table "public"."sessions" to "service_role";
+
+revoke all ("topic") on table "public"."sessions" from "service_role";
+
+grant insert ("topic"), update ("topic") on table "public"."sessions" to "service_role";
 
 revoke all on table "public"."sessions" from "service_role";
 
@@ -2476,13 +2850,69 @@ revoke all on table "public"."startup_organizations" from "authenticated";
 
 grant select on table "public"."startup_organizations" to "authenticated";
 
+revoke all ("description") on table "public"."startup_organizations" from "service_role";
+
+grant insert ("description") on table "public"."startup_organizations" to "service_role";
+
+revoke all ("industry") on table "public"."startup_organizations" from "service_role";
+
+grant insert ("industry") on table "public"."startup_organizations" to "service_role";
+
+revoke all ("name") on table "public"."startup_organizations" from "service_role";
+
+grant insert ("name") on table "public"."startup_organizations" to "service_role";
+
+revoke all ("slug") on table "public"."startup_organizations" from "service_role";
+
+grant insert ("slug") on table "public"."startup_organizations" to "service_role";
+
 revoke all on table "public"."startup_organizations" from "service_role";
 
 grant select on table "public"."startup_organizations" to "service_role";
 
+revoke all ("goals") on table "public"."startup_semesters" from "authenticated";
+
+grant update ("goals") on table "public"."startup_semesters" to "authenticated";
+
+revoke all ("mentor_need_context") on table "public"."startup_semesters" from "authenticated";
+
+grant update ("mentor_need_context") on table "public"."startup_semesters" to "authenticated";
+
+revoke all ("mentor_need_no_preference") on table "public"."startup_semesters" from "authenticated";
+
+grant update ("mentor_need_no_preference") on table "public"."startup_semesters" to "authenticated";
+
+revoke all ("mentorship_needs") on table "public"."startup_semesters" from "authenticated";
+
+grant update ("mentorship_needs") on table "public"."startup_semesters" to "authenticated";
+
+revoke all ("preferred_expertise_tags") on table "public"."startup_semesters" from "authenticated";
+
+grant update ("preferred_expertise_tags") on table "public"."startup_semesters" to "authenticated";
+
 revoke all on table "public"."startup_semesters" from "authenticated";
 
 grant select on table "public"."startup_semesters" to "authenticated";
+
+revoke all ("preferred_expertise_tags") on table "public"."startup_semesters" from "service_role";
+
+grant insert ("preferred_expertise_tags") on table "public"."startup_semesters" to "service_role";
+
+revoke all ("readiness_status") on table "public"."startup_semesters" from "service_role";
+
+grant insert ("readiness_status") on table "public"."startup_semesters" to "service_role";
+
+revoke all ("semester_id") on table "public"."startup_semesters" from "service_role";
+
+grant insert ("semester_id") on table "public"."startup_semesters" to "service_role";
+
+revoke all ("stage") on table "public"."startup_semesters" from "service_role";
+
+grant insert ("stage") on table "public"."startup_semesters" to "service_role";
+
+revoke all ("startup_organization_id") on table "public"."startup_semesters" from "service_role";
+
+grant insert ("startup_organization_id") on table "public"."startup_semesters" to "service_role";
 
 revoke all on table "public"."startup_semesters" from "service_role";
 
@@ -2491,6 +2921,18 @@ grant select on table "public"."startup_semesters" to "service_role";
 revoke all on table "public"."startup_team_memberships" from "authenticated";
 
 grant select on table "public"."startup_team_memberships" to "authenticated";
+
+revoke all ("semester_id") on table "public"."startup_team_memberships" from "service_role";
+
+grant insert ("semester_id") on table "public"."startup_team_memberships" to "service_role";
+
+revoke all ("semester_membership_id") on table "public"."startup_team_memberships" from "service_role";
+
+grant insert ("semester_membership_id") on table "public"."startup_team_memberships" to "service_role";
+
+revoke all ("startup_semester_id") on table "public"."startup_team_memberships" from "service_role";
+
+grant insert ("startup_semester_id") on table "public"."startup_team_memberships" to "service_role";
 
 revoke all on table "public"."startup_team_memberships" from "service_role";
 

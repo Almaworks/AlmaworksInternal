@@ -1,6 +1,6 @@
 # Almaworks canonical database map
 
-Generated from the converged local Supabase catalog on 2026-09-01. This documents the 20 application-owned `public` tables. A **semester** is one cohort, a **meeting** is one Friday program date, and a **session** is one mentor-startup conversation in slot 1 or 2. Profiles are login-backed people; outreach contacts never have managed logins.
+Generated from the converged local Supabase catalog on 2026-09-01. This documents the 20 application-owned `public` tables. A **semester** is one cohort, a **meeting** is one Friday program date, and a **session** is one mentor-startup conversation in slot 1 or 2. Profiles are durable program identities; only profiles with an `auth_user_id` have managed logins. Outreach contacts never have managed logins.
 
 Program management and outreach share one project but little data. Program management owns profiles, memberships, mentors, startups, meetings, and sessions. Outreach owns a durable contact/company directory and a fresh opportunity pipeline each semester. The intentional connective tissue is `semesters` plus internal `profiles` used for ownership and auditing.
 
@@ -8,10 +8,13 @@ Program management and outreach share one project but little data. Program manag
 
 ### `profiles`
 
-Durable application identity for a mentor, startup team member, or administrator. Role and semester history live in memberships, not here.
+Durable application identity for a mentor, startup team member, or administrator. Role and semester history live in memberships, not here. Legacy `role` and `semester_id` remain temporarily for safe production migration and confer no authority.
 
-- `id` (`uuid`, PK) — user identity; -> `auth.users.id`.
+- `id` (`uuid`, PK) — durable profile identity; intentionally independent of Auth.
+- `auth_user_id` (`uuid`) — optional managed-login identity; -> `auth.users.id`.
 - `email` (`text`) — login and contact email.
+- `role` (`user_role`) — retained legacy value; non-authoritative.
+- `semester_id` (`uuid`) — retained legacy cohort link; non-authoritative; -> `semesters.id`.
 - `created_at` (`timestamptz`) — profile creation time.
 - `updated_at` (`timestamptz`) — latest profile change.
 - `full_name` (`text`) — display name.

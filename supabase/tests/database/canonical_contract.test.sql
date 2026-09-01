@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(39);
+select plan(40);
 
 select has_table('public', table_name, table_name || ' is part of the canonical 20-table schema')
 from unnest(array[
@@ -29,9 +29,18 @@ select is(
   'every public base table has RLS enabled'
 );
 
-select hasnt_column('public', 'profiles', 'role', 'roles live in memberships and platform_roles');
-select hasnt_column('public', 'profiles', 'semester_id', 'profiles are global identities');
-select hasnt_column('public', 'profiles', 'auth_user_id', 'profile id directly references auth.users');
+select has_column('public', 'profiles', 'role', 'legacy role is retained temporarily but is non-authoritative');
+select has_column('public', 'profiles', 'semester_id', 'legacy cohort link is retained temporarily for safe upgrade');
+select fk_ok('public', 'profiles', 'auth_user_id', 'auth', 'users', 'id', 'nullable auth_user_id is the login identity link');
+select ok(
+  not exists (
+    select 1 from pg_constraint constraint_record
+    where constraint_record.conrelid = 'public.profiles'::regclass
+      and constraint_record.contype = 'f'
+      and constraint_record.conkey = array[(select attnum from pg_attribute where attrelid = 'public.profiles'::regclass and attname = 'id')]::smallint[]
+  ),
+  'durable profile id does not reference auth.users'
+);
 select hasnt_column('public', 'sessions', 'mentor_id', 'sessions use mentor_semester_id');
 select hasnt_column('public', 'sessions', 'startup_id', 'sessions use startup_semester_id');
 select hasnt_column('public', 'sessions', 'session_date_id', 'sessions use meeting_id');

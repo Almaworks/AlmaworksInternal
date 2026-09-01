@@ -9,7 +9,7 @@ type CreateUserPayload = { email: string; fullName: string; role: 'mentor' | 'st
 
 export async function POST(request: Request) {
   try {
-    const { user, userClient, adminClient } = await requireAuthenticatedUser(request)
+    const { user, profileId, userClient, adminClient } = await requireAuthenticatedUser(request)
     const semesterId = await requireActiveSemesterAdmin(userClient, user.id)
     const payload = (await request.json()) as CreateUserPayload
     const email = (payload.email ?? '').trim().toLowerCase()
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     }
     await provisionSemesterMemberAccess({
       authAdmin: adminClient.auth.admin,
-      input: { actorProfileId: user.id, approve: true, email, fullName, profileId: link.data.user.id, role, semesterId },
+      input: { actorProfileId: profileId, approve: true, email, fullName, profileId: link.data.user.id, role, semesterId },
       setAccess: (accessInput) => setSemesterMemberAccess(adminClient, accessInput),
     })
     return NextResponse.json({ ok: true, email, role })

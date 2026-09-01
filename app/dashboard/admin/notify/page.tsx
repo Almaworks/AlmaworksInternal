@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from 'react'
 type SessionRow = {
   id: string
   session_date: string
-  time_slot: string | null
+  slot_label: string | null
   format: string | null
   is_confirmed: boolean
   mentor: { id: string; full_name: string; email: string | null } | null
@@ -49,7 +49,7 @@ function mapCanonicalSession(row: CanonicalSessionRow): SessionRow {
   return {
     id: row.id,
     session_date: meeting?.meeting_date ?? '',
-    time_slot: row.slot === 1 ? '3:30-4:15' : '4:15-5:00',
+    slot_label: row.slot === 1 ? '3:30-4:15' : '4:15-5:00',
     format: row.format,
     is_confirmed: row.status === 'confirmed',
     mentor: mentorProfile ? {
@@ -109,7 +109,7 @@ function founderEmail(founders: Record<string, string>[] | null): string | null 
 export default function AdminNotifyPage() {
   const supabase = useMemo(() => createClient(), [])
 
-  const [sessionDate, setSessionDate] = useState(nextFriday)
+  const [meetingDate, setMeetingDate] = useState(nextFriday)
   const [sessions, setSessions] = useState<SessionRow[]>([])
   const [loadingsessions, setLoadingSessions] = useState(false)
 
@@ -119,7 +119,7 @@ export default function AdminNotifyPage() {
 
   useEffect(() => {
     void loadSessions()
-  }, [sessionDate]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [meetingDate]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadSessions() {
     setLoadingSessions(true)
@@ -147,7 +147,7 @@ export default function AdminNotifyPage() {
           )
         )
       `)
-      .eq('meeting.meeting_date', sessionDate)
+      .eq('meeting.meeting_date', meetingDate)
       .order('slot')
     setSessions(((data as unknown as CanonicalSessionRow[]) ?? []).map(mapCanonicalSession))
     setLoadingSessions(false)
@@ -178,15 +178,15 @@ export default function AdminNotifyPage() {
       name: string
       email: string
       counterpartName: string
-      sessionDate: string
-      timeSlot: string
+      meetingDate: string
+      slotLabel: string
       format: string
       role: 'mentor' | 'startup'
     }[] = []
 
     for (const s of toSend) {
       const dateLabel = formatDate(s.session_date)
-      const slotLabel = s.time_slot ? (SLOT_LABELS[s.time_slot] ?? s.time_slot) : 'TBD'
+      const slotLabel = s.slot_label ? (SLOT_LABELS[s.slot_label] ?? s.slot_label) : 'TBD'
       const fmtLabel = s.format ? (FORMAT_LABELS[s.format] ?? s.format) : 'TBD'
 
       if (s.mentor?.email) {
@@ -194,8 +194,8 @@ export default function AdminNotifyPage() {
           name: s.mentor.full_name,
           email: s.mentor.email,
           counterpartName: s.startup?.name ?? 'your startup',
-          sessionDate: dateLabel,
-          timeSlot: slotLabel,
+          meetingDate: dateLabel,
+          slotLabel,
           format: fmtLabel,
           role: 'mentor',
         })
@@ -207,8 +207,8 @@ export default function AdminNotifyPage() {
           name: s.startup.name,
           email: sEmail,
           counterpartName: s.mentor?.full_name ?? 'your mentor',
-          sessionDate: dateLabel,
-          timeSlot: slotLabel,
+          meetingDate: dateLabel,
+          slotLabel,
           format: fmtLabel,
           role: 'startup',
         })
@@ -263,11 +263,11 @@ export default function AdminNotifyPage() {
           <div className="flex items-center gap-3">
             <input
               type="date"
-              value={sessionDate}
-              onChange={e => setSessionDate(e.target.value)}
+              value={meetingDate}
+              onChange={e => setMeetingDate(e.target.value)}
               className="text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
             />
-            <span className="text-sm text-gray-500">{formatDate(sessionDate)}</span>
+            <span className="text-sm text-gray-500">{formatDate(meetingDate)}</span>
           </div>
         </div>
 
@@ -314,7 +314,7 @@ export default function AdminNotifyPage() {
                             {s.mentor?.full_name ?? '(no mentor)'} → {s.startup?.name ?? '(no startup)'}
                           </p>
                           <p className="text-xs text-gray-500 mt-0.5">
-                            {s.time_slot ? (SLOT_LABELS[s.time_slot] ?? s.time_slot) : 'TBD'} ·{' '}
+                            {s.slot_label ? (SLOT_LABELS[s.slot_label] ?? s.slot_label) : 'TBD'} ·{' '}
                             {s.format ? (FORMAT_LABELS[s.format] ?? s.format) : 'Format TBD'}
                           </p>
                         </div>

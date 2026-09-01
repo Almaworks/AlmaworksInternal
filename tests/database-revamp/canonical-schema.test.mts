@@ -2,10 +2,15 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const source = readFileSync(
+const canonicalSource = readFileSync(
   new URL("../../supabase/schemas/canonical_schema.sql", import.meta.url),
   "utf8",
 ).replaceAll('"', "").toLowerCase();
+const securitySource = readFileSync(
+  new URL("../../supabase/schemas/zz_security.sql", import.meta.url),
+  "utf8",
+).replaceAll('"', "").toLowerCase();
+const source = `${canonicalSource}\n${securitySource}`;
 
 const tables = [
   "profiles", "platform_roles", "semesters", "semester_memberships", "invitations",
@@ -27,7 +32,14 @@ test("canonical schema contains exactly the twenty Almaworks tables", () => {
 test("identity, semester vocabulary, and canonical scheduling are enforced", () => {
   const profilesStart = source.indexOf("create table if not exists public.profiles");
   const profiles = source.slice(profilesStart, source.indexOf(";", profilesStart));
-  assert.doesNotMatch(profiles, /\b(role|semester_id|auth_user_id)\b/u);
+  assert.match(profiles, /auth_user_id uuid/u);
+  assert.match(profiles, /\brole public\.user_role/u);
+  assert.match(profiles, /semester_id uuid/u);
+  assert.match(source, /profiles_auth_user_id_key[\s\S]*?auth_user_id/u);
+  assert.match(source, /profiles_auth_user_id_fkey[\s\S]*?auth\.users\(id\)/u);
+  assert.doesNotMatch(source, /foreign key \(id\) references auth\.users/u);
+  const newUser = source.slice(source.indexOf("function public.handle_new_user"), source.indexOf("$$;", source.indexOf("function public.handle_new_user")));
+  assert.match(newUser, /insert into public\.profiles\s*\(id,\s*auth_user_id,/u);
   assert.match(source, /function public\.replace_draft_meetings/u);
   assert.match(source, /function public\.commit_mentor_assignment/u);
   assert.match(source, /p_meeting_id/u);
@@ -53,6 +65,11 @@ test("all tables have RLS, policy actions are consolidated, and auth calls use i
 test("least-privilege grants and relationship indexes are present", () => {
   assert.doesNotMatch(source, /grant all on table .* to (anon|authenticated)/u);
   assert.match(source, /revoke all on function public\.commit_mentor_assignment[\s\S]*? from public/u);
+  assert.match(source, /alter default privileges for role postgres\s+revoke all on functions from public/u);
+  assert.match(source, /revoke all on function public\.commit_mentor_assignment[\s\S]*? from anon/u);
+  assert.match(source, /grant insert \(semester_id, meeting_id, semester_membership_id, slot, is_available, source\) on table public\.meeting_availability to authenticated/u);
+  assert.match(source, /grant insert \(semester_id, meeting_id, mentor_semester_id, startup_semester_id, slot, status, topic, format\) on table public\.sessions to authenticated/u);
+  assert.match(source, /grant update \(status\) on table public\.profiles to service_role/u);
   for (const index of [
     "invitations_invited_by_idx", "meeting_availability_member_idx",
     "mentor_semesters_membership_idx", "outreach_imports_created_by_idx",

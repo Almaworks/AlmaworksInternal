@@ -41,7 +41,7 @@ test("startup identity and semester edits share one authorized transaction", () 
 
 test("semester member approval and role changes are authorized and atomic without platform elevation", () => {
   const body = functionBody("set_semester_member_access");
-  assert.match(body, /can_manage_semester\(p_semester_id, p_actor_profile_id\)/u);
+  assert.match(body, /actor_can_manage_semester\(p_semester_id, p_actor_profile_id\)/u);
   assert.doesNotMatch(body, /insert into public\.profiles/u);
   assert.match(body, /insert into public\.semester_memberships/u);
   assert.match(body, /insert into public\.mentor_profiles/u);
@@ -90,7 +90,7 @@ test("approval cannot provision an arbitrary existing profile through the direct
 
 test("mentor create and update commands are authorized single transactions", () => {
   const createBody = functionBody("create_mentor_records");
-  assert.match(createBody, /can_manage_semester\(p_semester_id, p_actor_profile_id\)/u);
+  assert.match(createBody, /actor_can_manage_semester\(p_semester_id, p_actor_profile_id\)/u);
   assert.doesNotMatch(createBody, /insert into public\.profiles/u);
   assert.match(createBody, /insert into public\.semester_memberships/u);
   assert.match(createBody, /insert into public\.mentor_profiles/u);
@@ -99,7 +99,7 @@ test("mentor create and update commands are authorized single transactions", () 
   assert.match(createBody, /is_super_admin\(p_profile_id\)[\s\S]*is_super_admin\(p_actor_profile_id\)/u);
 
   const updateBody = functionBody("update_mentor_records");
-  assert.match(updateBody, /can_manage_semester\(v_semester_id, p_actor_profile_id\)/u);
+  assert.match(updateBody, /actor_can_manage_semester\(v_semester_id, p_actor_profile_id\)/u);
   assert.match(updateBody, /update public\.profiles/u);
   assert.match(updateBody, /update public\.mentor_profiles/u);
   assert.match(updateBody, /update public\.mentor_semesters/u);

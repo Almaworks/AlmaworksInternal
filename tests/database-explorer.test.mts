@@ -63,7 +63,7 @@ test("generator preserves the complete verified Almaworks schema", () => {
   const html = generate(markdown);
   const schema = readEmbeddedSchema(html);
 
-  assert.deepEqual(schema.totals, { tables: 20, columns: 231 });
+  assert.deepEqual(schema.totals, { tables: 20, columns: 234 });
   assert.equal(new Set(schema.tables.map((table) => table.name)).size, 20);
   assert.ok(schema.tables.some((table) => table.name === "semester_memberships" && table.connections.includes("profiles") && table.connections.includes("semesters")));
   assert.ok(schema.tables.some((table) => table.name === "sessions" && table.connections.includes("meetings") && table.connections.includes("mentor_semesters") && table.connections.includes("startup_semesters")));

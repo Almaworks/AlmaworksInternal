@@ -9,7 +9,7 @@ type UpdateUserPayload = { userId: string; fullName: string; email: string; role
 
 export async function PATCH(request: Request) {
   try {
-    const { user, userClient, adminClient } = await requireAuthenticatedUser(request)
+    const { user, profileId, userClient, adminClient } = await requireAuthenticatedUser(request)
     const payload = (await request.json()) as UpdateUserPayload
     const email = (payload.email ?? '').trim().toLowerCase()
     const fullName = (payload.fullName ?? '').trim()
@@ -20,7 +20,7 @@ export async function PATCH(request: Request) {
     await updateExistingSemesterMemberIdentity({
       authorizeTarget: (target) => authorizeSemesterMemberIdentityUpdate(userClient, target),
       authAdmin: adminClient.auth.admin,
-      input: { actorProfileId: user.id, approve: false, email, fullName, profileId: payload.userId, role: payload.role, semesterId },
+      input: { actorProfileId: profileId, approve: false, email, fullName, profileId: payload.userId, role: payload.role, semesterId },
       setAccess: (accessInput) => setSemesterMemberAccess(adminClient, accessInput),
     })
     return NextResponse.json({ ok: true })

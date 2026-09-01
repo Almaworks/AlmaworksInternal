@@ -15,6 +15,7 @@ export class AuthorizationError extends Error {
 
 interface AuthorizedContext {
   user: User;
+  profileId: string;
   userClient: SupabaseClient<Database>;
   adminClient: SupabaseClient<Database>;
 }
@@ -103,10 +104,20 @@ export async function requireAuthenticatedUser(request: Request): Promise<Author
   const { data, error } = await userClient.auth.getUser();
   if (error || !data.user) throw new AuthorizationError("Invalid authentication token.", 401);
 
+  const adminClient = createClient<Database>(url, serviceRoleKey, { auth: authOptions });
+  const profile = await adminClient
+    .from("profiles")
+    .select("id")
+    .eq("auth_user_id", data.user.id)
+    .maybeSingle();
+  if (profile.error) throw new AuthorizationError("Could not resolve authenticated profile.", 500);
+  if (!profile.data) throw new AuthorizationError("Authenticated profile not found.", 403);
+
   return {
     user: data.user,
+    profileId: profile.data.id,
     userClient,
-    adminClient: createClient<Database>(url, serviceRoleKey, { auth: authOptions }),
+    adminClient,
   };
 }
 

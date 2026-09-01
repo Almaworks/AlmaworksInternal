@@ -3,7 +3,7 @@ import test from "node:test";
 
 import {
   SemesterTransitionError,
-  buildWeeklySessionDates,
+  buildWeeklyMeetingDates,
   createActivateSemesterCommand,
   createReplaceMeetingsCommand,
   createSemesterDraftCommand,
@@ -99,7 +99,7 @@ test("activation requires an explicit close acknowledgement", () => {
 
 test("weekly session-date preview makes every proposed week independently reviewable", () => {
   assert.deepEqual(
-    buildWeeklySessionDates("2026-11-06", "2026-11-27"),
+    buildWeeklyMeetingDates("2026-11-06", "2026-11-27"),
     [
       { date: "2026-11-06", label: "Nov 6", included: true },
       { date: "2026-11-13", label: "Nov 13", included: true },

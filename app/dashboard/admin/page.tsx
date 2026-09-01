@@ -75,12 +75,12 @@ type Session = {
   startup_id: string | null
   status: string
   topic: string | null
-  time_slot: string | null
+  slot_label: string | null
   format: string | null
   startup_absent: boolean
   substitute_name: string | null
   is_confirmed: boolean
-  session_dates: { date: string; label: string | null; semester_id?: string | null; semester_name?: string | null; semesters?: { name: string } | { name: string }[] | null } | null
+  meeting: { date: string; label: string | null; semester_id?: string | null; semester_name?: string | null; semesters?: { name: string } | { name: string }[] | null } | null
   mentors: { full_name: string; slug: string | null } | null
   startups: { name: string; slug: string | null } | null
 }
@@ -107,12 +107,12 @@ function mapSession(row: CanonicalSessionRow): Session {
     startup_id: row.startup_semester_id,
     status: row.status,
     topic: row.topic,
-    time_slot: row.slot === 1 ? '3:30-4:15' : '4:15-5:00',
+    slot_label: row.slot === 1 ? '3:30-4:15' : '4:15-5:00',
     format: row.format,
     startup_absent: row.startup_absent,
     substitute_name: row.substitute_name,
     is_confirmed: row.status === 'confirmed',
-    session_dates: row.meeting ? {
+    meeting: row.meeting ? {
       date: row.meeting.meeting_date,
       label: row.meeting.label,
       semester_id: row.meeting.semester_id,
@@ -123,7 +123,7 @@ function mapSession(row: CanonicalSessionRow): Session {
   }
 }
 
-type SessionDate = {
+type MeetingDate = {
   id: string
   date: string
   label: string | null
@@ -247,10 +247,10 @@ export default function AdminDashboard() {
   const [mentors, setMentors] = useState<Mentor[]>([])
   const [startups, setStartups] = useState<Startup[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
-  const [sessionDates, setSessionDates] = useState<SessionDate[]>([])
+  const [meetingDates, setMeetingDates] = useState<MeetingDate[]>([])
   const [activeSemesterId, setActiveSemesterId] = useState<string | null>(null)
   const [activeSemesterName, setActiveSemesterName] = useState<string | null>(null)
-  const [selectedSessionDateId, setSelectedSessionDateId] = useState<string | null>(null)
+  const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null)
   const [assignMentorId, setAssignMentorId] = useState<string>('')
   const [assignStartupId, setAssignStartupId] = useState<string>('')
   const [assignTopic, setAssignTopic] = useState<string>('')
@@ -354,11 +354,11 @@ export default function AdminDashboard() {
         .eq('semester_id', semId)
         .order('meeting_date')
       const dates = (dateRows ?? []).map((row) => ({ id: row.id, date: row.meeting_date, label: row.label }))
-      setSessionDates(dates)
-      setSelectedSessionDateId(prev => prev ?? (dates[0]?.id ?? null))
+      setMeetingDates(dates)
+      setSelectedMeetingId(prev => prev ?? (dates[0]?.id ?? null))
     } else {
-      setSessionDates([])
-      setSelectedSessionDateId(null)
+      setMeetingDates([])
+      setSelectedMeetingId(null)
     }
   }
 
@@ -695,7 +695,7 @@ export default function AdminDashboard() {
   // ── Schedule ───────────────────────────────────────────────────────────────
 
   async function assignForWeek() {
-    if (!activeSemesterId || !selectedSessionDateId) {
+    if (!activeSemesterId || !selectedMeetingId) {
       alert('No active semester or session date configured.')
       return
     }
@@ -716,7 +716,7 @@ export default function AdminDashboard() {
         body: JSON.stringify({
         mentorSemesterId: assignMentorId,
         startupSemesterId: assignStartupId,
-        meetingId: selectedSessionDateId,
+        meetingId: selectedMeetingId,
         semesterId: activeSemesterId,
         slot: assignTimeSlot === '4:15-5:00' ? 2 : 1,
         format: assignFormat,
@@ -745,7 +745,7 @@ export default function AdminDashboard() {
     setEditingSession(s)
     setEditMentorId(s.mentor_id)
     setEditStartupId(s.startup_id ?? '')
-    setEditTimeSlot(s.time_slot ?? '3:30-4:15')
+    setEditTimeSlot(s.slot_label ?? '3:30-4:15')
     setEditFormat(s.format ?? 'online')
     setEditTopic(s.topic ?? '')
     setEditIsConfirmed(s.is_confirmed)
@@ -862,11 +862,11 @@ export default function AdminDashboard() {
         <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <div><p className="text-[10px] uppercase tracking-[0.18em] text-[#75AADB] font-semibold">Launch sequence</p><h2 className="text-base font-semibold text-[#002147] mt-1">Keep the semester moving</h2></div>
-            <span className="text-xs text-gray-400">{[activeSemesterName, members.length > 0, sessionDates.length > 0, pendingUsers.length === 0].filter(Boolean).length}/4 complete</span>
+            <span className="text-xs text-gray-400">{[activeSemesterName, members.length > 0, meetingDates.length > 0, pendingUsers.length === 0].filter(Boolean).length}/4 complete</span>
           </div>
-          <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden mb-4"><span className="block h-full bg-[#75AADB]" style={{ width: `${([activeSemesterName, members.length > 0, sessionDates.length > 0, pendingUsers.length === 0].filter(Boolean).length / 4) * 100}%` }} /></div>
+          <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden mb-4"><span className="block h-full bg-[#75AADB]" style={{ width: `${([activeSemesterName, members.length > 0, meetingDates.length > 0, pendingUsers.length === 0].filter(Boolean).length / 4) * 100}%` }} /></div>
           <div className="space-y-2 text-sm">
-            {[{ label: 'Active semester configured', done: Boolean(activeSemesterName), tab: 'schedule' as Tab }, { label: 'Roster reviewed', done: members.length > 0, tab: 'members' as Tab }, { label: 'Session dates generated', done: sessionDates.length > 0, tab: 'schedule' as Tab }, { label: 'Pending access requests resolved', done: pendingUsers.length === 0, tab: 'users' as Tab }].map(item => (
+            {[{ label: 'Active semester configured', done: Boolean(activeSemesterName), tab: 'schedule' as Tab }, { label: 'Roster reviewed', done: members.length > 0, tab: 'members' as Tab }, { label: 'Meeting dates generated', done: meetingDates.length > 0, tab: 'schedule' as Tab }, { label: 'Pending access requests resolved', done: pendingUsers.length === 0, tab: 'users' as Tab }].map(item => (
               <button key={item.label} onClick={() => setTab(item.tab)} className="w-full flex items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-gray-50">
                 <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] ${item.done ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-400'}`}>{item.done ? '✓' : '·'}</span>
                 <span className={item.done ? 'text-gray-500' : 'font-medium text-[#002147]'}>{item.label}</span>
@@ -1247,26 +1247,26 @@ export default function AdminDashboard() {
 
       {/* ── Schedule ── */}
       {tab === 'schedule' && (() => {
-        // Build matrix: rows = (date + time_slot), cols = startups
+        // Build matrix: rows = meeting date and slot, columns = startups
         // Unique row keys sorted by date then time slot
         const rowKeys: { dateId: string; date: string; label: string | null; slot: string }[] = []
         const seenRowKeys = new Set<string>()
         const sortedSessions = [...sessions].sort((a, b) => {
-          const da = a.session_dates?.date ?? ''
-          const db = b.session_dates?.date ?? ''
+          const da = a.meeting?.date ?? ''
+          const db = b.meeting?.date ?? ''
           if (da !== db) return da.localeCompare(db)
-          return (a.time_slot ?? '').localeCompare(b.time_slot ?? '')
+          return (a.slot_label ?? '').localeCompare(b.slot_label ?? '')
         })
         for (const s of sortedSessions) {
-          if (!s.session_dates) continue
-          const slot = s.time_slot ?? 'TBD'
-          const key = `${s.session_dates.date}__${slot}`
+          if (!s.meeting) continue
+          const slot = s.slot_label ?? 'TBD'
+          const key = `${s.meeting.date}__${slot}`
           if (!seenRowKeys.has(key)) {
             seenRowKeys.add(key)
             rowKeys.push({
               dateId: key,
-              date: s.session_dates.date,
-              label: s.session_dates.label,
+              date: s.meeting.date,
+              label: s.meeting.label,
               slot,
             })
           }
@@ -1280,9 +1280,9 @@ export default function AdminDashboard() {
         // Build lookup: `date__slot__startupName` -> session
         const cellMap = new Map<string, Session>()
         for (const s of sessions) {
-          if (!s.session_dates || s.startup_absent) continue
-          const slot = s.time_slot ?? 'TBD'
-          const key = `${s.session_dates.date}__${slot}__${s.startups?.name ?? ''}`
+          if (!s.meeting || s.startup_absent) continue
+          const slot = s.slot_label ?? 'TBD'
+          const key = `${s.meeting.date}__${slot}__${s.startups?.name ?? ''}`
           cellMap.set(key, s)
         }
 
@@ -1375,7 +1375,7 @@ export default function AdminDashboard() {
                       </p>
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-1.5 max-h-48 overflow-y-auto pr-1">
                         {preview.map(({ date, label }) => {
-                          const existing = sessionDates.some(d => d.date === date)
+                          const existing = meetingDates.some(d => d.date === date)
                           return (
                             <div
                               key={date}
@@ -1440,7 +1440,7 @@ export default function AdminDashboard() {
                   <tbody>
                     {rowKeys.map((row, ri) => {
                       const absentSessions = sessions.filter(s =>
-                        s.session_dates?.date === row.date && (s.time_slot ?? 'TBD') === row.slot && s.startup_absent
+                        s.meeting?.date === row.date && (s.slot_label ?? 'TBD') === row.slot && s.startup_absent
                       )
                       return (
                         <tr key={row.dateId} className={ri % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
@@ -1476,8 +1476,8 @@ export default function AdminDashboard() {
                                 ) : (
                                   <button
                                     onClick={() => {
-                                      const dateObj = sessionDates.find(d => d.date === row.date)
-                                      if (dateObj) setSelectedSessionDateId(dateObj.id)
+                                      const dateObj = meetingDates.find(d => d.date === row.date)
+                                      if (dateObj) setSelectedMeetingId(dateObj.id)
                                       setAssignStartupId(st.id)
                                       setAssignMentorId('')
                                       setAssignTopic('')
@@ -1514,7 +1514,7 @@ export default function AdminDashboard() {
               </div>
             )}
 
-            {sessions.length === 0 && sessionDates.length === 0 && (
+            {sessions.length === 0 && meetingDates.length === 0 && (
               <p className="text-sm text-gray-400">No session dates found for the active semester.</p>
             )}
           </div>
@@ -1827,10 +1827,10 @@ export default function AdminDashboard() {
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Session date</label>
-                <select value={selectedSessionDateId ?? ''} onChange={e => setSelectedSessionDateId(e.target.value)}
+                <select value={selectedMeetingId ?? ''} onChange={e => setSelectedMeetingId(e.target.value)}
                   className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
                   <option value="">Select date…</option>
-                  {sessionDates.map(d => (
+                  {meetingDates.map(d => (
                     <option key={d.id} value={d.id}>{d.label ?? d.date} · {d.date}</option>
                   ))}
                 </select>
@@ -2002,7 +2002,7 @@ export default function AdminDashboard() {
                 <select value={editMentorId} onChange={e => setEditMentorId(e.target.value)}
                   className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
                   <option value="">Select mentor…</option>
-                  {mentors.filter(m => m.semester_id === editingSession.session_dates?.semester_id).map(m => (
+                  {mentors.filter(m => m.semester_id === editingSession.meeting?.semester_id).map(m => (
                     <option key={m.id} value={m.id}>{m.full_name}</option>
                   ))}
                 </select>
@@ -2013,7 +2013,7 @@ export default function AdminDashboard() {
                   disabled={editStartupAbsent}
                   className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40 disabled:opacity-40">
                   <option value="">None</option>
-                  {startups.filter(s => s.semester_id === editingSession.session_dates?.semester_id).map(s => (
+                  {startups.filter(s => s.semester_id === editingSession.meeting?.semester_id).map(s => (
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </select>

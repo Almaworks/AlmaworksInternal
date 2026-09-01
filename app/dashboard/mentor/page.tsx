@@ -11,7 +11,7 @@ import {
   type AvailabilitySlot,
 } from '@/src/program/availability-windows'
 
-type SessionDate = {
+type MeetingDate = {
   id: string
   date: string
   label: string | null
@@ -42,7 +42,7 @@ type Semester = {
 export default function MentorDashboard() {
   const supabase = useMemo(() => createClient(), [])
 
-  const [sessionDates, setSessionDates] = useState<SessionDate[]>([])
+  const [meetingDates, setMeetingDates] = useState<MeetingDate[]>([])
   const [availability, setAvailability] = useState<Record<string, boolean>>({})
   const [sessions, setSessions] = useState<Session[]>([])
   const [saving, setSaving] = useState(false)
@@ -106,7 +106,7 @@ export default function MentorDashboard() {
       loadMentorAvailability(supabase, profileId, selectedSemesterId),
     ]).then(([dateResult, availabilityRows]) => {
       if (cancelled) return
-      setSessionDates((dateResult.data ?? []).map((row) => ({ id: row.id, date: row.meeting_date, label: row.label })))
+      setMeetingDates((dateResult.data ?? []).map((row) => ({ id: row.id, date: row.meeting_date, label: row.label })))
       setAvailability(availabilityStateFromRows(availabilityRows as Availability[]))
     })
     return () => { cancelled = true }
@@ -132,7 +132,7 @@ export default function MentorDashboard() {
     if (!membershipId || !selectedSemesterId) return
     setSaving(true)
     const rows = availabilityRowsForMeetings({
-      meetingIds: sessionDates.map((meeting) => meeting.id),
+      meetingIds: meetingDates.map((meeting) => meeting.id),
       membershipId,
       semesterId: selectedSemesterId,
       state: availability,
@@ -221,7 +221,7 @@ export default function MentorDashboard() {
                 id: s.id,
                 date: s.meeting?.meeting_date ?? '',
                 partnerName: s.startup?.organization?.name ?? null,
-                timeSlot: s.slot === 1 ? '3:30-4:15' : '4:15-5:00',
+                slotLabel: s.slot === 1 ? '3:30-4:15' : '4:15-5:00',
                 format: s.format,
                 status: s.status,
                 topic: s.topic,
@@ -238,11 +238,11 @@ export default function MentorDashboard() {
           Select each Friday session window when you&apos;re available this semester.
         </p>
 
-        {sessionDates.length === 0 ? (
+        {meetingDates.length === 0 ? (
           <p className="text-sm text-gray-400">No session dates have been set for this semester yet.</p>
         ) : (
           <div className="space-y-2">
-            {sessionDates.map(d => (
+            {meetingDates.map(d => (
               <div
                 key={d.id}
                 className="px-4 py-3 bg-white rounded-xl border border-gray-100"

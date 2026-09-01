@@ -290,7 +290,7 @@ export default function StartupDashboard() {
                     id: s.id,
                     date: s.meeting?.meeting_date ?? '',
                     partnerName: s.mentor?.membership?.profile?.full_name ?? null,
-                    timeSlot: s.slot === 1 ? '3:30-4:15' : '4:15-5:00',
+                    slotLabel: s.slot === 1 ? '3:30-4:15' : '4:15-5:00',
                     format: s.format,
                     status: s.status,
                     topic: s.topic,

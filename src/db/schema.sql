@@ -13,6 +13,12 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 
+CREATE SCHEMA IF NOT EXISTS "private";
+
+
+ALTER SCHEMA "private" OWNER TO "postgres";
+
+
 CREATE SCHEMA IF NOT EXISTS "public";
 
 
@@ -140,6 +146,121 @@ CREATE TYPE "public"."user_role" AS ENUM (
 ALTER TYPE "public"."user_role" OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "private"."actor_can_manage_semester"("target_semester_id" "uuid", "actor_profile_id" "uuid") RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$ select private.actor_is_super_admin(actor_profile_id) or private.actor_has_semester_role(target_semester_id,array['admin']::public.user_role[],actor_profile_id) $$;
+
+
+ALTER FUNCTION "private"."actor_can_manage_semester"("target_semester_id" "uuid", "actor_profile_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "private"."actor_has_semester_role"("target_semester_id" "uuid", "allowed_roles" "public"."user_role"[], "actor_profile_id" "uuid") RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$ select actor_profile_id is not null and exists (select 1 from public.semester_memberships where semester_id=target_semester_id and profile_id=actor_profile_id and role=any(allowed_roles) and status='active') $$;
+
+
+ALTER FUNCTION "private"."actor_has_semester_role"("target_semester_id" "uuid", "allowed_roles" "public"."user_role"[], "actor_profile_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "private"."actor_is_super_admin"("actor_profile_id" "uuid") RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$ select actor_profile_id is not null and exists (select 1 from public.platform_roles where profile_id=actor_profile_id and role='super_admin') $$;
+
+
+ALTER FUNCTION "private"."actor_is_super_admin"("actor_profile_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "private"."can_manage_semester"("target_semester_id" "uuid", "candidate_id" "uuid" DEFAULT "auth"."uid"()) RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$ select candidate_id is not null and candidate_id is not distinct from auth.uid() and private.actor_can_manage_semester(target_semester_id, private.current_profile_id(candidate_id)) $$;
+
+
+ALTER FUNCTION "private"."can_manage_semester"("target_semester_id" "uuid", "candidate_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "private"."can_read_mentor_profile"("target_profile_id" "uuid", "candidate_id" "uuid") RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select candidate_id is not null
+    and candidate_id is not distinct from auth.uid()
+    and exists (
+      select 1
+      from public.semester_memberships candidate_membership
+        where candidate_membership.profile_id = private.current_profile_id(candidate_id)
+        and candidate_membership.status in ('onboarding', 'active')
+    )
+    and exists (
+      select 1
+      from public.semester_memberships mentor_membership
+      where mentor_membership.profile_id = target_profile_id
+        and mentor_membership.role = 'mentor'
+        and mentor_membership.status in ('onboarding', 'active', 'alumni')
+    );
+$$;
+
+
+ALTER FUNCTION "private"."can_read_mentor_profile"("target_profile_id" "uuid", "candidate_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "private"."can_read_outreach_relationship_labels"("candidate_id" "uuid" DEFAULT "auth"."uid"()) RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$ select private.is_super_admin(candidate_id) or (candidate_id is not null and candidate_id is not distinct from auth.uid() and exists(select 1 from public.semester_memberships where profile_id=private.current_profile_id(candidate_id) and role='admin' and status='active')) $$;
+
+
+ALTER FUNCTION "private"."can_read_outreach_relationship_labels"("candidate_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "private"."current_profile_id"("candidate_auth_user_id" "uuid" DEFAULT "auth"."uid"()) RETURNS "uuid"
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$ select id from public.profiles where auth_user_id = candidate_auth_user_id $$;
+
+
+ALTER FUNCTION "private"."current_profile_id"("candidate_auth_user_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "private"."has_outreach_company_access"("target_company_id" "uuid", "candidate_id" "uuid" DEFAULT "auth"."uid"()) RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$ select exists(select 1 from public.outreach_contact_companies cc join public.outreach_opportunities o on o.contact_id=cc.contact_id where cc.company_id=target_company_id and private.can_manage_semester(o.semester_id,candidate_id)) $$;
+
+
+ALTER FUNCTION "private"."has_outreach_company_access"("target_company_id" "uuid", "candidate_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "private"."has_outreach_contact_access"("target_contact_id" "uuid", "candidate_id" "uuid" DEFAULT "auth"."uid"()) RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$ select exists(select 1 from public.outreach_opportunities o where o.contact_id=target_contact_id and private.can_manage_semester(o.semester_id,candidate_id)) $$;
+
+
+ALTER FUNCTION "private"."has_outreach_contact_access"("target_contact_id" "uuid", "candidate_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "private"."has_semester_role"("target_semester_id" "uuid", "allowed_roles" "public"."user_role"[], "candidate_id" "uuid" DEFAULT "auth"."uid"()) RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$ select candidate_id is not null and candidate_id is not distinct from auth.uid() and private.actor_has_semester_role(target_semester_id, allowed_roles, private.current_profile_id(candidate_id)) $$;
+
+
+ALTER FUNCTION "private"."has_semester_role"("target_semester_id" "uuid", "allowed_roles" "public"."user_role"[], "candidate_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "private"."is_super_admin"("candidate_id" "uuid" DEFAULT "auth"."uid"()) RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$ select candidate_id is not null and candidate_id is not distinct from auth.uid() and private.actor_is_super_admin(private.current_profile_id(candidate_id)) $$;
+
+
+ALTER FUNCTION "private"."is_super_admin"("candidate_id" "uuid") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."activate_semester_transition"("p_source_semester_id" "uuid", "p_target_semester_id" "uuid") RETURNS TABLE("closed_semester_id" "uuid", "active_semester_id" "uuid", "alumni_count" integer)
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
@@ -154,8 +275,8 @@ begin
   update public.semesters set is_active=false,lifecycle_status='closed',closed_at=now(),updated_at=now() where id=p_source_semester_id;
   update public.semesters set is_active=true,lifecycle_status='active',closed_at=null,updated_at=now() where id=p_target_semester_id;
   insert into public.program_audit_events(semester_id,actor_profile_id,action,subject_type,subject_id,details) values
-    (p_source_semester_id,auth.uid(),'semester.closed','semester',p_source_semester_id,jsonb_build_object('next_semester_id',p_target_semester_id,'alumni_count',v_alumni_count)),
-    (p_target_semester_id,auth.uid(),'semester.activated','semester',p_target_semester_id,jsonb_build_object('previous_semester_id',p_source_semester_id));
+    (p_source_semester_id,private.current_profile_id(),'semester.closed','semester',p_source_semester_id,jsonb_build_object('next_semester_id',p_target_semester_id,'alumni_count',v_alumni_count)),
+    (p_target_semester_id,private.current_profile_id(),'semester.activated','semester',p_target_semester_id,jsonb_build_object('previous_semester_id',p_source_semester_id));
   return query select p_source_semester_id,p_target_semester_id,v_alumni_count;
 end;
 $$;
@@ -180,7 +301,7 @@ begin
   if v_membership_id is null then
     raise exception 'Semester member not found' using errcode = 'P0002';
   end if;
-  if private.is_super_admin(p_profile_id) and not private.is_super_admin(auth.uid()) then
+  if private.actor_is_super_admin(p_profile_id) and not private.is_super_admin(auth.uid()) then
     raise exception 'Platform super-administrator access required for this identity' using errcode = '42501';
   end if;
   return v_membership_id;
@@ -205,7 +326,7 @@ begin
  update public.semester_memberships set status=v_status,activated_at=case when p_is_active then coalesce(activated_at,now()) else activated_at end,suspended_at=case when p_is_active then null else now() end,updated_at=now() where semester_id=p_semester_id and id=any(p_membership_ids);
  get diagnostics v_updated_count=row_count;
  insert into public.program_audit_events(semester_id,actor_profile_id,action,subject_type,subject_id,details)
- select p_semester_id,auth.uid(),case when p_is_active then 'membership.activated' else 'membership.suspended' end,'semester_membership',membership_id,jsonb_build_object('bulk',true,'status',v_status) from unnest(p_membership_ids) membership_id;
+ select p_semester_id,private.current_profile_id(),case when p_is_active then 'membership.activated' else 'membership.suspended' end,'semester_membership',membership_id,jsonb_build_object('bulk',true,'status',v_status) from unnest(p_membership_ids) membership_id;
  return v_updated_count;
 end; $$;
 
@@ -250,7 +371,7 @@ begin
   select p_target_semester_id, source.contact_id, source.relationship_types, 'not_contacted', null,
     null, null, false, null, null, null, null,
     jsonb_build_object('carried_from_semester_id', p_source_semester_id, 'carried_from_opportunity_id', source.id),
-    auth.uid()
+    private.current_profile_id()
   from public.outreach_opportunities source
   where source.semester_id = p_source_semester_id and source.contact_id = any(p_contact_ids)
   on conflict (semester_id, contact_id) do nothing;
@@ -285,7 +406,7 @@ begin
     case when cardinality(p_override_types) > 0 then concat('Assignment override: ', p_override_reason) end, p_idempotency_key)
   returning id into v_session_id;
   insert into public.program_audit_events(semester_id, actor_profile_id, action, subject_type, subject_id, details)
-  values(p_semester_id, auth.uid(), 'session.assigned', 'session', v_session_id, jsonb_build_object('override_types', p_override_types, 'ranking_context', p_ranking_context));
+  values(p_semester_id, private.current_profile_id(), 'session.assigned', 'session', v_session_id, jsonb_build_object('override_types', p_override_types, 'ranking_context', p_ranking_context));
   return jsonb_build_object('sessionId', v_session_id, 'replayed', false);
 end;
 $$;
@@ -305,10 +426,10 @@ declare
   v_membership_id uuid;
   v_mentor_semester_id uuid;
 begin
-  if p_actor_profile_id is null or not private.can_manage_semester(p_semester_id, p_actor_profile_id) then
+  if p_actor_profile_id is null or not private.actor_can_manage_semester(p_semester_id, p_actor_profile_id) then
     raise exception 'Semester administrator access required' using errcode = '42501';
   end if;
-  if private.is_super_admin(p_profile_id) and not private.is_super_admin(p_actor_profile_id) then
+  if private.actor_is_super_admin(p_profile_id) and not private.actor_is_super_admin(p_actor_profile_id) then
     raise exception 'Platform super-administrator access required for this identity' using errcode = '42501';
   end if;
 
@@ -395,8 +516,8 @@ begin
   if auth.uid() is null or not private.can_manage_semester(p_source_semester_id, auth.uid()) then raise exception 'Semester administrator access required' using errcode = '42501'; end if;
   if nullif(trim(p_name), '') is null or p_end_date <= p_start_date then raise exception 'Valid semester name and date range are required' using errcode = '22023'; end if;
   insert into public.semesters(name,start_date,end_date,is_active,lifecycle_status,configuration) values(trim(p_name),p_start_date,p_end_date,false,'draft',coalesce(p_configuration,'{}')) returning id into v_semester_id;
-  insert into public.semester_memberships(semester_id,profile_id,role,status,activated_at) values(v_semester_id,auth.uid(),'admin','active',now());
-  insert into public.program_audit_events(semester_id,actor_profile_id,action,subject_type,subject_id,details) values(v_semester_id,auth.uid(),'semester.draft_created','semester',v_semester_id,jsonb_build_object('source_semester_id',p_source_semester_id));
+  insert into public.semester_memberships(semester_id,profile_id,role,status,activated_at) values(v_semester_id,private.current_profile_id(),'admin','active',now());
+  insert into public.program_audit_events(semester_id,actor_profile_id,action,subject_type,subject_id,details) values(v_semester_id,private.current_profile_id(),'semester.draft_created','semester',v_semester_id,jsonb_build_object('source_semester_id',p_source_semester_id));
   return query select v_semester_id, trim(p_name);
 end;
 $$;
@@ -408,7 +529,7 @@ ALTER FUNCTION "public"."create_semester_draft"("p_source_semester_id" "uuid", "
 CREATE OR REPLACE FUNCTION "public"."handle_new_user"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
-    AS $$ begin insert into public.profiles(id,email,status,full_name) values(new.id,lower(new.email),'pending',coalesce(new.raw_user_meta_data->>'full_name',new.raw_user_meta_data->>'name')) on conflict(id) do update set email=excluded.email,full_name=coalesce(public.profiles.full_name,excluded.full_name),updated_at=now(); return new; end; $$;
+    AS $$ begin insert into public.profiles(id,auth_user_id,email,role,status,full_name) values(new.id,new.id,lower(new.email),'startup'::public.user_role,'pending',coalesce(new.raw_user_meta_data->>'full_name',new.raw_user_meta_data->>'name')) on conflict(id) do update set auth_user_id=excluded.auth_user_id,email=excluded.email,full_name=coalesce(public.profiles.full_name,excluded.full_name),updated_at=now(); return new; end; $$;
 
 
 ALTER FUNCTION "public"."handle_new_user"() OWNER TO "postgres";
@@ -452,7 +573,7 @@ begin
   where source.semester_id=p_source_semester_id and (p_membership_ids is null or source.id=any(p_membership_ids))
   on conflict do nothing;
 
-  insert into public.program_audit_events(semester_id,actor_profile_id,action,subject_type,details) values(p_target_semester_id,auth.uid(),'membership.imported','semester_membership',jsonb_build_object('source_semester_id',p_source_semester_id,'imported_count',v_after-v_before));
+  insert into public.program_audit_events(semester_id,actor_profile_id,action,subject_type,details) values(p_target_semester_id,private.current_profile_id(),'membership.imported','semester_membership',jsonb_build_object('source_semester_id',p_source_semester_id,'imported_count',v_after-v_before));
   return query select v_source_count,v_after-v_before,v_source_count-(v_after-v_before);
 end;
 $$;
@@ -493,7 +614,7 @@ CREATE OR REPLACE FUNCTION "public"."log_outreach_activity"("p_opportunity_id" "
     SET "search_path" TO 'public'
     AS $$
 declare
-  v_actor_id uuid := auth.uid();
+  v_actor_id uuid := private.current_profile_id();
   v_opportunity public.outreach_opportunities%rowtype;
   v_activity public.outreach_activities%rowtype;
   v_next_follow_up_at timestamptz;
@@ -664,7 +785,7 @@ CREATE OR REPLACE FUNCTION "public"."release_inactive_owner_work"("p_owner_profi
     SET "search_path" TO 'public'
     AS $$
 declare
-  v_actor_id uuid := auth.uid();
+  v_actor_id uuid := private.current_profile_id();
   v_candidate record;
   v_released record;
 begin
@@ -786,7 +907,7 @@ begin
     insert into public.outreach_activities (
       semester_id, opportunity_id, actor_profile_id, activity_kind, summary, details
     )
-    select p_semester_id, id, auth.uid(), 'stage_change', 'Outreach status reset',
+    select p_semester_id, id, private.current_profile_id(), 'stage_change', 'Outreach status reset',
       jsonb_build_object('stage', 'not_contacted', 'reason', 'new_semester_review')
     from reset_rows returning id
   )
@@ -839,7 +960,7 @@ CREATE OR REPLACE FUNCTION "public"."set_outreach_silence"("p_opportunity_id" "u
     SET "search_path" TO 'public'
     AS $$
 declare
-  v_actor_id uuid := auth.uid();
+  v_actor_id uuid := private.current_profile_id();
   v_opportunity public.outreach_opportunities%rowtype;
 begin
   if v_actor_id is null then
@@ -923,7 +1044,7 @@ CREATE OR REPLACE FUNCTION "public"."set_outreach_snooze"("p_opportunity_id" "uu
     SET "search_path" TO 'public'
     AS $$
 declare
-  v_actor_id uuid := auth.uid();
+  v_actor_id uuid := private.current_profile_id();
   v_opportunity public.outreach_opportunities%rowtype;
   v_previous_snoozed_until timestamptz;
 begin
@@ -999,9 +1120,9 @@ begin
   end if;
   if p_enabled then
     insert into public.platform_roles (profile_id, role, granted_by)
-    values (p_profile_id, 'super_admin', auth.uid())
+    values (p_profile_id, 'super_admin', private.current_profile_id())
     on conflict (profile_id, role) do update
-    set granted_by = auth.uid(), granted_at = now();
+    set granted_by = private.current_profile_id(), granted_at = now();
   else
     delete from public.platform_roles
     where profile_id = p_profile_id and role = 'super_admin';
@@ -1023,7 +1144,7 @@ declare
   v_existing_status text;
   v_membership_id uuid;
 begin
-  if p_actor_profile_id is null or not private.can_manage_semester(p_semester_id, p_actor_profile_id) then
+  if p_actor_profile_id is null or not private.actor_can_manage_semester(p_semester_id, p_actor_profile_id) then
     raise exception 'Semester administrator access required' using errcode = '42501';
   end if;
 
@@ -1054,7 +1175,7 @@ begin
     raise exception 'Profile email does not match the Auth-triggered identity' using errcode = '23514';
   end if;
 
-  if private.is_super_admin(p_profile_id) and not private.is_super_admin(p_actor_profile_id) then
+  if private.actor_is_super_admin(p_profile_id) and not private.actor_is_super_admin(p_actor_profile_id) then
     raise exception 'Platform super-administrator access required for this identity' using errcode = '42501';
   end if;
 
@@ -1139,7 +1260,7 @@ CREATE OR REPLACE FUNCTION "public"."suspend_outreach_membership"("p_semester_id
     SET "search_path" TO 'public'
     AS $$
 declare
-  v_actor_id uuid := auth.uid();
+  v_actor_id uuid := private.current_profile_id();
   v_membership public.semester_memberships%rowtype;
   v_now timestamptz := now();
   v_released_opportunity_ids uuid[];
@@ -1259,7 +1380,7 @@ CREATE OR REPLACE FUNCTION "public"."transfer_outreach_owner"("p_opportunity_id"
     SET "search_path" TO 'public'
     AS $$
 declare
-  v_actor_id uuid := auth.uid();
+  v_actor_id uuid := private.current_profile_id();
   v_opportunity_semester_id uuid;
   v_opportunity public.outreach_opportunities%rowtype;
   v_new_owner_status public.membership_lifecycle_status;
@@ -1376,10 +1497,10 @@ begin
   if v_profile_id is null then
     raise exception 'Mentor semester not found' using errcode = 'P0002';
   end if;
-  if p_actor_profile_id is null or not private.can_manage_semester(v_semester_id, p_actor_profile_id) then
+  if p_actor_profile_id is null or not private.actor_can_manage_semester(v_semester_id, p_actor_profile_id) then
     raise exception 'Semester administrator access required' using errcode = '42501';
   end if;
-  if private.is_super_admin(v_profile_id) and not private.is_super_admin(p_actor_profile_id) then
+  if private.actor_is_super_admin(v_profile_id) and not private.actor_is_super_admin(p_actor_profile_id) then
     raise exception 'Platform super-administrator access required for this identity' using errcode = '42501';
   end if;
 
@@ -1446,7 +1567,7 @@ CREATE OR REPLACE FUNCTION "public"."update_own_onboarding_progress"("p_membersh
     SET "search_path" TO ''
     AS $$
 declare
-  actor_id uuid := auth.uid();
+  actor_id uuid := private.current_profile_id();
   membership_record public.semester_memberships%rowtype;
 begin
   if actor_id is null then
@@ -1543,7 +1664,7 @@ CREATE OR REPLACE FUNCTION "public"."upsert_outreach_contact_bundle"("p_semester
     AS $$
 #variable_conflict use_column
 declare
-  actor_id uuid := auth.uid();
+  actor_id uuid := private.current_profile_id();
   resolved_contact_id uuid := p_contact_id;
   resolved_company_id uuid := p_company_id;
   resolved_opportunity_id uuid;
@@ -1926,7 +2047,10 @@ ALTER TABLE "public"."platform_roles" OWNER TO "postgres";
 
 CREATE TABLE IF NOT EXISTS "public"."profiles" (
     "id" "uuid" NOT NULL,
+    "auth_user_id" "uuid",
     "email" "text" NOT NULL,
+    "role" "public"."user_role" NOT NULL,
+    "semester_id" "uuid",
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "full_name" "text",
@@ -2147,6 +2271,11 @@ ALTER TABLE ONLY "public"."outreach_opportunities"
 
 ALTER TABLE ONLY "public"."platform_roles"
     ADD CONSTRAINT "platform_roles_pkey" PRIMARY KEY ("profile_id", "role");
+
+
+
+ALTER TABLE ONLY "public"."profiles"
+    ADD CONSTRAINT "profiles_auth_user_id_key" UNIQUE ("auth_user_id");
 
 
 
@@ -2576,7 +2705,12 @@ ALTER TABLE ONLY "public"."platform_roles"
 
 
 ALTER TABLE ONLY "public"."profiles"
-    ADD CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+    ADD CONSTRAINT "profiles_auth_user_id_fkey" FOREIGN KEY ("auth_user_id") REFERENCES "auth"."users"("id") ON DELETE SET NULL;
+
+
+
+ALTER TABLE ONLY "public"."profiles"
+    ADD CONSTRAINT "profiles_semester_id_fkey" FOREIGN KEY ("semester_id") REFERENCES "public"."semesters"("id") ON DELETE SET NULL;
 
 
 
@@ -2898,10 +3032,65 @@ CREATE POLICY "users update their own profile" ON "public"."profiles" FOR UPDATE
 
 
 
+GRANT USAGE ON SCHEMA "private" TO "authenticated";
+
+
+
 GRANT USAGE ON SCHEMA "public" TO "postgres";
 GRANT USAGE ON SCHEMA "public" TO "anon";
 GRANT USAGE ON SCHEMA "public" TO "authenticated";
 GRANT USAGE ON SCHEMA "public" TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "private"."actor_can_manage_semester"("target_semester_id" "uuid", "actor_profile_id" "uuid") FROM PUBLIC;
+
+
+
+REVOKE ALL ON FUNCTION "private"."actor_has_semester_role"("target_semester_id" "uuid", "allowed_roles" "public"."user_role"[], "actor_profile_id" "uuid") FROM PUBLIC;
+
+
+
+REVOKE ALL ON FUNCTION "private"."actor_is_super_admin"("actor_profile_id" "uuid") FROM PUBLIC;
+
+
+
+REVOKE ALL ON FUNCTION "private"."can_manage_semester"("target_semester_id" "uuid", "candidate_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "private"."can_manage_semester"("target_semester_id" "uuid", "candidate_id" "uuid") TO "authenticated";
+
+
+
+REVOKE ALL ON FUNCTION "private"."can_read_mentor_profile"("target_profile_id" "uuid", "candidate_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "private"."can_read_mentor_profile"("target_profile_id" "uuid", "candidate_id" "uuid") TO "authenticated";
+
+
+
+REVOKE ALL ON FUNCTION "private"."can_read_outreach_relationship_labels"("candidate_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "private"."can_read_outreach_relationship_labels"("candidate_id" "uuid") TO "authenticated";
+
+
+
+REVOKE ALL ON FUNCTION "private"."current_profile_id"("candidate_auth_user_id" "uuid") FROM PUBLIC;
+
+
+
+REVOKE ALL ON FUNCTION "private"."has_outreach_company_access"("target_company_id" "uuid", "candidate_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "private"."has_outreach_company_access"("target_company_id" "uuid", "candidate_id" "uuid") TO "authenticated";
+
+
+
+REVOKE ALL ON FUNCTION "private"."has_outreach_contact_access"("target_contact_id" "uuid", "candidate_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "private"."has_outreach_contact_access"("target_contact_id" "uuid", "candidate_id" "uuid") TO "authenticated";
+
+
+
+REVOKE ALL ON FUNCTION "private"."has_semester_role"("target_semester_id" "uuid", "allowed_roles" "public"."user_role"[], "candidate_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "private"."has_semester_role"("target_semester_id" "uuid", "allowed_roles" "public"."user_role"[], "candidate_id" "uuid") TO "authenticated";
+
+
+
+REVOKE ALL ON FUNCTION "private"."is_super_admin"("candidate_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "private"."is_super_admin"("candidate_id" "uuid") TO "authenticated";
 
 
 
@@ -2996,6 +3185,34 @@ GRANT SELECT ON TABLE "public"."outreach_opportunities" TO "authenticated";
 
 
 
+GRANT UPDATE("semester_id") ON TABLE "public"."outreach_opportunities" TO "authenticated";
+
+
+
+GRANT UPDATE("contact_id") ON TABLE "public"."outreach_opportunities" TO "authenticated";
+
+
+
+GRANT UPDATE("owner_profile_id") ON TABLE "public"."outreach_opportunities" TO "authenticated";
+
+
+
+GRANT UPDATE("created_by") ON TABLE "public"."outreach_opportunities" TO "authenticated";
+
+
+
+GRANT UPDATE("stage") ON TABLE "public"."outreach_opportunities" TO "authenticated";
+
+
+
+GRANT UPDATE("relationship_types") ON TABLE "public"."outreach_opportunities" TO "authenticated";
+
+
+
+GRANT UPDATE("source_context") ON TABLE "public"."outreach_opportunities" TO "authenticated";
+
+
+
 REVOKE ALL ON FUNCTION "public"."set_outreach_silence"("p_opportunity_id" "uuid", "p_is_silenced" boolean, "p_reason" "text", "p_next_follow_up_at" timestamp with time zone, "p_expected_updated_at" timestamp with time zone) FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."set_outreach_silence"("p_opportunity_id" "uuid", "p_is_silenced" boolean, "p_reason" "text", "p_next_follow_up_at" timestamp with time zone, "p_expected_updated_at" timestamp with time zone) TO "authenticated";
 
@@ -3039,6 +3256,22 @@ GRANT SELECT ON TABLE "public"."semester_memberships" TO "service_role";
 
 
 
+GRANT INSERT("semester_id") ON TABLE "public"."semester_memberships" TO "service_role";
+
+
+
+GRANT INSERT("profile_id") ON TABLE "public"."semester_memberships" TO "service_role";
+
+
+
+GRANT INSERT("role") ON TABLE "public"."semester_memberships" TO "service_role";
+
+
+
+GRANT INSERT("status"),UPDATE("status") ON TABLE "public"."semester_memberships" TO "service_role";
+
+
+
 REVOKE ALL ON FUNCTION "public"."update_own_onboarding_progress"("p_membership_id" "uuid", "p_semester_id" "uuid", "p_onboarding_data" "jsonb", "p_finalize" boolean) FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."update_own_onboarding_progress"("p_membership_id" "uuid", "p_semester_id" "uuid", "p_onboarding_data" "jsonb", "p_finalize" boolean) TO "authenticated";
 
@@ -3070,16 +3303,54 @@ GRANT SELECT,DELETE ON TABLE "public"."meeting_availability" TO "authenticated";
 
 
 
+GRANT INSERT("semester_id"),UPDATE("semester_id") ON TABLE "public"."meeting_availability" TO "authenticated";
+
+
+
+GRANT INSERT("meeting_id"),UPDATE("meeting_id") ON TABLE "public"."meeting_availability" TO "authenticated";
+
+
+
+GRANT INSERT("semester_membership_id"),UPDATE("semester_membership_id") ON TABLE "public"."meeting_availability" TO "authenticated";
+
+
+
+GRANT INSERT("slot"),UPDATE("slot") ON TABLE "public"."meeting_availability" TO "authenticated";
+
+
+
+GRANT INSERT("is_available"),UPDATE("is_available") ON TABLE "public"."meeting_availability" TO "authenticated";
+
+
+
+GRANT INSERT("source"),UPDATE("source") ON TABLE "public"."meeting_availability" TO "authenticated";
+
+
+
 GRANT SELECT ON TABLE "public"."meetings" TO "authenticated";
 GRANT SELECT ON TABLE "public"."meetings" TO "service_role";
 
 
 
+GRANT INSERT("semester_id") ON TABLE "public"."meetings" TO "service_role";
+
+
+
+GRANT INSERT("meeting_date") ON TABLE "public"."meetings" TO "service_role";
+
+
+
+GRANT INSERT("label") ON TABLE "public"."meetings" TO "service_role";
+
+
+
 GRANT SELECT ON TABLE "public"."mentor_profiles" TO "authenticated";
+GRANT SELECT ON TABLE "public"."mentor_profiles" TO "service_role";
 
 
 
 GRANT SELECT ON TABLE "public"."mentor_semesters" TO "authenticated";
+GRANT SELECT ON TABLE "public"."mentor_semesters" TO "service_role";
 
 
 
@@ -3091,11 +3362,87 @@ GRANT SELECT ON TABLE "public"."outreach_contact_companies" TO "authenticated";
 
 
 
+GRANT UPDATE("contact_id") ON TABLE "public"."outreach_contact_companies" TO "authenticated";
+
+
+
+GRANT UPDATE("company_id") ON TABLE "public"."outreach_contact_companies" TO "authenticated";
+
+
+
+GRANT UPDATE("is_primary") ON TABLE "public"."outreach_contact_companies" TO "authenticated";
+
+
+
 GRANT SELECT ON TABLE "public"."outreach_contacts" TO "authenticated";
 
 
 
+GRANT UPDATE("full_name") ON TABLE "public"."outreach_contacts" TO "authenticated";
+
+
+
+GRANT UPDATE("email") ON TABLE "public"."outreach_contacts" TO "authenticated";
+
+
+
+GRANT UPDATE("linkedin_url") ON TABLE "public"."outreach_contacts" TO "authenticated";
+
+
+
+GRANT UPDATE("phone") ON TABLE "public"."outreach_contacts" TO "authenticated";
+
+
+
+GRANT UPDATE("biography") ON TABLE "public"."outreach_contacts" TO "authenticated";
+
+
+
+GRANT UPDATE("expertise_tags") ON TABLE "public"."outreach_contacts" TO "authenticated";
+
+
+
+GRANT UPDATE("notes") ON TABLE "public"."outreach_contacts" TO "authenticated";
+
+
+
 GRANT SELECT ON TABLE "public"."outreach_imports" TO "authenticated";
+
+
+
+GRANT INSERT("semester_id") ON TABLE "public"."outreach_imports" TO "authenticated";
+
+
+
+GRANT INSERT("created_by") ON TABLE "public"."outreach_imports" TO "authenticated";
+
+
+
+GRANT INSERT("source_name") ON TABLE "public"."outreach_imports" TO "authenticated";
+
+
+
+GRANT INSERT("idempotency_key"),UPDATE("idempotency_key") ON TABLE "public"."outreach_imports" TO "authenticated";
+
+
+
+GRANT INSERT("status"),UPDATE("status") ON TABLE "public"."outreach_imports" TO "authenticated";
+
+
+
+GRANT INSERT("rows") ON TABLE "public"."outreach_imports" TO "authenticated";
+
+
+
+GRANT INSERT("result"),UPDATE("result") ON TABLE "public"."outreach_imports" TO "authenticated";
+
+
+
+GRANT UPDATE("committed_at") ON TABLE "public"."outreach_imports" TO "authenticated";
+
+
+
+GRANT UPDATE("updated_at") ON TABLE "public"."outreach_imports" TO "authenticated";
 
 
 
@@ -3108,6 +3455,14 @@ GRANT SELECT ON TABLE "public"."profiles" TO "service_role";
 
 
 
+GRANT UPDATE("full_name") ON TABLE "public"."profiles" TO "authenticated";
+
+
+
+GRANT UPDATE("status") ON TABLE "public"."profiles" TO "service_role";
+
+
+
 GRANT SELECT ON TABLE "public"."semesters" TO "authenticated";
 
 
@@ -3117,8 +3472,72 @@ GRANT SELECT,DELETE ON TABLE "public"."sessions" TO "service_role";
 
 
 
+GRANT INSERT("semester_id") ON TABLE "public"."sessions" TO "authenticated";
+GRANT INSERT("semester_id") ON TABLE "public"."sessions" TO "service_role";
+
+
+
+GRANT INSERT("topic") ON TABLE "public"."sessions" TO "authenticated";
+GRANT INSERT("topic"),UPDATE("topic") ON TABLE "public"."sessions" TO "service_role";
+
+
+
+GRANT INSERT("status"),UPDATE("status") ON TABLE "public"."sessions" TO "authenticated";
+GRANT INSERT("status"),UPDATE("status") ON TABLE "public"."sessions" TO "service_role";
+
+
+
+GRANT INSERT("format") ON TABLE "public"."sessions" TO "authenticated";
+GRANT INSERT("format"),UPDATE("format") ON TABLE "public"."sessions" TO "service_role";
+
+
+
+GRANT INSERT("startup_absent"),UPDATE("startup_absent") ON TABLE "public"."sessions" TO "service_role";
+
+
+
+GRANT INSERT("substitute_name"),UPDATE("substitute_name") ON TABLE "public"."sessions" TO "service_role";
+
+
+
+GRANT INSERT("meeting_id") ON TABLE "public"."sessions" TO "authenticated";
+GRANT INSERT("meeting_id") ON TABLE "public"."sessions" TO "service_role";
+
+
+
+GRANT INSERT("mentor_semester_id") ON TABLE "public"."sessions" TO "authenticated";
+GRANT INSERT("mentor_semester_id"),UPDATE("mentor_semester_id") ON TABLE "public"."sessions" TO "service_role";
+
+
+
+GRANT INSERT("startup_semester_id") ON TABLE "public"."sessions" TO "authenticated";
+GRANT INSERT("startup_semester_id"),UPDATE("startup_semester_id") ON TABLE "public"."sessions" TO "service_role";
+
+
+
+GRANT INSERT("slot") ON TABLE "public"."sessions" TO "authenticated";
+GRANT INSERT("slot"),UPDATE("slot") ON TABLE "public"."sessions" TO "service_role";
+
+
+
 GRANT SELECT ON TABLE "public"."startup_organizations" TO "authenticated";
 GRANT SELECT ON TABLE "public"."startup_organizations" TO "service_role";
+
+
+
+GRANT INSERT("name") ON TABLE "public"."startup_organizations" TO "service_role";
+
+
+
+GRANT INSERT("slug") ON TABLE "public"."startup_organizations" TO "service_role";
+
+
+
+GRANT INSERT("description") ON TABLE "public"."startup_organizations" TO "service_role";
+
+
+
+GRANT INSERT("industry") ON TABLE "public"."startup_organizations" TO "service_role";
 
 
 
@@ -3127,8 +3546,57 @@ GRANT SELECT ON TABLE "public"."startup_semesters" TO "service_role";
 
 
 
+GRANT INSERT("semester_id") ON TABLE "public"."startup_semesters" TO "service_role";
+
+
+
+GRANT INSERT("startup_organization_id") ON TABLE "public"."startup_semesters" TO "service_role";
+
+
+
+GRANT INSERT("stage") ON TABLE "public"."startup_semesters" TO "service_role";
+
+
+
+GRANT UPDATE("goals") ON TABLE "public"."startup_semesters" TO "authenticated";
+
+
+
+GRANT UPDATE("mentorship_needs") ON TABLE "public"."startup_semesters" TO "authenticated";
+
+
+
+GRANT UPDATE("preferred_expertise_tags") ON TABLE "public"."startup_semesters" TO "authenticated";
+GRANT INSERT("preferred_expertise_tags") ON TABLE "public"."startup_semesters" TO "service_role";
+
+
+
+GRANT INSERT("readiness_status") ON TABLE "public"."startup_semesters" TO "service_role";
+
+
+
+GRANT UPDATE("mentor_need_context") ON TABLE "public"."startup_semesters" TO "authenticated";
+
+
+
+GRANT UPDATE("mentor_need_no_preference") ON TABLE "public"."startup_semesters" TO "authenticated";
+
+
+
 GRANT SELECT ON TABLE "public"."startup_team_memberships" TO "authenticated";
 GRANT SELECT,DELETE ON TABLE "public"."startup_team_memberships" TO "service_role";
+
+
+
+GRANT INSERT("semester_id") ON TABLE "public"."startup_team_memberships" TO "service_role";
+
+
+
+GRANT INSERT("startup_semester_id") ON TABLE "public"."startup_team_memberships" TO "service_role";
+
+
+
+GRANT INSERT("semester_membership_id") ON TABLE "public"."startup_team_memberships" TO "service_role";
 
 
 
@@ -3136,13 +3604,7 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON SEQ
 
 
 
-
-
-
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON FUNCTIONS TO "postgres";
-
-
-
 
 
 

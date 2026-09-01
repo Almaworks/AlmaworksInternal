@@ -16,7 +16,7 @@ type MentorCard = {
   photo_url: string | null
 }
 
-type SessionDate = { id: string; date: string; label: string | null }
+type MeetingDate = { id: string; date: string; label: string | null }
 
 export default function MentorDirectoryPage() {
   const supabase = useMemo(() => createClient(), [])
@@ -29,7 +29,7 @@ export default function MentorDirectoryPage() {
   const [userRole, setUserRole] = useState<string | null>(null)
   const [startupId, setStartupId] = useState<string | null>(null)
   const [activeSemesterId, setActiveSemesterId] = useState<string | null>(null)
-  const [sessionDates, setSessionDates] = useState<SessionDate[]>([])
+  const [meetingDates, setMeetingDates] = useState<MeetingDate[]>([])
 
   // Request modal state
   const [requestMentor, setRequestMentor] = useState<MentorCard | null>(null)
@@ -68,7 +68,7 @@ export default function MentorDirectoryPage() {
             .select('id, meeting_date, label')
             .eq('semester_id', membership.semester_id)
             .order('meeting_date')
-          setSessionDates((dateRows ?? []).map((row) => ({ id: row.id, date: row.meeting_date, label: row.label })))
+          setMeetingDates((dateRows ?? []).map((row) => ({ id: row.id, date: row.meeting_date, label: row.label })))
         }
 
         // Find startup by founder email — use ilike on jsonb cast as text
@@ -210,7 +210,7 @@ export default function MentorDirectoryPage() {
                       LinkedIn
                     </a>
                   )}
-                  {userRole === 'startup' && startupId && sessionDates.length > 0 && (
+                  {userRole === 'startup' && startupId && meetingDates.length > 0 && (
                     <button
                       onClick={() => { setRequestMentor(m); setRequestError(null); setRequestSuccess(false) }}
                       className="text-[11px] font-medium px-2.5 py-1 bg-[#002147] text-white rounded-lg hover:bg-[#002147]/90 transition-colors"
@@ -266,7 +266,7 @@ export default function MentorDirectoryPage() {
                       className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
                     >
                       <option value="">Select a date…</option>
-                      {sessionDates.map(d => (
+                      {meetingDates.map(d => (
                         <option key={d.id} value={d.id}>
                           {d.label ?? d.date} · {d.date}
                         </option>
