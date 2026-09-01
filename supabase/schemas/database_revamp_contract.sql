@@ -70,7 +70,7 @@ alter table public.outreach_opportunities add constraint outreach_opportunities_
 create unique index if not exists outreach_opportunities_semester_contact_key on public.outreach_opportunities(semester_id, contact_id);
 create trigger validate_canonical_outreach_owner_membership
 before insert or update of semester_id, owner_profile_id, stage on public.outreach_opportunities
-for each row execute function public.validate_outreach_owner_membership();
+for each row execute function private.validate_outreach_owner_membership();
 
 alter table public.outreach_activities drop constraint if exists outreach_activities_semester_id_import_job_id_fkey;
 alter table public.outreach_activities drop column if exists import_job_id;
@@ -100,7 +100,7 @@ alter table public.semester_memberships add constraint semester_memberships_seme
 create policy "sessions visible to semester participants" on public.sessions
 for select to authenticated
 using (
-  public.can_manage_semester(semester_id, auth.uid())
+  private.can_manage_semester(semester_id, auth.uid())
   or exists (
     select 1 from public.mentor_semesters mentor_term
     join public.semester_memberships membership on membership.id = mentor_term.semester_membership_id
@@ -115,8 +115,8 @@ using (
 
 create policy "admins manage sessions" on public.sessions
 for all to authenticated
-using (public.can_manage_semester(semester_id, auth.uid()))
-with check (public.can_manage_semester(semester_id, auth.uid()));
+using (private.can_manage_semester(semester_id, auth.uid()))
+with check (private.can_manage_semester(semester_id, auth.uid()));
 
 create policy "mentors respond to own sessions" on public.sessions
 for update to authenticated
@@ -157,8 +157,8 @@ as $$
 declare inserted_count integer;
 begin
   if auth.uid() is null
-    or not public.can_manage_semester(p_source_semester_id, auth.uid())
-    or not public.can_manage_semester(p_target_semester_id, auth.uid()) then
+    or not private.can_manage_semester(p_source_semester_id, auth.uid())
+    or not private.can_manage_semester(p_target_semester_id, auth.uid()) then
     raise exception 'Not authorized to carry outreach contacts between semesters';
   end if;
   insert into public.outreach_opportunities (
@@ -188,7 +188,7 @@ set search_path = ''
 as $$
 declare reset_count integer;
 begin
-  if auth.uid() is null or not public.can_manage_semester(p_semester_id, auth.uid()) then
+  if auth.uid() is null or not private.can_manage_semester(p_semester_id, auth.uid()) then
     raise exception 'Not authorized to reset outreach opportunities';
   end if;
   with reset_rows as (

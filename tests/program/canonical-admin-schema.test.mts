@@ -4,7 +4,7 @@ import test from "node:test";
 
 const runtime = await readFile(new URL("../../supabase/schemas/database_revamp_runtime.sql", import.meta.url), "utf8");
 const schema = await readFile(new URL("../../supabase/schemas/database_revamp.sql", import.meta.url), "utf8");
-const security = await readFile(new URL("../../supabase/schemas/database_revamp_security.sql", import.meta.url), "utf8");
+const security = await readFile(new URL("../../supabase/schemas/zz_database_revamp_security.sql", import.meta.url), "utf8");
 
 function functionBody(name: string): string {
   const start = runtime.indexOf(`create or replace function public.${name}`);
@@ -26,7 +26,7 @@ test("founder moves are authorized and atomic inside one database function", () 
   assert.match(body, /insert into public\.startup_team_memberships/u);
   assert.match(body, /delete from public\.startup_team_memberships/u);
   assert.ok(body.indexOf("insert into public.startup_team_memberships") < body.indexOf("delete from public.startup_team_memberships"));
-  assert.match(security, /revoke execute on function public\.move_startup_team_membership\(uuid,uuid,uuid\) from public,anon/u);
+  assert.match(security, /revoke execute on all functions in schema public from public, anon, authenticated, service_role/u);
   assert.match(security, /grant execute on function public\.move_startup_team_membership\(uuid,uuid,uuid\)[\s\S]*to authenticated/u);
 });
 
@@ -45,7 +45,7 @@ test("semester member approval and role changes are authorized and atomic withou
   assert.match(body, /insert into public\.mentor_profiles/u);
   assert.match(body, /insert into public\.mentor_semesters/u);
   assert.doesNotMatch(body, /platform_roles/u);
-  assert.match(security, /revoke execute on function public\.set_semester_member_access\(uuid,uuid,uuid,public\.user_role,boolean,text,text\) from public,anon,authenticated/u);
+  assert.match(security, /revoke execute on all functions in schema public from public, anon, authenticated, service_role/u);
   assert.match(security, /grant execute on function[\s\S]*public\.set_semester_member_access\(uuid,uuid,uuid,public\.user_role,boolean,text,text\)[\s\S]*to service_role/u);
 });
 
@@ -55,7 +55,7 @@ test("platform super-admin changes require an existing platform super-admin", ()
   assert.doesNotMatch(body, /can_manage_semester/u);
   assert.match(body, /insert into public\.platform_roles/u);
   assert.match(body, /delete from public\.platform_roles/u);
-  assert.match(security, /revoke execute on function public\.set_platform_super_admin\(uuid,boolean\) from public,anon/u);
+  assert.doesNotMatch(security, /grant execute on function public\.set_platform_super_admin/u);
 });
 
 test("member identity preflight requires target membership and protects super-admin identities", () => {
@@ -64,7 +64,7 @@ test("member identity preflight requires target membership and protects super-ad
   assert.match(body, /from public\.semester_memberships/u);
   assert.match(body, /profile_id = p_profile_id/u);
   assert.match(body, /is_super_admin\(p_profile_id\)[\s\S]*is_super_admin\(auth\.uid\(\)\)/u);
-  assert.match(security, /revoke execute on function public\.authorize_semester_member_identity_update\(uuid,uuid\) from public,anon/u);
+  assert.match(security, /grant execute on function public\.authorize_semester_member_identity_update\(uuid,uuid\) to authenticated/u);
 });
 
 test("existing member updates cannot insert arbitrary targets or corrupt dependent semester data", () => {
@@ -103,8 +103,8 @@ test("mentor create and update commands are authorized single transactions", () 
   assert.match(updateBody, /update public\.mentor_semesters/u);
   assert.match(updateBody, /update public\.semester_memberships/u);
   assert.match(updateBody, /is_super_admin\(v_profile_id\)[\s\S]*is_super_admin\(p_actor_profile_id\)/u);
-  assert.match(security, /revoke execute on function public\.create_mentor_records\(uuid,uuid,uuid,text,text,text,text\[\],boolean,text,text,text,text,text\) from public,anon,authenticated/u);
-  assert.match(security, /revoke execute on function public\.update_mentor_records\(uuid,uuid,jsonb\) from public,anon,authenticated/u);
+  assert.match(security, /grant execute on function public\.create_mentor_records\(uuid,uuid,uuid,text,text,text,text\[\],boolean,text,text,text,text,text\) to service_role/u);
+  assert.match(security, /grant execute on function public\.update_mentor_records\(uuid,uuid,jsonb\) to service_role/u);
 });
 
 test("mentor creation cannot claim an arbitrary profile through the direct RPC", () => {

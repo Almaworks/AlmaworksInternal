@@ -374,25 +374,27 @@ returns boolean
 language sql
 stable
 security definer
-set search_path = public
+set search_path = ''
 as $$
-  select exists (
+  select auth.uid() is not null
+    and candidate_id is not distinct from auth.uid()
+    and exists (
     select 1
     from public.semesters
-    where public.can_manage_semester(public.semesters.id, candidate_id)
+    where private.can_manage_semester(public.semesters.id, candidate_id)
   );
 $$;
 
-create or replace function public.can_read_outreach_relationship_labels(
+create or replace function private.can_read_outreach_relationship_labels(
   candidate_id uuid default auth.uid()
 )
 returns boolean
 language sql
 stable
 security definer
-set search_path = public
+set search_path = ''
 as $$
-  select public.is_super_admin(candidate_id)
+  select private.is_super_admin(candidate_id)
     or exists (
       select 1
       from public.semester_memberships
@@ -402,7 +404,7 @@ as $$
     );
 $$;
 
-create or replace function public.has_outreach_contact_access(
+create or replace function private.has_outreach_contact_access(
   target_contact_id uuid,
   candidate_id uuid default auth.uid()
 )
@@ -410,17 +412,17 @@ returns boolean
 language sql
 stable
 security definer
-set search_path = public
+set search_path = ''
 as $$
   select exists (
     select 1
     from public.outreach_opportunities
     where public.outreach_opportunities.contact_id = target_contact_id
-      and public.can_manage_semester(public.outreach_opportunities.semester_id, candidate_id)
+      and private.can_manage_semester(public.outreach_opportunities.semester_id, candidate_id)
   );
 $$;
 
-create or replace function public.has_outreach_company_access(
+create or replace function private.has_outreach_company_access(
   target_company_id uuid,
   candidate_id uuid default auth.uid()
 )
@@ -428,7 +430,7 @@ returns boolean
 language sql
 stable
 security definer
-set search_path = public
+set search_path = ''
 as $$
   select exists (
     select 1
@@ -436,15 +438,15 @@ as $$
     join public.outreach_opportunities
       on public.outreach_opportunities.contact_id = public.outreach_contact_companies.contact_id
     where public.outreach_contact_companies.company_id = target_company_id
-      and public.can_manage_semester(public.outreach_opportunities.semester_id, candidate_id)
+      and private.can_manage_semester(public.outreach_opportunities.semester_id, candidate_id)
   );
 $$;
 
-create or replace function public.validate_outreach_owner_membership()
+create or replace function private.validate_outreach_owner_membership()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
   v_owner_status public.membership_lifecycle_status;
@@ -472,12 +474,12 @@ $$;
 create trigger validate_outreach_owner_membership
 before insert or update of semester_id, owner_profile_id, stage
 on public.outreach_opportunities
-for each row execute function public.validate_outreach_owner_membership();
+for each row execute function private.validate_outreach_owner_membership();
 
-create or replace function public.prevent_outreach_activity_mutation()
+create or replace function private.prevent_outreach_activity_mutation()
 returns trigger
 language plpgsql
-set search_path = public
+set search_path = ''
 as $$
 begin
   raise exception 'Outreach activities are append-only' using errcode = '55000';
@@ -486,7 +488,7 @@ $$;
 
 create trigger prevent_outreach_activity_mutation
 before update or delete on public.outreach_activities
-for each row execute function public.prevent_outreach_activity_mutation();
+for each row execute function private.prevent_outreach_activity_mutation();
 
 create or replace function public.log_outreach_activity(
   p_opportunity_id uuid,
@@ -502,7 +504,7 @@ create or replace function public.log_outreach_activity(
 returns public.outreach_activities
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
   v_actor_id uuid := auth.uid();
@@ -529,7 +531,7 @@ begin
     raise exception 'Outreach opportunity not found' using errcode = 'P0002';
   end if;
 
-  if not public.can_manage_semester(v_opportunity.semester_id, v_actor_id) then
+  if not private.can_manage_semester(v_opportunity.semester_id, v_actor_id) then
     raise exception 'Not authorized to manage this semester' using errcode = '42501';
   end if;
 
@@ -611,7 +613,7 @@ create or replace function public.transfer_outreach_owner(
 returns public.outreach_opportunities
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
   v_actor_id uuid := auth.uid();
@@ -633,7 +635,7 @@ begin
     raise exception 'Outreach opportunity not found' using errcode = 'P0002';
   end if;
 
-  if not public.can_manage_semester(v_opportunity_semester_id, v_actor_id) then
+  if not private.can_manage_semester(v_opportunity_semester_id, v_actor_id) then
     raise exception 'Not authorized to manage this semester' using errcode = '42501';
   end if;
 
@@ -666,7 +668,7 @@ begin
     raise exception 'Outreach opportunity is stale' using errcode = '40001';
   end if;
 
-  if not public.can_manage_semester(v_opportunity.semester_id, v_actor_id) then
+  if not private.can_manage_semester(v_opportunity.semester_id, v_actor_id) then
     raise exception 'Not authorized to manage this semester' using errcode = '42501';
   end if;
 
@@ -719,7 +721,7 @@ create or replace function public.set_outreach_snooze(
 returns public.outreach_opportunities
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
   v_actor_id uuid := auth.uid();
@@ -740,7 +742,7 @@ begin
     raise exception 'Outreach opportunity not found' using errcode = 'P0002';
   end if;
 
-  if not public.can_manage_semester(v_opportunity.semester_id, v_actor_id) then
+  if not private.can_manage_semester(v_opportunity.semester_id, v_actor_id) then
     raise exception 'Not authorized to manage this semester' using errcode = '42501';
   end if;
 
@@ -794,7 +796,7 @@ create or replace function public.set_outreach_silence(
 returns public.outreach_opportunities
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
   v_actor_id uuid := auth.uid();
@@ -814,7 +816,7 @@ begin
     raise exception 'Outreach opportunity not found' using errcode = 'P0002';
   end if;
 
-  if not public.can_manage_semester(v_opportunity.semester_id, v_actor_id) then
+  if not private.can_manage_semester(v_opportunity.semester_id, v_actor_id) then
     raise exception 'Not authorized to manage this semester' using errcode = '42501';
   end if;
 
@@ -878,7 +880,7 @@ create or replace function public.release_inactive_owner_work(
 returns table (opportunity_id uuid)
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
   v_actor_id uuid := auth.uid();
@@ -907,7 +909,7 @@ begin
     order by candidate.semester_id, candidate.id
     for update of candidate
   loop
-    if not public.can_manage_semester(v_candidate.semester_id, v_actor_id) then
+    if not private.can_manage_semester(v_candidate.semester_id, v_actor_id) then
       raise exception 'Not authorized to release work in semester %', v_candidate.semester_id
         using errcode = '42501';
     end if;
@@ -918,7 +920,7 @@ begin
     where public.outreach_opportunities.id = v_candidate.id
       and public.outreach_opportunities.owner_profile_id = p_owner_profile_id
       and public.outreach_opportunities.stage not in ('converted', 'closed')
-      and public.can_manage_semester(public.outreach_opportunities.semester_id, v_actor_id)
+      and private.can_manage_semester(public.outreach_opportunities.semester_id, v_actor_id)
       and not exists (
         select 1
         from public.semester_memberships as owner_membership
@@ -973,7 +975,7 @@ returns table (
 )
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
   v_actor_id uuid := auth.uid();
@@ -990,7 +992,7 @@ begin
       using errcode = '23514';
   end if;
 
-  if not public.can_manage_semester(p_semester_id, v_actor_id) then
+  if not private.can_manage_semester(p_semester_id, v_actor_id) then
     raise exception 'Not authorized to suspend membership in this semester'
       using errcode = '42501';
   end if;
@@ -1099,100 +1101,100 @@ alter table public.outreach_import_rows enable row level security;
 
 create policy "semester managers read outreach contacts" on public.outreach_contacts
   for select to authenticated
-  using (public.has_outreach_contact_access(id));
+  using (private.has_outreach_contact_access(id));
 create policy "semester managers create outreach contacts" on public.outreach_contacts
   for insert to authenticated
   with check (public.can_manage_any_outreach());
 create policy "semester managers update outreach contacts" on public.outreach_contacts
   for update to authenticated
-  using (public.has_outreach_contact_access(id))
-  with check (public.has_outreach_contact_access(id));
+  using (private.has_outreach_contact_access(id))
+  with check (private.has_outreach_contact_access(id));
 create policy "semester managers delete outreach contacts" on public.outreach_contacts
   for delete to authenticated
-  using (public.has_outreach_contact_access(id));
+  using (private.has_outreach_contact_access(id));
 
 create policy "semester managers read outreach companies" on public.outreach_companies
   for select to authenticated
-  using (public.has_outreach_company_access(id));
+  using (private.has_outreach_company_access(id));
 create policy "semester managers create outreach companies" on public.outreach_companies
   for insert to authenticated
   with check (public.can_manage_any_outreach());
 create policy "semester managers update outreach companies" on public.outreach_companies
   for update to authenticated
-  using (public.has_outreach_company_access(id))
-  with check (public.has_outreach_company_access(id));
+  using (private.has_outreach_company_access(id))
+  with check (private.has_outreach_company_access(id));
 create policy "semester managers delete outreach companies" on public.outreach_companies
   for delete to authenticated
-  using (public.has_outreach_company_access(id));
+  using (private.has_outreach_company_access(id));
 
 create policy "semester managers read outreach contact companies" on public.outreach_contact_companies
   for select to authenticated
   using (
-    public.has_outreach_contact_access(contact_id)
-    and public.has_outreach_company_access(company_id)
+    private.has_outreach_contact_access(contact_id)
+    and private.has_outreach_company_access(company_id)
   );
 create policy "semester managers create outreach contact companies" on public.outreach_contact_companies
   for insert to authenticated
   with check (
-    public.has_outreach_contact_access(contact_id)
-    and public.has_outreach_company_access(company_id)
+    private.has_outreach_contact_access(contact_id)
+    and private.has_outreach_company_access(company_id)
   );
 create policy "semester managers update outreach contact companies" on public.outreach_contact_companies
   for update to authenticated
   using (
-    public.has_outreach_contact_access(contact_id)
-    and public.has_outreach_company_access(company_id)
+    private.has_outreach_contact_access(contact_id)
+    and private.has_outreach_company_access(company_id)
   )
   with check (
-    public.has_outreach_contact_access(contact_id)
-    and public.has_outreach_company_access(company_id)
+    private.has_outreach_contact_access(contact_id)
+    and private.has_outreach_company_access(company_id)
   );
 create policy "semester managers delete outreach contact companies" on public.outreach_contact_companies
   for delete to authenticated
   using (
-    public.has_outreach_contact_access(contact_id)
-    and public.has_outreach_company_access(company_id)
+    private.has_outreach_contact_access(contact_id)
+    and private.has_outreach_company_access(company_id)
   );
 
 create policy "active outreach administrators read relationship labels" on public.outreach_relationship_labels
   for select to authenticated
-  using (public.can_read_outreach_relationship_labels());
+  using (private.can_read_outreach_relationship_labels());
 create policy "super administrators create relationship labels" on public.outreach_relationship_labels
   for insert to authenticated
-  with check (public.is_super_admin());
+  with check (private.is_super_admin());
 create policy "super administrators update relationship labels" on public.outreach_relationship_labels
   for update to authenticated
-  using (public.is_super_admin())
-  with check (public.is_super_admin());
+  using (private.is_super_admin())
+  with check (private.is_super_admin());
 create policy "super administrators delete relationship labels" on public.outreach_relationship_labels
   for delete to authenticated
-  using (public.is_super_admin());
+  using (private.is_super_admin());
 
 create policy "semester managers read outreach opportunities" on public.outreach_opportunities
   for select to authenticated
-  using (public.can_manage_semester(semester_id));
+  using (private.can_manage_semester(semester_id));
 create policy "semester managers create outreach opportunities" on public.outreach_opportunities
   for insert to authenticated
-  with check (public.can_manage_semester(semester_id));
+  with check (private.can_manage_semester(semester_id));
 
 create policy "semester managers manage outreach opportunity labels" on public.outreach_opportunity_labels
   for all to authenticated
-  using (public.can_manage_semester(semester_id))
-  with check (public.can_manage_semester(semester_id));
+  using (private.can_manage_semester(semester_id))
+  with check (private.can_manage_semester(semester_id));
 
 create policy "semester managers read outreach activities" on public.outreach_activities
   for select to authenticated
-  using (public.can_manage_semester(semester_id));
+  using (private.can_manage_semester(semester_id));
 
 create policy "semester managers manage outreach import jobs" on public.outreach_import_jobs
   for all to authenticated
-  using (public.can_manage_semester(semester_id))
-  with check (public.can_manage_semester(semester_id));
+  using (private.can_manage_semester(semester_id))
+  with check (private.can_manage_semester(semester_id));
 
 create policy "semester managers manage outreach import rows" on public.outreach_import_rows
   for all to authenticated
-  using (public.can_manage_semester(semester_id))
-  with check (public.can_manage_semester(semester_id));
+  using (private.can_manage_semester(semester_id))
+  with check (private.can_manage_semester(semester_id));
 
 revoke all on public.outreach_contacts from anon, authenticated, service_role;
 revoke all on public.outreach_companies from anon, authenticated, service_role;
@@ -1225,11 +1227,11 @@ grant all on public.outreach_import_jobs to service_role;
 grant all on public.outreach_import_rows to service_role;
 
 revoke execute on function public.can_manage_any_outreach(uuid) from public, anon;
-revoke execute on function public.can_read_outreach_relationship_labels(uuid) from public, anon;
-revoke execute on function public.has_outreach_contact_access(uuid, uuid) from public, anon;
-revoke execute on function public.has_outreach_company_access(uuid, uuid) from public, anon;
-revoke execute on function public.validate_outreach_owner_membership() from public, anon, authenticated;
-revoke execute on function public.prevent_outreach_activity_mutation() from public, anon, authenticated;
+revoke execute on function private.can_read_outreach_relationship_labels(uuid) from public, anon;
+revoke execute on function private.has_outreach_contact_access(uuid, uuid) from public, anon;
+revoke execute on function private.has_outreach_company_access(uuid, uuid) from public, anon;
+revoke execute on function private.validate_outreach_owner_membership() from public, anon, authenticated;
+revoke execute on function private.prevent_outreach_activity_mutation() from public, anon, authenticated;
 revoke execute on function public.log_outreach_activity(
   uuid,
   public.outreach_activity_kind,
@@ -1248,9 +1250,9 @@ revoke execute on function public.release_inactive_owner_work(uuid) from public,
 revoke execute on function public.suspend_outreach_membership(uuid, uuid, text, timestamptz) from public, anon;
 
 grant execute on function public.can_manage_any_outreach(uuid) to authenticated;
-grant execute on function public.can_read_outreach_relationship_labels(uuid) to authenticated;
-grant execute on function public.has_outreach_contact_access(uuid, uuid) to authenticated;
-grant execute on function public.has_outreach_company_access(uuid, uuid) to authenticated;
+grant execute on function private.can_read_outreach_relationship_labels(uuid) to authenticated;
+grant execute on function private.has_outreach_contact_access(uuid, uuid) to authenticated;
+grant execute on function private.has_outreach_company_access(uuid, uuid) to authenticated;
 grant execute on function public.log_outreach_activity(
   uuid,
   public.outreach_activity_kind,

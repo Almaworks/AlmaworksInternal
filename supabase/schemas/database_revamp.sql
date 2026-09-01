@@ -356,8 +356,8 @@ declare
   inserted_count integer;
 begin
   if auth.uid() is null
-     or not public.can_manage_semester(p_source_semester_id, auth.uid())
-     or not public.can_manage_semester(p_target_semester_id, auth.uid()) then
+     or not private.can_manage_semester(p_source_semester_id, auth.uid())
+     or not private.can_manage_semester(p_target_semester_id, auth.uid()) then
     raise exception 'Not authorized to carry outreach contacts between semesters';
   end if;
 
@@ -410,7 +410,7 @@ as $$
 declare
   reset_count integer;
 begin
-  if auth.uid() is null or not public.can_manage_semester(p_semester_id, auth.uid()) then
+  if auth.uid() is null or not private.can_manage_semester(p_semester_id, auth.uid()) then
     raise exception 'Not authorized to reset outreach opportunities';
   end if;
 

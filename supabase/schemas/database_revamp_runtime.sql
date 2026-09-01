@@ -9,7 +9,7 @@ create or replace function public.commit_mentor_assignment(
 ) returns jsonb language plpgsql security definer set search_path = '' as $$
 declare v_session_id uuid;
 begin
-  if auth.uid() is null or not public.can_manage_semester(p_semester_id, auth.uid()) then raise exception 'Semester administrator access required' using errcode = '42501'; end if;
+  if auth.uid() is null or not private.can_manage_semester(p_semester_id, auth.uid()) then raise exception 'Semester administrator access required' using errcode = '42501'; end if;
   if nullif(trim(p_idempotency_key), '') is null then raise exception 'Idempotency key is required' using errcode = '22023'; end if;
   if p_slot not in (1, 2) then raise exception 'Assignment slot must be 1 or 2' using errcode = '22023'; end if;
   if not exists (
@@ -34,7 +34,7 @@ create or replace function public.create_semester_draft(p_source_semester_id uui
 returns table (semester_id uuid, semester_name text) language plpgsql security definer set search_path = '' as $$
 declare v_semester_id uuid;
 begin
-  if auth.uid() is null or not public.can_manage_semester(p_source_semester_id, auth.uid()) then raise exception 'Semester administrator access required' using errcode = '42501'; end if;
+  if auth.uid() is null or not private.can_manage_semester(p_source_semester_id, auth.uid()) then raise exception 'Semester administrator access required' using errcode = '42501'; end if;
   if nullif(trim(p_name), '') is null or p_end_date <= p_start_date then raise exception 'Valid semester name and date range are required' using errcode = '22023'; end if;
   insert into public.semesters(name,start_date,end_date,is_active,lifecycle_status,configuration) values(trim(p_name),p_start_date,p_end_date,false,'draft',coalesce(p_configuration,'{}')) returning id into v_semester_id;
   insert into public.semester_memberships(semester_id,profile_id,role,status,activated_at) values(v_semester_id,auth.uid(),'admin','active',now());
@@ -47,7 +47,7 @@ create or replace function public.replace_draft_meetings(p_semester_id uuid, p_m
 returns integer language plpgsql security definer set search_path = '' as $$
 declare v_count integer;
 begin
-  if auth.uid() is null or not public.can_manage_semester(p_semester_id, auth.uid()) then raise exception 'Semester administrator access required' using errcode = '42501'; end if;
+  if auth.uid() is null or not private.can_manage_semester(p_semester_id, auth.uid()) then raise exception 'Semester administrator access required' using errcode = '42501'; end if;
   if jsonb_typeof(p_meetings) is distinct from 'array' then raise exception 'Meetings must be a JSON array' using errcode = '22023'; end if;
   if exists(select 1 from jsonb_to_recordset(p_meetings) proposed(date date,label text) where extract(isodow from proposed.date) <> 5) then raise exception 'Every meeting date must be a Friday' using errcode = '22023'; end if;
   delete from public.meetings where semester_id = p_semester_id;
@@ -61,7 +61,7 @@ create or replace function public.import_prior_semester_memberships(p_source_sem
 returns table(source_count integer, imported_count integer, skipped_count integer) language plpgsql security definer set search_path = '' as $$
 declare v_source_count integer; v_before integer; v_after integer;
 begin
-  if auth.uid() is null or not public.can_manage_semester(p_source_semester_id,auth.uid()) or not public.can_manage_semester(p_target_semester_id,auth.uid()) then raise exception 'Semester administrator access required for both semesters' using errcode='42501'; end if;
+  if auth.uid() is null or not private.can_manage_semester(p_source_semester_id,auth.uid()) or not private.can_manage_semester(p_target_semester_id,auth.uid()) then raise exception 'Semester administrator access required for both semesters' using errcode='42501'; end if;
   select count(*) into v_source_count from public.semester_memberships membership where membership.semester_id=p_source_semester_id and (p_membership_ids is null or membership.id=any(p_membership_ids));
   select count(*) into v_before from public.semester_memberships where semester_id=p_target_semester_id;
   insert into public.semester_memberships(semester_id,profile_id,role,status,invited_at,onboarding_data)
@@ -103,7 +103,7 @@ returns table(closed_semester_id uuid,active_semester_id uuid,alumni_count integ
 declare v_alumni_count integer;
 begin
   if p_source_semester_id=p_target_semester_id then raise exception 'Source and target semesters must differ' using errcode='22023'; end if;
-  if auth.uid() is null or not public.can_manage_semester(p_source_semester_id,auth.uid()) or not public.can_manage_semester(p_target_semester_id,auth.uid()) then raise exception 'Semester administrator access required for both semesters' using errcode='42501'; end if;
+  if auth.uid() is null or not private.can_manage_semester(p_source_semester_id,auth.uid()) or not private.can_manage_semester(p_target_semester_id,auth.uid()) then raise exception 'Semester administrator access required for both semesters' using errcode='42501'; end if;
   if not exists(select 1 from public.semesters where id=p_source_semester_id and is_active) or not exists(select 1 from public.semesters where id=p_target_semester_id and lifecycle_status='draft') then raise exception 'Transition requires an active source and draft target semester' using errcode='22023'; end if;
   update public.semester_memberships set status='alumni',alumni_at=now(),updated_at=now() where semester_id=p_source_semester_id and role<>'admin' and status in('onboarding','active');
   get diagnostics v_alumni_count=row_count;
@@ -139,7 +139,7 @@ begin
   if v_semester_id is null or v_to_semester_id is null or v_semester_id <> v_to_semester_id then
     raise exception 'Founders can only move between startups in the same semester' using errcode = '22023';
   end if;
-  if auth.uid() is null or not public.can_manage_semester(v_semester_id, auth.uid()) then
+  if auth.uid() is null or not private.can_manage_semester(v_semester_id, auth.uid()) then
     raise exception 'Semester administrator access required' using errcode = '42501';
   end if;
   select id into v_membership_id
@@ -194,7 +194,7 @@ begin
   if v_semester_id is null then
     raise exception 'Startup semester not found' using errcode = 'P0002';
   end if;
-  if auth.uid() is null or not public.can_manage_semester(v_semester_id, auth.uid()) then
+  if auth.uid() is null or not private.can_manage_semester(v_semester_id, auth.uid()) then
     raise exception 'Semester administrator access required' using errcode = '42501';
   end if;
   update public.startup_organizations
@@ -222,7 +222,7 @@ as $$
 declare
   v_membership_id uuid;
 begin
-  if auth.uid() is null or not public.can_manage_semester(p_semester_id, auth.uid()) then
+  if auth.uid() is null or not private.can_manage_semester(p_semester_id, auth.uid()) then
     raise exception 'Semester administrator access required' using errcode = '42501';
   end if;
   select id into v_membership_id
@@ -231,7 +231,7 @@ begin
   if v_membership_id is null then
     raise exception 'Semester member not found' using errcode = 'P0002';
   end if;
-  if public.is_super_admin(p_profile_id) and not public.is_super_admin(auth.uid()) then
+  if private.is_super_admin(p_profile_id) and not private.is_super_admin(auth.uid()) then
     raise exception 'Platform super-administrator access required for this identity' using errcode = '42501';
   end if;
   return v_membership_id;
@@ -264,10 +264,10 @@ declare
   v_membership_id uuid;
   v_mentor_semester_id uuid;
 begin
-  if p_actor_profile_id is null or not public.can_manage_semester(p_semester_id, p_actor_profile_id) then
+  if p_actor_profile_id is null or not private.can_manage_semester(p_semester_id, p_actor_profile_id) then
     raise exception 'Semester administrator access required' using errcode = '42501';
   end if;
-  if public.is_super_admin(p_profile_id) and not public.is_super_admin(p_actor_profile_id) then
+  if private.is_super_admin(p_profile_id) and not private.is_super_admin(p_actor_profile_id) then
     raise exception 'Platform super-administrator access required for this identity' using errcode = '42501';
   end if;
 
@@ -363,10 +363,10 @@ begin
   if v_profile_id is null then
     raise exception 'Mentor semester not found' using errcode = 'P0002';
   end if;
-  if p_actor_profile_id is null or not public.can_manage_semester(v_semester_id, p_actor_profile_id) then
+  if p_actor_profile_id is null or not private.can_manage_semester(v_semester_id, p_actor_profile_id) then
     raise exception 'Semester administrator access required' using errcode = '42501';
   end if;
-  if public.is_super_admin(v_profile_id) and not public.is_super_admin(p_actor_profile_id) then
+  if private.is_super_admin(v_profile_id) and not private.is_super_admin(p_actor_profile_id) then
     raise exception 'Platform super-administrator access required for this identity' using errcode = '42501';
   end if;
 
@@ -422,7 +422,7 @@ declare
   v_existing_status text;
   v_membership_id uuid;
 begin
-  if p_actor_profile_id is null or not public.can_manage_semester(p_semester_id, p_actor_profile_id) then
+  if p_actor_profile_id is null or not private.can_manage_semester(p_semester_id, p_actor_profile_id) then
     raise exception 'Semester administrator access required' using errcode = '42501';
   end if;
 
@@ -453,7 +453,7 @@ begin
     raise exception 'Profile email does not match the Auth-triggered identity' using errcode = '23514';
   end if;
 
-  if public.is_super_admin(p_profile_id) and not public.is_super_admin(p_actor_profile_id) then
+  if private.is_super_admin(p_profile_id) and not private.is_super_admin(p_actor_profile_id) then
     raise exception 'Platform super-administrator access required for this identity' using errcode = '42501';
   end if;
 
@@ -524,7 +524,7 @@ security definer
 set search_path = ''
 as $$
 begin
-  if auth.uid() is null or not public.is_super_admin(auth.uid()) then
+  if auth.uid() is null or not private.is_super_admin(auth.uid()) then
     raise exception 'Platform super-administrator access required' using errcode = '42501';
   end if;
   if p_enabled then

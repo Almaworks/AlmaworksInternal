@@ -240,12 +240,14 @@ create index availability_windows_profile_idx on public.availability_windows (se
 create index availability_windows_startup_idx on public.availability_windows (semester_id, startup_semester_id);
 create index lifecycle_audit_events_subject_idx on public.lifecycle_audit_events (semester_id, subject_type, subject_id);
 
-create or replace function public.is_super_admin(candidate_id uuid default auth.uid())
+create schema if not exists private;
+
+create or replace function private.is_super_admin(candidate_id uuid default auth.uid())
 returns boolean
 language sql
 stable
 security definer
-set search_path = public
+set search_path = ''
 as $$
   select exists (
     select 1 from public.platform_roles
@@ -253,7 +255,7 @@ as $$
   );
 $$;
 
-create or replace function public.has_semester_role(
+create or replace function private.has_semester_role(
   target_semester_id uuid,
   allowed_roles public.user_role[],
   candidate_id uuid default auth.uid()
@@ -262,7 +264,7 @@ returns boolean
 language sql
 stable
 security definer
-set search_path = public
+set search_path = ''
 as $$
   select exists (
     select 1
@@ -274,7 +276,7 @@ as $$
   );
 $$;
 
-create or replace function public.can_manage_semester(
+create or replace function private.can_manage_semester(
   target_semester_id uuid,
   candidate_id uuid default auth.uid()
 )
@@ -282,9 +284,9 @@ returns boolean
 language sql
 stable
 security definer
-set search_path = public
+set search_path = ''
 as $$
-  select public.is_super_admin(candidate_id)
+  select private.is_super_admin(candidate_id)
     or exists (
       select 1
       from public.semester_memberships
@@ -295,11 +297,26 @@ as $$
     );
 $$;
 
-create or replace function public.handle_new_user()
+create or replace function public.can_manage_semester(
+  target_semester_id uuid,
+  candidate_id uuid default auth.uid()
+)
+returns boolean
+language sql
+stable
+security invoker
+set search_path = ''
+as $$
+  select auth.uid() is not null
+    and candidate_id is not distinct from auth.uid()
+    and private.can_manage_semester(target_semester_id, candidate_id);
+$$;
+
+create or replace function private.handle_new_user()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 begin
   insert into public.profiles (id, email, role, status, full_name)
@@ -318,6 +335,11 @@ begin
 end;
 $$;
 
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+after insert on auth.users
+for each row execute function private.handle_new_user();
+
 create or replace function public.bulk_set_membership_activity(
   p_semester_id uuid,
   p_membership_ids uuid[],
@@ -326,7 +348,7 @@ create or replace function public.bulk_set_membership_activity(
 returns integer
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
   v_requested_count integer;
@@ -334,7 +356,7 @@ declare
   v_updated_count integer;
   v_status public.membership_lifecycle_status;
 begin
-  if auth.uid() is null or not public.can_manage_semester(p_semester_id, auth.uid()) then
+  if auth.uid() is null or not private.can_manage_semester(p_semester_id, auth.uid()) then
     raise exception 'Semester administrator access required' using errcode = '42501';
   end if;
 
@@ -386,7 +408,7 @@ create or replace function public.import_prior_semester_memberships(
 returns table (source_count integer, imported_count integer, skipped_count integer)
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
   v_source_count integer;
@@ -398,8 +420,8 @@ begin
     raise exception 'Source and target semesters must differ' using errcode = '22023';
   end if;
   if auth.uid() is null
-    or not public.can_manage_semester(p_source_semester_id, auth.uid())
-    or not public.can_manage_semester(p_target_semester_id, auth.uid()) then
+    or not private.can_manage_semester(p_source_semester_id, auth.uid())
+    or not private.can_manage_semester(p_target_semester_id, auth.uid()) then
     raise exception 'Semester administrator access required for both cohorts' using errcode = '42501';
   end if;
 
@@ -538,12 +560,12 @@ create or replace function public.create_semester_draft(
 returns table (semester_id uuid, semester_name text)
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
   v_semester_id uuid;
 begin
-  if auth.uid() is null or not public.can_manage_semester(p_source_semester_id, auth.uid()) then
+  if auth.uid() is null or not private.can_manage_semester(p_source_semester_id, auth.uid()) then
     raise exception 'Semester administrator access required' using errcode = '42501';
   end if;
   if nullif(trim(p_name), '') is null then
@@ -591,7 +613,7 @@ create or replace function public.activate_semester_transition(
 returns table (closed_semester_id uuid, active_semester_id uuid, alumni_count integer)
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
   v_alumni_count integer;
@@ -602,8 +624,8 @@ begin
     raise exception 'Source and target semesters must differ' using errcode = '22023';
   end if;
   if auth.uid() is null
-    or not public.can_manage_semester(p_source_semester_id, auth.uid())
-    or not public.can_manage_semester(p_target_semester_id, auth.uid()) then
+    or not private.can_manage_semester(p_source_semester_id, auth.uid())
+    or not private.can_manage_semester(p_target_semester_id, auth.uid()) then
     raise exception 'Semester administrator access required for both semesters' using errcode = '42501';
   end if;
 
@@ -677,7 +699,7 @@ create or replace function public.replace_draft_meetings(
 returns integer
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
   v_semester_start date;
@@ -685,7 +707,7 @@ declare
   v_meeting_count integer;
   v_inserted_count integer;
 begin
-  if auth.uid() is null or not public.can_manage_semester(p_semester_id, auth.uid()) then
+  if auth.uid() is null or not private.can_manage_semester(p_semester_id, auth.uid()) then
     raise exception 'Semester administrator access required' using errcode = '42501';
   end if;
   select start_date, end_date
@@ -759,48 +781,48 @@ alter table public.lifecycle_audit_events enable row level security;
 alter table public.invitation_delivery_attempts enable row level security;
 
 create policy "platform roles visible to owner" on public.platform_roles
-  for select to authenticated using (profile_id = auth.uid() or public.is_super_admin());
+  for select to authenticated using (profile_id = auth.uid() or private.is_super_admin());
 
 create policy "super admins manage platform roles" on public.platform_roles
-  for all to authenticated using (public.is_super_admin()) with check (public.is_super_admin());
+  for all to authenticated using (private.is_super_admin()) with check (private.is_super_admin());
 
 create policy "authenticated users read configuration templates" on public.lifecycle_configuration_templates
   for select to authenticated using (true);
 
 create policy "super admins manage configuration templates" on public.lifecycle_configuration_templates
-  for all to authenticated using (public.is_super_admin()) with check (public.is_super_admin());
+  for all to authenticated using (private.is_super_admin()) with check (private.is_super_admin());
 
 create policy "members read startup organizations" on public.startup_organizations
   for select to authenticated using (exists (
     select 1 from public.startup_semesters ss
     where ss.startup_organization_id = startup_organizations.id
-      and public.has_semester_role(ss.semester_id, array['mentor', 'startup', 'admin']::public.user_role[])
+      and private.has_semester_role(ss.semester_id, array['mentor', 'startup', 'admin']::public.user_role[])
   ));
 
 create policy "semester admins manage startup organizations" on public.startup_organizations
   for all to authenticated using (exists (
     select 1 from public.startup_semesters ss
-    where ss.startup_organization_id = startup_organizations.id and public.can_manage_semester(ss.semester_id)
+    where ss.startup_organization_id = startup_organizations.id and private.can_manage_semester(ss.semester_id)
   ));
 
 create policy "authenticated members read mentor profiles" on public.mentor_profiles
   for select to authenticated using (exists (
     select 1 from public.semester_memberships sm
     where sm.profile_id = mentor_profiles.profile_id
-      and public.has_semester_role(sm.semester_id, array['mentor', 'startup', 'admin']::public.user_role[])
+      and private.has_semester_role(sm.semester_id, array['mentor', 'startup', 'admin']::public.user_role[])
   ));
 
 create policy "mentors update own mentor profile" on public.mentor_profiles
   for update to authenticated using (profile_id = auth.uid()) with check (profile_id = auth.uid());
 
 create policy "members read own semester memberships" on public.semester_memberships
-  for select to authenticated using (profile_id = auth.uid() or public.can_manage_semester(semester_id));
+  for select to authenticated using (profile_id = auth.uid() or private.can_manage_semester(semester_id));
 
 create policy "semester admins manage semester memberships" on public.semester_memberships
-  for all to authenticated using (public.can_manage_semester(semester_id)) with check (public.can_manage_semester(semester_id));
+  for all to authenticated using (private.can_manage_semester(semester_id)) with check (private.can_manage_semester(semester_id));
 
 create policy "cohort reads startup semesters" on public.startup_semesters
-  for select to authenticated using (public.has_semester_role(semester_id, array['mentor', 'startup', 'admin']::public.user_role[]));
+  for select to authenticated using (private.has_semester_role(semester_id, array['mentor', 'startup', 'admin']::public.user_role[]));
 
 create policy "startup teams update startup semester" on public.startup_semesters
   for update to authenticated using (exists (
@@ -816,17 +838,17 @@ create policy "startup teams read their memberships" on public.startup_team_memb
   for select to authenticated using (exists (
     select 1 from public.semester_memberships sm
     where sm.id = startup_team_memberships.semester_membership_id
-      and (sm.profile_id = auth.uid() or public.can_manage_semester(startup_team_memberships.semester_id))
+      and (sm.profile_id = auth.uid() or private.can_manage_semester(startup_team_memberships.semester_id))
   ));
 
 create policy "semester admins manage startup team memberships" on public.startup_team_memberships
-  for all to authenticated using (public.can_manage_semester(semester_id)) with check (public.can_manage_semester(semester_id));
+  for all to authenticated using (private.can_manage_semester(semester_id)) with check (private.can_manage_semester(semester_id));
 
 create policy "mentors read own semester profile" on public.mentor_semesters
   for select to authenticated using (exists (
     select 1 from public.semester_memberships sm
     where sm.id = mentor_semesters.semester_membership_id
-      and (sm.profile_id = auth.uid() or public.can_manage_semester(mentor_semesters.semester_id))
+      and (sm.profile_id = auth.uid() or private.can_manage_semester(mentor_semesters.semester_id))
   ));
 
 create policy "mentors update own semester profile" on public.mentor_semesters
@@ -838,23 +860,23 @@ create policy "mentors update own semester profile" on public.mentor_semesters
   ));
 
 create policy "semester admins manage invitations" on public.invitations
-  for all to authenticated using (public.can_manage_semester(semester_id)) with check (public.can_manage_semester(semester_id));
+  for all to authenticated using (private.can_manage_semester(semester_id)) with check (private.can_manage_semester(semester_id));
 
 create policy "requesters read own access requests" on public.access_requests
-  for select to authenticated using (requester_profile_id = auth.uid() or public.can_manage_semester(semester_id));
+  for select to authenticated using (requester_profile_id = auth.uid() or private.can_manage_semester(semester_id));
 
 create policy "semester admins review access requests" on public.access_requests
-  for update to authenticated using (public.can_manage_semester(semester_id)) with check (public.can_manage_semester(semester_id));
+  for update to authenticated using (private.can_manage_semester(semester_id)) with check (private.can_manage_semester(semester_id));
 
 create policy "members manage own onboarding progress" on public.onboarding_progress
   for all to authenticated using (exists (
     select 1 from public.semester_memberships sm
     where sm.id = onboarding_progress.semester_membership_id
-      and (sm.profile_id = auth.uid() or public.can_manage_semester(onboarding_progress.semester_id))
+      and (sm.profile_id = auth.uid() or private.can_manage_semester(onboarding_progress.semester_id))
   )) with check (exists (
     select 1 from public.semester_memberships sm
     where sm.id = onboarding_progress.semester_membership_id
-      and (sm.profile_id = auth.uid() or public.can_manage_semester(onboarding_progress.semester_id))
+      and (sm.profile_id = auth.uid() or private.can_manage_semester(onboarding_progress.semester_id))
   ));
 
 create policy "owners manage availability" on public.availability_windows
@@ -866,7 +888,7 @@ create policy "owners manage availability" on public.availability_windows
       join public.semester_memberships sm on sm.id = stm.semester_membership_id
       where stm.startup_semester_id = availability_windows.startup_semester_id and sm.profile_id = auth.uid()
     )
-    or public.can_manage_semester(semester_id)
+    or private.can_manage_semester(semester_id)
   ) with check (
     profile_id = auth.uid()
     or exists (
@@ -875,14 +897,14 @@ create policy "owners manage availability" on public.availability_windows
       join public.semester_memberships sm on sm.id = stm.semester_membership_id
       where stm.startup_semester_id = availability_windows.startup_semester_id and sm.profile_id = auth.uid()
     )
-    or public.can_manage_semester(semester_id)
+    or private.can_manage_semester(semester_id)
   );
 
 create policy "semester admins read lifecycle audit" on public.lifecycle_audit_events
-  for select to authenticated using (public.can_manage_semester(semester_id));
+  for select to authenticated using (private.can_manage_semester(semester_id));
 
 create policy "semester admins read delivery attempts" on public.invitation_delivery_attempts
-  for select to authenticated using (public.can_manage_semester(semester_id));
+  for select to authenticated using (private.can_manage_semester(semester_id));
 
 revoke all on public.profiles from anon, authenticated;
 
@@ -922,18 +944,18 @@ grant select, insert, update, delete on public.availability_windows to authentic
 grant select on public.lifecycle_audit_events to authenticated;
 grant select on public.invitation_delivery_attempts to authenticated;
 
-revoke execute on function public.is_super_admin(uuid) from public, anon;
-revoke execute on function public.has_semester_role(uuid, public.user_role[], uuid) from public, anon;
-revoke execute on function public.can_manage_semester(uuid, uuid) from public, anon;
+revoke execute on function private.is_super_admin(uuid) from public, anon;
+revoke execute on function private.has_semester_role(uuid, public.user_role[], uuid) from public, anon;
+revoke execute on function private.can_manage_semester(uuid, uuid) from public, anon;
 revoke execute on function public.bulk_set_membership_activity(uuid, uuid[], boolean) from public, anon;
 revoke execute on function public.import_prior_semester_memberships(uuid, uuid, uuid[]) from public, anon;
 revoke execute on function public.create_semester_draft(uuid, text, date, date, jsonb) from public, anon;
 revoke execute on function public.activate_semester_transition(uuid, uuid) from public, anon;
 revoke execute on function public.replace_draft_meetings(uuid, jsonb) from public, anon;
 
-grant execute on function public.is_super_admin(uuid) to authenticated;
-grant execute on function public.has_semester_role(uuid, public.user_role[], uuid) to authenticated;
-grant execute on function public.can_manage_semester(uuid, uuid) to authenticated;
+grant execute on function private.is_super_admin(uuid) to authenticated;
+grant execute on function private.has_semester_role(uuid, public.user_role[], uuid) to authenticated;
+grant execute on function private.can_manage_semester(uuid, uuid) to authenticated;
 grant execute on function public.bulk_set_membership_activity(uuid, uuid[], boolean) to authenticated;
 grant execute on function public.import_prior_semester_memberships(uuid, uuid, uuid[]) to authenticated;
 grant execute on function public.create_semester_draft(uuid, text, date, date, jsonb) to authenticated;

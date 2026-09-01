@@ -109,13 +109,13 @@ alter table public.outreach_imports enable row level security;
 drop policy if exists "meetings visible to semester members" on public.meetings;
 create policy "meetings visible to semester members" on public.meetings
 for select to authenticated
-using (public.has_semester_role(semester_id, array['admin', 'mentor', 'startup']::public.user_role[], auth.uid()));
+using (private.has_semester_role(semester_id, array['admin', 'mentor', 'startup']::public.user_role[], auth.uid()));
 
 drop policy if exists "admins manage meetings" on public.meetings;
 create policy "admins manage meetings" on public.meetings
 for all to authenticated
-using (public.can_manage_semester(semester_id, auth.uid()))
-with check (public.can_manage_semester(semester_id, auth.uid()));
+using (private.can_manage_semester(semester_id, auth.uid()))
+with check (private.can_manage_semester(semester_id, auth.uid()));
 
 drop policy if exists "members manage own meeting availability" on public.meeting_availability;
 create policy "members manage own meeting availability" on public.meeting_availability
@@ -125,26 +125,26 @@ using (
     select 1 from public.semester_memberships membership
     where membership.id = meeting_availability.semester_membership_id
       and membership.profile_id = auth.uid()
-  ) or public.can_manage_semester(semester_id, auth.uid())
+  ) or private.can_manage_semester(semester_id, auth.uid())
 )
 with check (
   exists (
     select 1 from public.semester_memberships membership
     where membership.id = meeting_availability.semester_membership_id
       and membership.profile_id = auth.uid()
-  ) or public.can_manage_semester(semester_id, auth.uid())
+  ) or private.can_manage_semester(semester_id, auth.uid())
 );
 
 drop policy if exists "admins view program audit" on public.program_audit_events;
 create policy "admins view program audit" on public.program_audit_events
 for select to authenticated
-using (public.can_manage_semester(semester_id, auth.uid()));
+using (private.can_manage_semester(semester_id, auth.uid()));
 
 drop policy if exists "admins manage outreach imports" on public.outreach_imports;
 create policy "admins manage outreach imports" on public.outreach_imports
 for all to authenticated
-using (public.can_manage_semester(semester_id, auth.uid()))
-with check (public.can_manage_semester(semester_id, auth.uid()));
+using (private.can_manage_semester(semester_id, auth.uid()))
+with check (private.can_manage_semester(semester_id, auth.uid()));
 
 create or replace function public.run_database_revamp_backfill()
 returns jsonb
