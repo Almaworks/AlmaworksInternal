@@ -314,6 +314,7 @@ create unique index semesters_one_active_idx on public.semesters (is_active) whe
 create index platform_roles_granted_by_idx on public.platform_roles (granted_by) where granted_by is not null;
 create index semester_memberships_profile_idx on public.semester_memberships (profile_id, semester_id);
 create index invitations_operations_idx on public.invitations (semester_id, status, created_at desc);
+create unique index invitations_open_identity_idx on public.invitations (semester_id, email, role) where status in ('draft', 'queued', 'sent');
 create index invitations_startup_semester_idx on public.invitations (startup_semester_id) where startup_semester_id is not null;
 create index invitations_matched_profile_idx on public.invitations (matched_profile_id) where matched_profile_id is not null;
 create index invitations_invited_by_idx on public.invitations (invited_by);
@@ -335,8 +336,10 @@ create unique index sessions_semester_idempotency_key on public.sessions (semest
 create index program_audit_events_semester_timeline_idx on public.program_audit_events (semester_id, created_at desc);
 create index program_audit_events_actor_idx on public.program_audit_events (actor_profile_id) where actor_profile_id is not null;
 create index outreach_contact_companies_company_idx on public.outreach_contact_companies (company_id, contact_id);
+create index outreach_opportunities_queue_cursor_idx on public.outreach_opportunities (semester_id, next_follow_up_at, id);
+create index outreach_opportunities_contact_idx on public.outreach_opportunities (contact_id, semester_id);
 create index outreach_opportunities_owner_idx on public.outreach_opportunities (owner_profile_id, semester_id) where owner_profile_id is not null;
-create index outreach_activities_timeline_idx on public.outreach_activities (opportunity_id, occurred_at desc);
+create index outreach_activities_timeline_idx on public.outreach_activities (semester_id, opportunity_id, occurred_at desc, id desc);
 create index outreach_activities_actor_idx on public.outreach_activities (actor_profile_id) where actor_profile_id is not null;
 create index outreach_imports_created_by_idx on public.outreach_imports (created_by);
 

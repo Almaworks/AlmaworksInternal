@@ -154,10 +154,6 @@ create table public.invitations (
   check ((role = 'startup' and startup_semester_id is not null) or (role <> 'startup' and startup_semester_id is null))
 );
 
-create unique index invitations_open_identity_idx
-  on public.invitations (semester_id, email, role)
-  where status in ('draft', 'queued', 'sent');
-
 create table public.access_requests (
   id uuid primary key default gen_random_uuid(),
   semester_id uuid not null references public.semesters(id) on delete cascade,
@@ -230,10 +226,7 @@ create table public.invitation_delivery_attempts (
   attempted_at timestamptz not null default now()
 );
 
-create index semester_memberships_profile_idx on public.semester_memberships (profile_id, semester_id);
 create index semester_memberships_operations_idx on public.semester_memberships (semester_id, status, role);
-create index startup_team_memberships_profile_idx on public.startup_team_memberships (semester_membership_id);
-create index invitations_operations_idx on public.invitations (semester_id, status, created_at desc);
 create index access_requests_operations_idx on public.access_requests (semester_id, status, created_at desc);
 create index onboarding_progress_membership_idx on public.onboarding_progress (semester_membership_id);
 create index availability_windows_profile_idx on public.availability_windows (semester_id, profile_id);

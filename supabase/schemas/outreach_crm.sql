@@ -138,9 +138,6 @@ create unique index outreach_contact_companies_identity_key
 create unique index outreach_contact_companies_primary_key
   on public.outreach_contact_companies (contact_id)
   where is_primary and ended_on is null;
-create index outreach_contact_companies_company_idx
-  on public.outreach_contact_companies (company_id, contact_id);
-
 create table public.outreach_relationship_labels (
   id uuid primary key default gen_random_uuid(),
   slug text not null unique check (slug = lower(btrim(slug)) and length(slug) > 0),
@@ -238,17 +235,9 @@ create table public.outreach_opportunities (
 create unique index outreach_opportunities_one_open_contact_key
   on public.outreach_opportunities (semester_id, contact_id)
   where stage not in ('converted', 'closed');
-create index outreach_opportunities_queue_cursor_idx
-  on public.outreach_opportunities (semester_id, next_follow_up_at, id)
-  where stage not in ('converted', 'closed') and not is_silenced;
 create index outreach_opportunities_owner_queue_idx
   on public.outreach_opportunities (semester_id, owner_profile_id, next_follow_up_at, id)
   where stage not in ('converted', 'closed') and not is_silenced;
-create index outreach_opportunities_contact_idx
-  on public.outreach_opportunities (contact_id, semester_id);
-create index outreach_opportunities_owner_idx
-  on public.outreach_opportunities (owner_profile_id, semester_id)
-  where owner_profile_id is not null;
 create index outreach_opportunities_silenced_by_idx
   on public.outreach_opportunities (silenced_by)
   where silenced_by is not null;
@@ -312,11 +301,6 @@ create table public.outreach_activities (
   check (external_message_id is null or length(btrim(external_message_id)) > 0)
 );
 
-create index outreach_activities_timeline_idx
-  on public.outreach_activities (semester_id, opportunity_id, occurred_at desc, id desc);
-create index outreach_activities_actor_idx
-  on public.outreach_activities (actor_profile_id)
-  where actor_profile_id is not null;
 create index outreach_activities_previous_owner_idx
   on public.outreach_activities (previous_owner_profile_id)
   where previous_owner_profile_id is not null;
