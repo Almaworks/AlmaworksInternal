@@ -194,3 +194,81 @@ test("complete workspace loading fails loudly instead of returning a bounded par
     /exceeds the 2-row safety bound/i,
   );
 });
+
+test("People always resolves to the active outreach semester without a literal semester id", () => {
+  const moduleWithResolver = workspace as typeof workspace & {
+    resolveOutreachSemesterId?: (
+      view: "mine" | "team" | "people",
+      requestedSemesterId: string | null,
+      semesters: readonly { id: string; isActive: boolean }[],
+    ) => string;
+  };
+
+  assert.equal(typeof moduleWithResolver.resolveOutreachSemesterId, "function");
+  if (moduleWithResolver.resolveOutreachSemesterId === undefined) return;
+
+  const semesters = [
+    { id: "spring-2026", isActive: false },
+    { id: "fall-2026", isActive: true },
+  ];
+  assert.equal(moduleWithResolver.resolveOutreachSemesterId("people", "spring-2026", semesters), "fall-2026");
+  assert.equal(moduleWithResolver.resolveOutreachSemesterId("people", "all", semesters), "fall-2026");
+  assert.equal(moduleWithResolver.resolveOutreachSemesterId("team", "spring-2026", semesters), "spring-2026");
+});
+
+test("People retains every active-semester contact while queues contain only assigned open work", () => {
+  const moduleWithFilter = workspace as typeof workspace & {
+    filterOutreachWorkspaceForView?: (
+      items: readonly OutreachWorkspaceItem[],
+      view: "mine" | "team" | "people",
+      currentProfileId: string | null,
+      nowTimestamp: string,
+    ) => OutreachWorkspaceItem[];
+  };
+
+  assert.equal(typeof moduleWithFilter.filterOutreachWorkspaceForView, "function");
+  if (moduleWithFilter.filterOutreachWorkspaceForView === undefined) return;
+
+  const records = [
+    item({ id: "unassigned", ownerProfileId: null, ownerName: null, ownerIsActive: false }),
+    item({ id: "mine", ownerProfileId: "owner-1", ownerName: "Grace Hopper" }),
+    item({ id: "theirs", ownerProfileId: "owner-2", ownerName: "Ada Lovelace" }),
+    item({ id: "closed", stage: "closed" }),
+    item({ id: "declined", stage: "declined" }),
+  ];
+
+  assert.deepEqual(
+    moduleWithFilter.filterOutreachWorkspaceForView(records, "people", "owner-1", now).map((row) => row.id),
+    ["unassigned", "mine", "theirs", "closed", "declined"],
+  );
+  assert.deepEqual(
+    moduleWithFilter.filterOutreachWorkspaceForView(records, "team", "owner-1", now).map((row) => row.id),
+    ["mine", "theirs"],
+  );
+  assert.deepEqual(
+    moduleWithFilter.filterOutreachWorkspaceForView(records, "mine", "owner-1", now).map((row) => row.id),
+    ["mine"],
+  );
+});
+
+test("workspace requests load up to one hundred active-semester people per page", () => {
+  const moduleWithQuery = workspace as typeof workspace & {
+    buildOutreachWorkspaceQuery?: (input: {
+      semesterId: string;
+      view: "mine" | "team" | "people";
+      cursor?: string;
+    }) => string;
+  };
+
+  assert.equal(typeof moduleWithQuery.buildOutreachWorkspaceQuery, "function");
+  if (moduleWithQuery.buildOutreachWorkspaceQuery === undefined) return;
+
+  assert.equal(
+    moduleWithQuery.buildOutreachWorkspaceQuery({ semesterId: "active-semester", view: "people" }),
+    "semesterId=active-semester&view=people&pageSize=100",
+  );
+  assert.equal(
+    moduleWithQuery.buildOutreachWorkspaceQuery({ semesterId: "active-semester", view: "people", cursor: "next-page" }),
+    "semesterId=active-semester&view=people&pageSize=100&cursor=next-page",
+  );
+});

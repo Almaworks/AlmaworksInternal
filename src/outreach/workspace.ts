@@ -62,6 +62,39 @@ export interface WorkspaceRowsPage<Row> {
   nextCursor: string | null;
 }
 
+export type OutreachWorkspaceView = "mine" | "team" | "people" | "companies" | "imports";
+
+export function resolveOutreachSemesterId(
+  view: OutreachWorkspaceView,
+  requestedSemesterId: string | null,
+  semesters: readonly { id: string; isActive: boolean }[],
+): string {
+  const activeSemesterId = semesters.find((semester) => semester.isActive)?.id ?? "";
+  if (view === "people") return activeSemesterId;
+  if (
+    requestedSemesterId !== null
+    && requestedSemesterId !== "all"
+    && semesters.some((semester) => semester.id === requestedSemesterId)
+  ) {
+    return requestedSemesterId;
+  }
+  return activeSemesterId;
+}
+
+export function buildOutreachWorkspaceQuery(input: {
+  semesterId: string;
+  view: OutreachWorkspaceView;
+  cursor?: string;
+}): string {
+  const query = new URLSearchParams({
+    semesterId: input.semesterId,
+    view: input.view,
+    pageSize: "100",
+  });
+  if (input.cursor !== undefined) query.set("cursor", input.cursor);
+  return query.toString();
+}
+
 export async function loadCompleteWorkspacePages<Row, Page extends WorkspaceRowsPage<Row>>(
   loadPage: (cursor?: string) => Promise<Page>,
   maximumRows: number,
@@ -136,6 +169,40 @@ function classifyWorkspaceItem(
     },
     nowTimestamp,
   );
+}
+
+interface OutreachQueueFilterItem {
+  stage: string;
+  ownerProfileId: string | null;
+  ownerIsActive: boolean;
+  nextFollowUpAt: string | null;
+  snoozedUntil: string | null;
+  isSilenced: boolean;
+}
+
+export function filterOutreachWorkspaceForView<Item extends OutreachQueueFilterItem>(
+  items: readonly Item[],
+  view: "mine" | "team" | "people",
+  currentProfileId: string | null,
+  nowTimestamp: string,
+): Item[] {
+  if (view === "people") return [...items];
+
+  return items.filter((item) => {
+    const bucket = item.stage === "closed" || item.stage === "declined"
+      ? "closed"
+      : classifyFollowUp({
+        stage: item.stage as OutreachStage,
+        ownerProfileId: item.ownerProfileId,
+        ownerIsActive: item.ownerIsActive,
+        nextFollowUpAt: item.nextFollowUpAt,
+        snoozedUntil: item.snoozedUntil,
+        isSilenced: item.isSilenced,
+      }, nowTimestamp);
+    const isAssignedOpenWork = !["closed", "silenced", "snoozed", "unassigned"].includes(bucket);
+    if (!isAssignedOpenWork) return false;
+    return view === "team" || (currentProfileId !== null && item.ownerProfileId === currentProfileId);
+  });
 }
 
 export function buildOutreachHealth(
