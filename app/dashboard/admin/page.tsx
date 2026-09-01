@@ -15,6 +15,11 @@ import { assignmentRefreshFeedback, buildScheduleRows, sessionFormatPresentation
 import { adminDashboardHref, resolveAdminDashboardTab } from '@/src/assignments/schedule-navigation'
 import type { CohortRecordReference } from '@/src/lifecycle/cohort-screen'
 import { roleForProfileInSemester } from '@/src/lifecycle/cohort-screen'
+import {
+  ACTIVATION_TAB_LABEL,
+  activationAttentionCount,
+  membersReadyForActivation,
+} from '@/src/lifecycle/admin-activation'
 import { loadMentorDirectory, loadStartupDirectory } from '@/src/program/canonical-repository'
 
 type PendingUser = {
@@ -162,6 +167,7 @@ function AdminDashboardContent() {
   const [memberSortDir, setMemberSortDir] = useState<SortDir>('asc')
   const [memberShowAll, setMemberShowAll] = useState(false)
   const [togglingActive, setTogglingActive] = useState<string | null>(null)
+  const [activationError, setActivationError] = useState<string | null>(null)
 
   // Add user form
   const [showAddUser, setShowAddUser] = useState(false)
@@ -424,23 +430,43 @@ function AdminDashboardContent() {
 
   // ── Members ───────────────────────────────────────────────────────────────
 
-  async function toggleMemberActive(memberId: string, membershipId: string | null, semesterId: string | null, current: boolean) {
-    if (!membershipId || !semesterId) return alert('This person has no semester membership to update.')
-    setTogglingActive(memberId)
-    const { data: { session } } = await supabase.auth.getSession()
-    const response = await fetch('/api/admin/lifecycle/memberships/activity', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
-      body: JSON.stringify({ semesterId, membershipIds: [membershipId], activity: current ? 'inactive' : 'active' }),
-    })
-    if (!response.ok) {
-      const payload = await response.json() as { error?: string }
-      alert(payload.error ?? 'Unable to update semester membership.')
-      setTogglingActive(null)
-      return
+  async function toggleMemberActive(
+    memberId: string,
+    membershipId: string | null,
+    semesterId: string | null,
+    current: boolean,
+    onFailure?: (message: string) => void,
+  ): Promise<boolean> {
+    const reportFailure = (message: string) => {
+      if (onFailure) onFailure(message)
+      else alert(message)
     }
-    setMembers(prev => prev.map(m => m.id === memberId ? { ...m, is_active: !current } : m))
-    setTogglingActive(null)
+
+    if (!membershipId || !semesterId) {
+      reportFailure('This person has no semester membership to update.')
+      return false
+    }
+    setTogglingActive(memberId)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch('/api/admin/lifecycle/memberships/activity', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+        body: JSON.stringify({ semesterId, membershipIds: [membershipId], activity: current ? 'inactive' : 'active' }),
+      })
+      if (!response.ok) {
+        const payload = await response.json() as { error?: string }
+        reportFailure(payload.error ?? 'Unable to update semester membership.')
+        return false
+      }
+      await loadAll()
+      return true
+    } catch (cause) {
+      reportFailure(cause instanceof Error ? cause.message : 'Unable to update semester membership.')
+      return false
+    } finally {
+      setTogglingActive(null)
+    }
   }
 
   async function addUser(e: React.FormEvent) {
@@ -736,6 +762,24 @@ function AdminDashboardContent() {
   const cohort = useCohortScreen(memberReferences, 'all')
   const scopedMemberIds = new Set(cohort.scopedRecords.map(record => record.recordId))
   const editableSemesterId = cohort.semesterId ?? activeSemesterId
+  const selectedCohortMembers = cohort.semesterId === null
+    ? []
+    : cohort.members.filter(member => member.semesterId === cohort.semesterId)
+  const readyMembers = membersReadyForActivation(selectedCohortMembers)
+  const activationAttention = activationAttentionCount(selectedCohortMembers, pendingUsers.length)
+
+  async function activateReadyMember(member: (typeof selectedCohortMembers)[number]) {
+    setActivationError(null)
+    const updated = await toggleMemberActive(
+      member.profileId,
+      member.membershipId,
+      member.semesterId,
+      false,
+      setActivationError,
+    )
+    if (updated) await cohort.reload()
+  }
+
   const activeMembershipProfiles = new Set(cohort.members
     .filter(member => member.status === 'active' && (cohort.semesterId === null || member.semesterId === cohort.semesterId))
     .map(member => member.profileId))
@@ -872,7 +916,7 @@ function AdminDashboardContent() {
   // ── Tabs ───────────────────────────────────────────────────────────────────
 
   const tabs: { id: Tab; label: string; badge?: number }[] = [
-    { id: 'users', label: 'Pending Users', badge: pendingUsers.length },
+    { id: 'users', label: ACTIVATION_TAB_LABEL, badge: activationAttention },
     { id: 'members', label: 'Members' },
     { id: 'schedule', label: 'Schedule' },
     { id: 'startups', label: 'Startups' },
@@ -978,9 +1022,45 @@ function AdminDashboardContent() {
 
       {/* ── Pending Users ── */}
       {tab === 'users' && (
-        <div>
+        <div className="space-y-8">
+          <section>
+            <div className="mb-4">
+              <h3 className="text-base font-semibold text-[#002147]">Ready for activation</h3>
+              <p className="mt-1 text-sm text-gray-500">People who completed onboarding in the selected cohort can now access the program.</p>
+            </div>
+            {activationError && <p role="alert" className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{activationError}</p>}
+            {readyMembers.length > 0 && (
+              <div className="space-y-3">
+                {readyMembers.map(member => (
+                  <div key={member.membershipId} className="flex flex-col gap-4 rounded-xl border border-amber-200 bg-amber-50/40 px-5 py-4 sm:flex-row sm:items-center">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-[#002147]">{member.name}</p>
+                      <p className="truncate text-xs text-gray-500">{member.email}</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className={`rounded-full px-2.5 py-1 font-semibold capitalize ${roleColors[member.role] ?? 'bg-gray-100 text-gray-600'}`}>{member.role}</span>
+                      <span className="rounded-full bg-white px-2.5 py-1 font-medium text-gray-600 ring-1 ring-gray-200">{member.semesterName}</span>
+                    </div>
+                    <button
+                      onClick={() => void activateReadyMember(member)}
+                      disabled={togglingActive === member.profileId || cohort.scope === 'all'}
+                      className="shrink-0 rounded-lg bg-[#002147] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#002147]/90 disabled:opacity-50"
+                    >
+                      {togglingActive === member.profileId ? 'Activating…' : 'Activate'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section>
+            <div className="mb-4">
+              <h3 className="text-base font-semibold text-[#002147]">Registration requests</h3>
+              <p className="mt-1 text-sm text-gray-500">Approve new registrations and assign their role before they can access the platform.</p>
+            </div>
           <p className="text-sm text-gray-500 mb-4">
-            Approve new registrations and assign their role before they can access the platform.
+            Pending profiles are kept here until you approve or reject them.
           </p>
           {pendingUsers.length === 0 ? (
             <p className="text-sm text-gray-400">No pending registrations.</p>
@@ -1023,6 +1103,10 @@ function AdminDashboardContent() {
                 </div>
               ))}
             </div>
+          )}
+          </section>
+          {readyMembers.length === 0 && pendingUsers.length === 0 && (
+            <p className="text-sm text-gray-400">Everyone is up to date.</p>
           )}
         </div>
       )}
