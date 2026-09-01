@@ -21,7 +21,7 @@ export interface AssignmentPickerTarget {
   semesterId: string;
   startupSemesterId: string;
   startupName: string;
-  sessionDateId: string;
+  meetingId: string;
   date: string;
   timeSlot: PickerTimeSlot;
   initialFormat?: PickerFormat;
@@ -158,8 +158,8 @@ export default function MentorAssignmentPicker({ open, target, onClose, onCommit
     const query = new URLSearchParams({
       semesterId: target.semesterId,
       startupSemesterId: target.startupSemesterId,
-      sessionDateId: target.sessionDateId,
-      timeSlot: target.timeSlot,
+      meetingId: target.meetingId,
+      slot: target.timeSlot === "3:30-4:15" ? "1" : "2",
       format,
     });
     setLoading(true);
@@ -250,8 +250,8 @@ export default function MentorAssignmentPicker({ open, target, onClose, onCommit
     const payload = buildCommitPayload({
       semesterId: target.semesterId,
       startupSemesterId: target.startupSemesterId,
-      sessionDateId: target.sessionDateId,
-      timeSlot: target.timeSlot,
+      meetingId: target.meetingId,
+      slot: target.timeSlot === "3:30-4:15" ? 1 : 2,
       format,
       topic,
       candidate: selectedCandidate,

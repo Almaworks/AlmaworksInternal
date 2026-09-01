@@ -5,6 +5,7 @@ import {
   assignmentRefreshFeedback,
   buildCommitPayload,
   buildScheduleStartupColumns,
+  buildScheduleRows,
   canSubmitAssignment,
   deriveStartupNeeds,
   filterCandidates,
@@ -17,6 +18,7 @@ const candidates: PickerCandidate[] = [
   {
     mentor: {
       id: "mentor-sales",
+      scheduleMentorIds: ["mentor-semester-sales"],
       name: "Avery Sales",
       expertise: ["Enterprise Sales", "Fundraising"],
       availability: ["2026-09-04"],
@@ -37,6 +39,7 @@ const candidates: PickerCandidate[] = [
   {
     mentor: {
       id: "mentor-ops",
+      scheduleMentorIds: ["mentor-semester-ops"],
       name: "Morgan Operator",
       expertise: ["Operations"],
       availability: [],
@@ -57,6 +60,7 @@ const candidates: PickerCandidate[] = [
   {
     mentor: {
       id: "mentor-busy",
+      scheduleMentorIds: ["mentor-semester-busy"],
       name: "Taylor Busy",
       expertise: ["Enterprise Sales"],
       availability: ["2026-09-04"],
@@ -113,8 +117,8 @@ test("shapes an atomic commit payload with trimmed topic, exact overrides, and r
   assert.deepEqual(buildCommitPayload({
     semesterId: "semester-1",
     startupSemesterId: "startup-semester-1",
-    sessionDateId: "date-1",
-    timeSlot: "4:15-5:00",
+    meetingId: "date-1",
+    slot: 2,
     format: "in_person",
     topic: "  Enterprise pipeline  ",
     candidate: candidates[1]!,
@@ -126,9 +130,9 @@ test("shapes an atomic commit payload with trimmed topic, exact overrides, and r
   }), {
     semesterId: "semester-1",
     startupSemesterId: "startup-semester-1",
-    sessionDateId: "date-1",
-    timeSlot: "4:15-5:00",
-    mentorProfileId: "mentor-ops",
+    meetingId: "date-1",
+    slot: 2,
+    mentorSemesterId: "mentor-semester-ops",
     format: "in_person",
     topic: "Enterprise pipeline",
     overrideTypes: ["availability", "capacity", "expertise"],
@@ -178,6 +182,15 @@ test("builds schedule columns directly from canonical startup semesters", () => 
       name: "Canonical Beta",
       linked: true,
     },
+  ]);
+});
+
+test("builds both mentorship-session rows for every Friday meeting even before assignments exist", () => {
+  assert.deepEqual(buildScheduleRows([
+    { id: "meeting-1", date: "2026-09-04", label: "Opening Friday" },
+  ]), [
+    { dateId: "meeting-1:1", meetingId: "meeting-1", date: "2026-09-04", label: "Opening Friday", slot: "3:30-4:15" },
+    { dateId: "meeting-1:2", meetingId: "meeting-1", date: "2026-09-04", label: "Opening Friday", slot: "4:15-5:00" },
   ]);
 });
 

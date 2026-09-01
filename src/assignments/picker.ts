@@ -5,6 +5,7 @@ export type PickerOverrideType = "availability" | "capacity" | "expertise" | "se
 export interface PickerCandidate {
   mentor: {
     id: string;
+    scheduleMentorIds: string[];
     name: string;
     expertise: string[];
     availability: string[];
@@ -34,9 +35,9 @@ export interface ScheduleStartupColumn {
 export interface PickerCommitPayload {
   semesterId: string;
   startupSemesterId: string;
-  sessionDateId: string;
-  timeSlot: PickerTimeSlot;
-  mentorProfileId: string;
+  meetingId: string;
+  slot: 1 | 2;
+  mentorSemesterId: string;
   format: PickerFormat;
   topic: string | null;
   overrideTypes: PickerOverrideType[];
@@ -96,6 +97,17 @@ export function buildScheduleStartupColumns(input: {
   }));
 }
 
+export function buildScheduleRows(
+  meetings: ReadonlyArray<{ id: string; date: string; label: string | null }>,
+): Array<{ dateId: string; meetingId: string; date: string; label: string | null; slot: PickerTimeSlot }> {
+  return [...meetings]
+    .sort((left, right) => left.date.localeCompare(right.date))
+    .flatMap((meeting) => ([
+      { dateId: `${meeting.id}:1`, meetingId: meeting.id, date: meeting.date, label: meeting.label, slot: "3:30-4:15" as const },
+      { dateId: `${meeting.id}:2`, meetingId: meeting.id, date: meeting.date, label: meeting.label, slot: "4:15-5:00" as const },
+    ]));
+}
+
 export function assignmentRefreshFeedback(input: {
   startupName: string;
   date: string;
@@ -130,8 +142,8 @@ export function canSubmitAssignment(
 export function buildCommitPayload(input: {
   semesterId: string;
   startupSemesterId: string;
-  sessionDateId: string;
-  timeSlot: PickerTimeSlot;
+  meetingId: string;
+  slot: 1 | 2;
   format: PickerFormat;
   topic: string;
   candidate: PickerCandidate;
@@ -142,12 +154,14 @@ export function buildCommitPayload(input: {
   overrideReason: string;
 }): PickerCommitPayload {
   const overridesRequired = input.candidate.requiredOverrideTypes.length > 0;
+  const mentorSemesterId = input.candidate.mentor.scheduleMentorIds[0];
+  if (mentorSemesterId === undefined) throw new Error("Candidate is missing its semester mentor record.");
   return {
     semesterId: input.semesterId,
     startupSemesterId: input.startupSemesterId,
-    sessionDateId: input.sessionDateId,
-    timeSlot: input.timeSlot,
-    mentorProfileId: input.candidate.mentor.id,
+    meetingId: input.meetingId,
+    slot: input.slot,
+    mentorSemesterId,
     format: input.format,
     topic: input.topic.trim() || null,
     overrideTypes: [...input.candidate.requiredOverrideTypes],

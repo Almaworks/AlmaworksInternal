@@ -2,10 +2,17 @@
 
 import { createClient } from '@/utils/supabase/client'
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import TagInput from '@/components/TagInput'
 import StartupModal from '@/components/StartupModal'
 import { CohortScreenControls, useCohortScreen } from '@/components/CohortScreenControls'
+import MentorAssignmentPicker, {
+  type AssignmentCommitResult,
+  type AssignmentPickerTarget,
+} from '@/components/assignments/MentorAssignmentPicker'
+import { assignmentRefreshFeedback, buildScheduleRows } from '@/src/assignments/picker'
+import { adminDashboardHref, resolveAdminDashboardTab } from '@/src/assignments/schedule-navigation'
 import type { CohortRecordReference } from '@/src/lifecycle/cohort-screen'
 import { roleForProfileInSemester } from '@/src/lifecycle/cohort-screen'
 import { loadMentorDirectory, loadStartupDirectory } from '@/src/program/canonical-repository'
@@ -135,9 +142,13 @@ type MemberSortKey = 'full_name' | 'email' | 'role' | 'is_active'
 type Tab = 'users' | 'members' | 'schedule' | 'startups'
 
 
-export default function AdminDashboard() {
+function AdminDashboardContent() {
   const supabase = createClient()
-  const [tab, setTab] = useState<Tab>('users')
+  const pathname = usePathname()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const tab = resolveAdminDashboardTab(pathname, searchParams.get('tab'))
+  const setTab = (nextTab: Tab) => router.push(adminDashboardHref(nextTab))
 
   // Pending users
   const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([])
@@ -250,6 +261,10 @@ export default function AdminDashboard() {
   const [meetingDates, setMeetingDates] = useState<MeetingDate[]>([])
   const [activeSemesterId, setActiveSemesterId] = useState<string | null>(null)
   const [activeSemesterName, setActiveSemesterName] = useState<string | null>(null)
+  const [assignmentPickerTarget, setAssignmentPickerTarget] = useState<AssignmentPickerTarget | null>(null)
+  const [assignmentFeedback, setAssignmentFeedback] = useState<string | null>(null)
+  const [assignmentRefreshRetryRequired, setAssignmentRefreshRetryRequired] = useState(false)
+  const [assignmentRefreshRetrying, setAssignmentRefreshRetrying] = useState(false)
   const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null)
   const [assignMentorId, setAssignMentorId] = useState<string>('')
   const [assignStartupId, setAssignStartupId] = useState<string>('')
@@ -605,6 +620,57 @@ export default function AdminDashboard() {
       .order('slot')
     if (error) throw error
     setSessions(((data ?? []) as unknown as CanonicalSessionRow[]).map(mapSession))
+  }
+
+  function openAssignmentPicker(startup: Startup, meeting: MeetingDate, timeSlot: '3:30-4:15' | '4:15-5:00') {
+    if (!activeSemesterId || startup.semester_id !== activeSemesterId) {
+      setAssignmentFeedback(`${startup.name} is not linked to the active semester.`)
+      setAssignmentRefreshRetryRequired(false)
+      return
+    }
+    setAssignmentFeedback(null)
+    setAssignmentRefreshRetryRequired(false)
+    setAssignmentPickerTarget({
+      semesterId: activeSemesterId,
+      startupSemesterId: startup.id,
+      startupName: startup.name,
+      meetingId: meeting.id,
+      date: meeting.date,
+      timeSlot,
+    })
+  }
+
+  async function handleAssignmentCommitted(result: AssignmentCommitResult, target: AssignmentPickerTarget) {
+    let refreshSucceeded = false
+    try {
+      await refreshSessions()
+      refreshSucceeded = true
+    } catch {
+      refreshSucceeded = false
+    }
+    const feedback = assignmentRefreshFeedback({
+      startupName: target.startupName,
+      date: target.date,
+      timeSlot: target.timeSlot,
+      replayed: result.replayed,
+      refreshSucceeded,
+    })
+    setAssignmentFeedback(feedback.message)
+    setAssignmentRefreshRetryRequired(feedback.retryRequired)
+  }
+
+  async function retryAssignmentRefresh() {
+    setAssignmentRefreshRetrying(true)
+    try {
+      await refreshSessions()
+      setAssignmentFeedback('The schedule is up to date.')
+      setAssignmentRefreshRetryRequired(false)
+    } catch {
+      setAssignmentFeedback('The schedule refresh failed again. Please retry.')
+      setAssignmentRefreshRetryRequired(true)
+    } finally {
+      setAssignmentRefreshRetrying(false)
+    }
   }
 
   async function removeFounder(email: string, startupId: string) {
@@ -1249,40 +1315,17 @@ export default function AdminDashboard() {
       {tab === 'schedule' && (() => {
         // Build matrix: rows = meeting date and slot, columns = startups
         // Unique row keys sorted by date then time slot
-        const rowKeys: { dateId: string; date: string; label: string | null; slot: string }[] = []
-        const seenRowKeys = new Set<string>()
-        const sortedSessions = [...sessions].sort((a, b) => {
-          const da = a.meeting?.date ?? ''
-          const db = b.meeting?.date ?? ''
-          if (da !== db) return da.localeCompare(db)
-          return (a.slot_label ?? '').localeCompare(b.slot_label ?? '')
-        })
-        for (const s of sortedSessions) {
-          if (!s.meeting) continue
-          const slot = s.slot_label ?? 'TBD'
-          const key = `${s.meeting.date}__${slot}`
-          if (!seenRowKeys.has(key)) {
-            seenRowKeys.add(key)
-            rowKeys.push({
-              dateId: key,
-              date: s.meeting.date,
-              label: s.meeting.label,
-              slot,
-            })
-          }
-        }
+        const rowKeys = buildScheduleRows(meetingDates)
 
         // Unique startup columns — only startups that appear in sessions
-        const colStartups = startups.filter(st =>
-          sessions.some(s => s.startups?.name === st.name && !s.startup_absent)
-        )
+        const colStartups = startups.filter(st => st.semester_id === activeSemesterId)
 
         // Build lookup: `date__slot__startupName` -> session
         const cellMap = new Map<string, Session>()
         for (const s of sessions) {
           if (!s.meeting || s.startup_absent) continue
           const slot = s.slot_label ?? 'TBD'
-          const key = `${s.meeting.date}__${slot}__${s.startups?.name ?? ''}`
+          const key = `${s.meeting.date}__${slot}__${s.startup_id ?? ''}`
           cellMap.set(key, s)
         }
 
@@ -1322,6 +1365,22 @@ export default function AdminDashboard() {
                 </button>
               </div>
             </div>
+
+            {assignmentFeedback && (
+              <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                <p>{assignmentFeedback}</p>
+                {assignmentRefreshRetryRequired && (
+                  <button
+                    type="button"
+                    onClick={retryAssignmentRefresh}
+                    disabled={assignmentRefreshRetrying}
+                    className="rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {assignmentRefreshRetrying ? 'Refreshing...' : 'Retry refresh'}
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Session dates wizard */}
             {showDateWizard && (
@@ -1446,10 +1505,10 @@ export default function AdminDashboard() {
                         <tr key={row.dateId} className={ri % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
                           <td className="sticky left-0 z-10 bg-inherit px-4 py-2.5 font-semibold text-[#002147] whitespace-nowrap border-r border-gray-200">
                             <span className="block">{row.label ?? new Date(row.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                            <span className="block text-[10px] font-normal text-gray-400">{row.slot === 'TBD' ? 'Time TBD' : row.slot}</span>
+                            <span className="block text-[10px] font-normal text-gray-400">{row.slot}</span>
                           </td>
                           {colStartups.map(st => {
-                            const cellKey = `${row.date}__${row.slot}__${st.name}`
+                            const cellKey = `${row.date}__${row.slot}__${st.id}`
                             const cell = cellMap.get(cellKey)
                             const formatBg =
                               cell?.format === 'in-person' ? 'bg-green-50 text-green-800 border border-green-200 hover:bg-green-100' :
@@ -1476,17 +1535,13 @@ export default function AdminDashboard() {
                                 ) : (
                                   <button
                                     onClick={() => {
-                                      const dateObj = meetingDates.find(d => d.date === row.date)
-                                      if (dateObj) setSelectedMeetingId(dateObj.id)
-                                      setAssignStartupId(st.id)
-                                      setAssignMentorId('')
-                                      setAssignTopic('')
-                                      setShowAddSession(true)
+                                      const meeting = meetingDates.find(d => d.id === row.meetingId)
+                                      if (meeting) openAssignmentPicker(st, meeting, row.slot)
                                     }}
-                                    className="w-full h-8 rounded-lg border border-dashed border-gray-200 text-gray-300 hover:border-[#75AADB]/50 hover:text-[#75AADB]/70 hover:bg-blue-50/30 transition-colors text-[10px] font-medium"
-                                    title={`Add session: ${st.name} on ${row.label ?? row.date}`}
+                                    className="w-full min-h-10 rounded-lg border border-dashed border-gray-200 text-gray-400 hover:border-[#75AADB] hover:text-[#00689d] hover:bg-blue-50/50 focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40 transition-colors text-[10px] font-semibold"
+                                    aria-label={`Assign a mentor to ${st.name} on ${row.label ?? row.date}, ${row.slot}`}
                                   >
-                                    +
+                                    + Assign
                                   </button>
                                 )}
                               </td>
@@ -1811,6 +1866,13 @@ export default function AdminDashboard() {
 
       <StartupModal startupId={selectedStartupId} onClose={() => setSelectedStartupId(null)} />
 
+      <MentorAssignmentPicker
+        open={assignmentPickerTarget !== null}
+        target={assignmentPickerTarget}
+        onClose={() => setAssignmentPickerTarget(null)}
+        onCommitted={handleAssignmentCommitted}
+      />
+
       {/* ── Add Session Lightbox ── */}
       {showAddSession && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -2078,5 +2140,13 @@ export default function AdminDashboard() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function AdminDashboard() {
+  return (
+    <Suspense fallback={<p role="status" className="text-sm text-gray-500">Loading admin workspace...</p>}>
+      <AdminDashboardContent />
+    </Suspense>
   )
 }
