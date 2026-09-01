@@ -1900,6 +1900,24 @@ export type Database = {
         }
         Returns: Json
       }
+      create_mentor_records: {
+        Args: {
+          p_actor_profile_id: string
+          p_biography: string
+          p_company: string
+          p_email: string
+          p_expertise_tags: string[]
+          p_general_availability: string
+          p_is_active: boolean
+          p_linkedin_url: string
+          p_opening_talk: string
+          p_preferred_format: string
+          p_profile_id: string
+          p_semester_id: string
+          p_title: string
+        }
+        Returns: string
+      }
       create_semester_draft: {
         Args: {
           p_configuration: Json
