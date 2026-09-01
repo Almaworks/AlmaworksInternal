@@ -308,15 +308,37 @@ create table public.outreach_imports (
 -- end canonical table manifest
 
 create unique index semesters_one_active_idx on public.semesters (is_active) where is_active;
+
+-- Identity and lifecycle lookups. Nullable FK indexes exclude rows that cannot
+-- participate in a parent delete or relationship join.
+create index platform_roles_granted_by_idx on public.platform_roles (granted_by) where granted_by is not null;
 create index semester_memberships_profile_idx on public.semester_memberships (profile_id, semester_id);
+create index invitations_operations_idx on public.invitations (semester_id, status, created_at desc);
+create index invitations_startup_semester_idx on public.invitations (startup_semester_id) where startup_semester_id is not null;
+create index invitations_matched_profile_idx on public.invitations (matched_profile_id) where matched_profile_id is not null;
+create index invitations_invited_by_idx on public.invitations (invited_by);
 create index mentor_semesters_membership_idx on public.mentor_semesters (semester_membership_id);
 create index startup_semesters_organization_idx on public.startup_semesters (startup_organization_id);
+create index startup_team_memberships_semester_idx on public.startup_team_memberships (semester_id);
+create index startup_team_memberships_profile_idx on public.startup_team_memberships (semester_membership_id);
+
+-- Scheduling reads lead with the direct application filter; globally unique
+-- entity IDs also make these indexes sufficient for their composite FK checks.
+create index meeting_availability_semester_idx on public.meeting_availability (semester_id);
 create index meeting_availability_member_idx on public.meeting_availability (semester_membership_id, meeting_id);
+create index sessions_semester_meeting_idx on public.sessions (semester_id, meeting_id);
 create index sessions_mentor_idx on public.sessions (mentor_semester_id, meeting_id);
 create index sessions_startup_idx on public.sessions (startup_semester_id, meeting_id);
 create unique index sessions_semester_idempotency_key on public.sessions (semester_id, idempotency_key) where idempotency_key is not null;
-create index outreach_opportunities_owner_idx on public.outreach_opportunities (semester_id, owner_profile_id);
+
+-- Operations timelines and reverse relationship traversal.
+create index program_audit_events_semester_timeline_idx on public.program_audit_events (semester_id, created_at desc);
+create index program_audit_events_actor_idx on public.program_audit_events (actor_profile_id) where actor_profile_id is not null;
+create index outreach_contact_companies_company_idx on public.outreach_contact_companies (company_id, contact_id);
+create index outreach_opportunities_owner_idx on public.outreach_opportunities (owner_profile_id, semester_id) where owner_profile_id is not null;
 create index outreach_activities_timeline_idx on public.outreach_activities (opportunity_id, occurred_at desc);
+create index outreach_activities_actor_idx on public.outreach_activities (actor_profile_id) where actor_profile_id is not null;
+create index outreach_imports_created_by_idx on public.outreach_imports (created_by);
 
 alter table public.invitations
   add foreign key (semester_id, startup_semester_id)
