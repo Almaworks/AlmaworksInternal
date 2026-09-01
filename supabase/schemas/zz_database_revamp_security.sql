@@ -99,16 +99,19 @@ grant select on table
   public.startup_organizations,
   public.startup_semesters,
   public.startup_team_memberships,
+  public.meetings,
   public.sessions
 to service_role;
 
 grant insert (semester_id, profile_id, role, status) on table public.semester_memberships to service_role;
+grant insert (semester_id, meeting_date, label) on table public.meetings to service_role;
 grant insert (name, slug, description, industry) on table public.startup_organizations to service_role;
 grant insert (semester_id, startup_organization_id, stage, preferred_expertise_tags, readiness_status) on table public.startup_semesters to service_role;
 grant insert (semester_id, startup_semester_id, semester_membership_id) on table public.startup_team_memberships to service_role;
 grant insert (semester_id, meeting_id, mentor_semester_id, startup_semester_id, slot, status, topic, format, startup_absent, substitute_name) on table public.sessions to service_role;
 
 grant update (status) on table public.semester_memberships to service_role;
+grant update (status) on table public.profiles to service_role;
 grant update (mentor_semester_id, startup_semester_id, slot, status, topic, format, startup_absent, substitute_name) on table public.sessions to service_role;
 
 grant delete on table

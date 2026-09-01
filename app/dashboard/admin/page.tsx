@@ -23,6 +23,8 @@ type Member = {
   full_name: string | null
   role: string
   is_active: boolean
+  membership_id: string | null
+  semester_id: string | null
   created_at: string
 }
 
@@ -282,13 +284,18 @@ export default function AdminDashboard() {
   async function createWizardDates() {
     if (!activeSemesterId || !wizardStartDate) return
     setWizardSaving(true)
-    const rows = wizardPreviewDates().map(({ date, label }) => ({
-      semester_id: activeSemesterId,
-      meeting_date: date,
-      label,
-    }))
-    await supabase.from('meetings').upsert(rows, { onConflict: 'semester_id,meeting_date', ignoreDuplicates: true })
+    const { data: { session } } = await supabase.auth.getSession()
+    const response = await fetch('/api/admin/lifecycle/semesters/meetings/append', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+      body: JSON.stringify({ semesterId: activeSemesterId, dates: wizardPreviewDates() }),
+    })
     setWizardSaving(false)
+    if (!response.ok) {
+      const payload = await response.json() as { error?: string }
+      alert(payload.error ?? 'Unable to add meeting dates.')
+      return
+    }
     setWizardDone(true)
     setTimeout(() => { setWizardDone(false); setShowDateWizard(false) }, 1500)
     await loadAll()
@@ -309,17 +316,25 @@ export default function AdminDashboard() {
   async function loadAll() {
     const [usersRes, membersRes, mentorsRes, startupsRes, sessionsRes, semesterRes] = await Promise.all([
       supabase.from('profiles').select('id, email, full_name, created_at').eq('status', 'pending').order('created_at'),
-      supabase.from('profiles').select('id, email, full_name, is_active, created_at, memberships:semester_memberships(role,status,semester_id,semester:semesters(is_active))').eq('status', 'approved').order('full_name'),
+      supabase.from('profiles').select('id, email, full_name, created_at, memberships:semester_memberships(id,role,status,semester_id,semester:semesters(is_active))').eq('status', 'approved').order('full_name'),
       loadMentorDirectory(supabase),
       loadStartupDirectory(supabase),
       supabase.from('sessions').select('id, mentor_semester_id, startup_semester_id, status, topic, slot, format, startup_absent, substitute_name, meeting:meetings(meeting_date, label, semester_id, semester:semesters(name)), mentor:mentor_semesters(membership:semester_memberships(profile:profiles(full_name))), startup:startup_semesters(organization:startup_organizations(name,slug))').order('slot'),
       supabase.from('semesters').select('id, name').eq('is_active', true).maybeSingle(),
     ])
     setPendingUsers((usersRes.data as PendingUser[]) ?? [])
-    type MemberRow = Omit<Member, 'role'> & { memberships: { role: string; status: string; semester_id: string; semester: { is_active: boolean } | null }[] | null }
+    type MemberRow = Omit<Member, 'role' | 'is_active' | 'membership_id' | 'semester_id'> & { memberships: { id: string; role: string; status: string; semester_id: string; semester: { is_active: boolean } | null }[] | null }
     setMembers(((membersRes.data ?? []) as unknown as MemberRow[]).map((member) => ({
       ...member,
-      role: member.memberships?.find((membership) => membership.semester?.is_active)?.role ?? member.memberships?.[0]?.role ?? 'startup',
+      ...(() => {
+        const membership = member.memberships?.find((item) => item.semester?.is_active) ?? member.memberships?.[0] ?? null
+        return {
+          is_active: membership?.status === 'active',
+          membership_id: membership?.id ?? null,
+          role: membership?.role ?? 'startup',
+          semester_id: membership?.semester_id ?? null,
+        }
+      })(),
     })))
     setMentors(mentorsRes as unknown as Mentor[])
     setStartups((startupsRes as unknown as Startup[]).map((startup) => ({
@@ -378,15 +393,37 @@ export default function AdminDashboard() {
 
   async function rejectUser(userId: string) {
     if (!confirm('Reject this user?')) return
-    await supabase.from('profiles').update({ status: 'rejected' }).eq('id', userId)
+    const { data: { session } } = await supabase.auth.getSession()
+    const response = await fetch('/api/admin/users/reject', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+      body: JSON.stringify({ userId }),
+    })
+    if (!response.ok) {
+      const payload = await response.json() as { error?: string }
+      alert(payload.error ?? 'Unable to reject user.')
+      return
+    }
     setPendingUsers(prev => prev.filter(u => u.id !== userId))
   }
 
   // ── Members ───────────────────────────────────────────────────────────────
 
-  async function toggleMemberActive(memberId: string, current: boolean) {
+  async function toggleMemberActive(memberId: string, membershipId: string | null, semesterId: string | null, current: boolean) {
+    if (!membershipId || !semesterId) return alert('This person has no semester membership to update.')
     setTogglingActive(memberId)
-    await supabase.from('profiles').update({ is_active: !current }).eq('id', memberId)
+    const { data: { session } } = await supabase.auth.getSession()
+    const response = await fetch('/api/admin/lifecycle/memberships/activity', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+      body: JSON.stringify({ semesterId, membershipIds: [membershipId], activity: current ? 'inactive' : 'active' }),
+    })
+    if (!response.ok) {
+      const payload = await response.json() as { error?: string }
+      alert(payload.error ?? 'Unable to update semester membership.')
+      setTogglingActive(null)
+      return
+    }
     setMembers(prev => prev.map(m => m.id === memberId ? { ...m, is_active: !current } : m))
     setTogglingActive(null)
   }
@@ -1141,7 +1178,7 @@ export default function AdminDashboard() {
                                   {isEditing ? 'Cancel' : 'Edit'}
                                 </button>
                                 <button
-                                  onClick={() => toggleMemberActive(m.id, m.is_active)}
+                                  onClick={() => toggleMemberActive(m.id, m.membership_id, m.semester_id, m.is_active)}
                                   disabled={togglingActive === m.id || cohort.scope === 'all'}
                                   className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors disabled:opacity-50 ${
                                     m.is_active

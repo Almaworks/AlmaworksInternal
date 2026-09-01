@@ -175,4 +175,6 @@ test("service-role direct writes are column-scoped and cannot rewrite record ide
     "format", "mentor_semester_id", "slot", "startup_absent", "startup_semester_id", "status", "substitute_name", "topic",
   ]);
   assert.deepEqual(grantedColumns(sql, "insert", "startup_organizations", "service_role"), ["description", "industry", "name", "slug"]);
+  assert.deepEqual(grantedColumns(sql, "insert", "meetings", "service_role"), ["label", "meeting_date", "semester_id"]);
+  assert.deepEqual(grantedColumns(sql, "update", "profiles", "service_role"), ["status"]);
 });
