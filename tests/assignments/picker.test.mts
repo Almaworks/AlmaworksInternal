@@ -9,6 +9,7 @@ import {
   canSubmitAssignment,
   deriveStartupNeeds,
   filterCandidates,
+  sessionFormatPresentation,
   selectCandidate,
   selectVisibleCandidate,
   type PickerCandidate,
@@ -192,6 +193,17 @@ test("builds both mentorship-session rows for every Friday meeting even before a
     { dateId: "meeting-1:1", meetingId: "meeting-1", date: "2026-09-04", label: "Opening Friday", slot: "3:30-4:15" },
     { dateId: "meeting-1:2", meetingId: "meeting-1", date: "2026-09-04", label: "Opening Friday", slot: "4:15-5:00" },
   ]);
+});
+
+test("presents canonical and legacy in-person session formats with the same calendar treatment", () => {
+  assert.deepEqual(sessionFormatPresentation("in_person"), {
+    tone: "in_person",
+    label: "In-Person",
+  });
+  assert.deepEqual(sessionFormatPresentation("in-person"), {
+    tone: "in_person",
+    label: "In-Person",
+  });
 });
 
 test("refresh failure feedback reports a saved assignment and requests retry even for replay", () => {

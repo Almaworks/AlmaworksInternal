@@ -108,6 +108,18 @@ export function buildScheduleRows(
     ]));
 }
 
+export function sessionFormatPresentation(format: string | null): {
+  tone: "in_person" | "online" | "neutral";
+  label: string;
+} {
+  if (format === "in_person" || format === "in-person") {
+    return { tone: "in_person", label: "In-Person" };
+  }
+  if (format === "online") return { tone: "online", label: "Online" };
+  if (format === "hybrid") return { tone: "neutral", label: "Hybrid" };
+  return { tone: "neutral", label: format ?? "" };
+}
+
 export function assignmentRefreshFeedback(input: {
   startupName: string;
   date: string;

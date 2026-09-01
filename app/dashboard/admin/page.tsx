@@ -11,7 +11,7 @@ import MentorAssignmentPicker, {
   type AssignmentCommitResult,
   type AssignmentPickerTarget,
 } from '@/components/assignments/MentorAssignmentPicker'
-import { assignmentRefreshFeedback, buildScheduleRows } from '@/src/assignments/picker'
+import { assignmentRefreshFeedback, buildScheduleRows, sessionFormatPresentation } from '@/src/assignments/picker'
 import { adminDashboardHref, resolveAdminDashboardTab } from '@/src/assignments/schedule-navigation'
 import type { CohortRecordReference } from '@/src/lifecycle/cohort-screen'
 import { roleForProfileInSemester } from '@/src/lifecycle/cohort-screen'
@@ -1510,9 +1510,10 @@ function AdminDashboardContent() {
                           {colStartups.map(st => {
                             const cellKey = `${row.date}__${row.slot}__${st.id}`
                             const cell = cellMap.get(cellKey)
+                            const formatPresentation = sessionFormatPresentation(cell?.format ?? null)
                             const formatBg =
-                              cell?.format === 'in-person' ? 'bg-green-50 text-green-800 border border-green-200 hover:bg-green-100' :
-                              cell?.format === 'online' ? 'bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100' :
+                              formatPresentation.tone === 'in_person' ? 'bg-green-50 text-green-800 border border-green-200 hover:bg-green-100' :
+                              formatPresentation.tone === 'online' ? 'bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100' :
                               'bg-gray-50 text-gray-700 border border-gray-200 hover:bg-gray-100'
                             return (
                               <td key={st.id} className="px-2 py-2 text-center border-r border-gray-100 align-top">
@@ -1525,8 +1526,8 @@ function AdminDashboardContent() {
                                     } : undefined}
                                   >
                                     {cell.mentors?.full_name ?? '—'}
-                                    {cell.format && (
-                                      <span className="block text-[9px] font-normal opacity-60 capitalize">{cell.format}</span>
+                                    {formatPresentation.label && (
+                                      <span className="block text-[9px] font-normal opacity-60">{formatPresentation.label}</span>
                                     )}
                                     {!cell.is_confirmed && (
                                       <span className="block text-[9px] font-normal opacity-70">unconfirmed</span>
