@@ -3,11 +3,19 @@ import test from "node:test";
 
 import {
   ADMIN_SCHEDULE_HREF,
+  adminMemberHref,
   adminDashboardHref,
   isDashboardNavigationActive,
   mentorDirectoryScheduleEntry,
   resolveAdminDashboardTab,
 } from "../../src/assignments/schedule-navigation.ts";
+
+test("member management links use the canonical Members tab and encode the email", () => {
+  assert.equal(
+    adminMemberHref("mentor+ops@example.com"),
+    "/dashboard/admin?tab=members&member=mentor%2Bops%40example.com",
+  );
+});
 
 test("the first-class admin schedule route resolves the existing Schedule tab", () => {
   assert.equal(resolveAdminDashboardTab("/dashboard/admin/schedule"), "schedule");

@@ -13,7 +13,7 @@ import MentorAssignmentPicker, {
   type AssignmentPickerTarget,
 } from '@/components/assignments/MentorAssignmentPicker'
 import { assignmentRefreshFeedback, buildScheduleRows, sessionFormatPresentation } from '@/src/assignments/picker'
-import { adminDashboardHref, resolveAdminDashboardTab } from '@/src/assignments/schedule-navigation'
+import { adminDashboardHref, adminMemberHref, resolveAdminDashboardTab } from '@/src/assignments/schedule-navigation'
 import type { CohortRecordReference } from '@/src/lifecycle/cohort-screen'
 import {
   ACTIVATION_TAB_LABEL,
@@ -23,8 +23,10 @@ import {
 import {
   filterMembershipsByVisibility,
   membershipPresentation,
+  type MembershipReadinessStatus,
   type MembershipVisibility,
 } from '@/src/lifecycle/membership-presentation'
+import type { MembershipStatus } from '@/src/lifecycle/types'
 import { loadMentorDirectory, loadStartupDirectory } from '@/src/program/canonical-repository'
 
 type PendingUser = {
@@ -60,6 +62,8 @@ type Mentor = {
   preferred_format: string | null
   per_week_availability: Record<string, { slot: string; format: string }> | null
   opening_talk: string | null
+  membership_status: MembershipStatus
+  readiness_status: MembershipReadinessStatus
   semester_id: string | null
   semester_name: string | null
 }
@@ -84,6 +88,9 @@ type Startup = {
   mentorship_needs: string[]
   semester_id: string | null
   semester_name: string | null
+  membership_email: string | null
+  membership_status: MembershipStatus
+  readiness_status: MembershipReadinessStatus
 }
 
 type Session = {
@@ -740,6 +747,11 @@ function AdminDashboardContent() {
   // ── Startups filter state ────────────────────────────────────────────────────
   const [startupSearch, setStartupSearch] = useState('')
   const [startupSemesterFilter, setStartupSemesterFilter] = useState('')
+
+  useEffect(() => {
+    const member = searchParams.get('member')
+    if (member) setMemberSearch(member)
+  }, [searchParams])
 
   // ── Startup-role members not yet linked to any startup (email not in any founders array)
   const allTags = [...new Set(startups.flatMap(s => s.preferred_tags ?? []))].sort()
@@ -1879,7 +1891,9 @@ function AdminDashboardContent() {
               <p className="text-sm text-gray-400">{startups.length === 0 ? 'No startups yet.' : 'No startups match the current filters.'}</p>
             ) : (
               <div className="space-y-3">
-                {filteredStartups.map(s => (
+                {filteredStartups.map(s => {
+                  const presentation = membershipPresentation({ status: s.membership_status, readinessStatus: s.readiness_status })
+                  return (
                   <div key={s.id} className="px-5 py-4 bg-white rounded-xl border border-gray-100">
                     <div className="flex items-start justify-between gap-4 mb-1">
                       <div className="flex-1 min-w-0">
@@ -1896,6 +1910,11 @@ function AdminDashboardContent() {
                           >
                             Edit
                           </button>
+                          <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${lifecycleToneClasses[presentation.tone]}`}>
+                            <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current" />
+                            {presentation.label}
+                          </span>
+                          {s.membership_email && <Link href={adminMemberHref(s.membership_email)} className="text-[10px] font-medium text-[#002147] underline-offset-2 hover:underline">Manage lifecycle</Link>}
                           {s.semester_name && (
                             <span className="text-[10px] font-semibold bg-[#75AADB]/20 text-[#002147] px-1.5 py-0.5 rounded-full">{s.semester_name}</span>
                           )}
@@ -1968,7 +1987,7 @@ function AdminDashboardContent() {
                       </div>
                     )}
                   </div>
-                ))}
+                )})}
               </div>
             )
             })()}

@@ -1,4 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { MembershipReadinessStatus } from "../lifecycle/membership-presentation.ts";
+import type { MembershipStatus } from "../lifecycle/types.ts";
 
 type ProgramClient = SupabaseClient;
 
@@ -25,7 +27,7 @@ type MembershipRow = {
   id?: string;
   profile_id: string;
   profile: Related<ProfileRow>;
-  status?: string;
+  status?: MembershipStatus;
 };
 
 type MentorSemesterRow = {
@@ -35,6 +37,7 @@ type MentorSemesterRow = {
   opening_talk: string | null;
   per_week_availability: unknown;
   preferred_format: string | null;
+  readiness_status: MembershipReadinessStatus;
   semester: Related<{ name: string }>;
   semester_id: string;
 };
@@ -58,7 +61,7 @@ type StartupSemesterRow = {
     website_url: string | null;
   }>;
   preferred_expertise_tags: string[] | null;
-  readiness_status: string;
+  readiness_status: MembershipReadinessStatus;
   semester: Related<{ name: string }>;
   semester_id: string;
   stage: string | null;
@@ -84,6 +87,8 @@ export type MentorView = {
   photo_url: string | null;
   preferred_format: string | null;
   profile_id: string;
+  membership_status: MembershipStatus;
+  readiness_status: MembershipReadinessStatus;
   role_title: string | null;
   semester_id: string;
   semester_name: string | null;
@@ -99,10 +104,13 @@ export type StartupView = {
   industry: string | null;
   is_active: boolean;
   logo_url: string | null;
+  membership_email: string | null;
+  membership_status: MembershipStatus;
   mentorship_needs: string[];
   name: string;
   organization_id: string;
   preferred_tags: string[];
+  readiness_status: MembershipReadinessStatus;
   semester_id: string;
   semester_name: string | null;
   slug: string;
@@ -204,13 +212,15 @@ function mapMentor(row: MentorSemesterRow): MentorView {
     full_name: fullName,
     general_availability: row.general_availability,
     id: row.id,
-    is_active: membership?.status === "active" && (profile?.is_active ?? true),
+    is_active: membership?.status === "active",
     linkedin_url: mentor?.linkedin_url ?? null,
     opening_talk: row.opening_talk,
     per_week_availability: row.per_week_availability,
     photo_url: mentor?.photo_url ?? null,
     preferred_format: row.preferred_format,
     profile_id: membership?.profile_id ?? "",
+    membership_status: membership?.status ?? "invited",
+    readiness_status: row.readiness_status,
     role_title: mentor?.title ?? null,
     semester_id: row.semester_id,
     semester_name: one(row.semester)?.name ?? null,
@@ -253,18 +263,24 @@ function mapStartup(row: StartupSemesterRow): StartupView {
         profile_id: membership.profile_id,
       };
     });
+  const primaryTeamMember = team.find((teamMember) => teamMember.is_primary_contact) ?? team[0] ?? null;
+  const primaryMembership = one(primaryTeamMember?.membership ?? null);
+  const primaryProfile = one(primaryMembership?.profile ?? null);
   return {
     description: organization?.description ?? null,
     founders,
     goals: row.goals ?? [],
     id: row.id,
     industry: organization?.industry ?? null,
-    is_active: row.readiness_status === "ready",
+    is_active: primaryMembership?.status === "active",
     logo_url: organization?.logo_url ?? null,
+    membership_email: primaryProfile?.email ?? null,
+    membership_status: primaryMembership?.status ?? "invited",
     mentorship_needs: row.mentorship_needs ?? [],
     name: organization?.name ?? "Unnamed startup",
     organization_id: organization?.id ?? "",
     preferred_tags: row.preferred_expertise_tags ?? [],
+    readiness_status: row.readiness_status,
     semester_id: row.semester_id,
     semester_name: one(row.semester)?.name ?? null,
     slug: organization?.slug ?? row.id,

@@ -13,6 +13,10 @@ export function adminDashboardHref(tab: AdminDashboardTab): string {
     : `/dashboard/admin?tab=${tab}`;
 }
 
+export function adminMemberHref(email: string): string {
+  return `${adminDashboardHref("members")}&member=${encodeURIComponent(email)}`;
+}
+
 export function resolveAdminDashboardTab(
   pathname: string | null,
   queryTab: string | null = null,

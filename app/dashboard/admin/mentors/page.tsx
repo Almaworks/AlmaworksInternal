@@ -1,13 +1,16 @@
 'use client'
 
 import { createClient } from '@/utils/supabase/client'
+import Link from 'next/link'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import TagInput from '@/components/TagInput'
 import MentorModal from '@/components/MentorModal'
 import { CohortScreenControls, useCohortScreen } from '@/components/CohortScreenControls'
 import type { CohortRecordReference } from '@/src/lifecycle/cohort-screen'
-import { membershipsForRecord } from '@/src/lifecycle/cohort-screen'
 import { loadMentorDirectory } from '@/src/program/canonical-repository'
+import { adminMemberHref } from '@/src/assignments/schedule-navigation'
+import { membershipPresentation, type MembershipReadinessStatus } from '@/src/lifecycle/membership-presentation'
+import type { MembershipStatus } from '@/src/lifecycle/types'
 
 type SortDir = 'asc' | 'desc'
 
@@ -20,6 +23,8 @@ type MentorRow = {
   expertise_tags: string[]
   bio: string | null
   is_active: boolean
+  membership_status: MembershipStatus
+  readiness_status: MembershipReadinessStatus
   slug: string | null
   email: string | null
   general_availability: string | null
@@ -55,8 +60,8 @@ export default function AdminMentorsPage() {
 
   // Search / filter / sort
   const [search, setSearch] = useState('')
-  const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('all')
-  const [sortKey, setSortKey] = useState<'full_name' | 'company' | 'is_active' | 'semester_name'>('full_name')
+  const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'other_statuses'>('all')
+  const [sortKey, setSortKey] = useState<'full_name' | 'company' | 'membership_status' | 'semester_name'>('full_name')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
 
   // Inline edit
@@ -64,7 +69,6 @@ export default function AdminMentorsPage() {
   const [draft, setDraft] = useState<Partial<MentorRow>>({})
   const [savingId, setSavingId] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const [togglingId, setTogglingId] = useState<string | null>(null)
 
   const [selectedMentorId, setSelectedMentorId] = useState<string | null>(null)
 
@@ -97,16 +101,11 @@ export default function AdminMentorsPage() {
   })), [rows])
   const cohort = useCohortScreen(mentorReferences, 'mentor')
   const scopedMentorIds = useMemo(() => new Set(cohort.scopedRecords.map(record => record.recordId)), [cohort.scopedRecords])
-  const membershipStatusByMentor = useMemo(() => new Map(mentorReferences.map(reference => [
-    reference.recordId,
-    membershipsForRecord(reference, cohort.members, { semesterId: cohort.semesterId, role: 'mentor' })[0]?.status ?? null,
-  ])), [cohort.members, cohort.semesterId, mentorReferences])
-
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return rows
       .filter(r => scopedMentorIds.has(r.id))
-      .filter(r => activeFilter === 'all' ? true : activeFilter === 'active' ? membershipStatusByMentor.get(r.id) === 'active' : membershipStatusByMentor.get(r.id) !== 'active')
+      .filter(r => activeFilter === 'all' ? true : activeFilter === 'active' ? r.membership_status === 'active' : r.membership_status !== 'active')
       .filter(r => {
         if (!q) return true
         return [r.full_name, r.company ?? '', r.email ?? '', ...(r.expertise_tags ?? [])].join(' ').toLowerCase().includes(q)
@@ -116,7 +115,7 @@ export default function AdminMentorsPage() {
         const bv = String(b[sortKey] ?? '').toLowerCase()
         return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
       })
-  }, [rows, search, activeFilter, membershipStatusByMentor, scopedMentorIds, sortKey, sortDir])
+  }, [rows, search, activeFilter, scopedMentorIds, sortKey, sortDir])
 
   function handleSort(key: typeof sortKey) {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -204,12 +203,14 @@ export default function AdminMentorsPage() {
     setSavingId(null)
   }
 
-  async function toggleActive(id: string, current: boolean) {
-    setTogglingId(id)
-    const error = await callUpdateApi(id, { is_active: !current })
-    if (!error) setRows(previous => previous.map(row => row.id === id ? { ...row, is_active: !current } : row))
-    setTogglingId(null)
-  }
+  const lifecycleToneClasses = {
+    neutral: 'bg-gray-100 text-gray-700',
+    progress: 'bg-blue-50 text-blue-700',
+    attention: 'bg-amber-50 text-amber-800',
+    success: 'bg-green-50 text-green-700',
+    historical: 'bg-slate-100 text-slate-600',
+    danger: 'bg-red-50 text-red-700',
+  } as const
 
   return (
     <div className="max-w-5xl">
@@ -332,10 +333,10 @@ export default function AdminMentorsPage() {
           value={search} onChange={e => setSearch(e.target.value)}
           className="flex-1 text-sm text-gray-800 placeholder:text-gray-400 border border-gray-300 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40" />
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1 shrink-0">
-          {(['all', 'active', 'inactive'] as const).map(f => (
+          {(['all', 'active', 'other_statuses'] as const).map(f => (
             <button key={f} onClick={() => setActiveFilter(f)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors ${activeFilter === f ? 'bg-white text-[#002147] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-              {f}
+              {f === 'other_statuses' ? 'other statuses' : f}
             </button>
           ))}
         </div>
@@ -364,7 +365,7 @@ export default function AdminMentorsPage() {
             </colgroup>
             <thead className="border-b border-gray-100 bg-gray-50">
               <tr>
-                {([['full_name', 'Name'], ['company', 'Company'], ['is_active', 'Status'], ['semester_name', 'Semester']] as const).map(([k, label]) => (
+                {([['full_name', 'Name'], ['company', 'Company'], ['membership_status', 'Status'], ['semester_name', 'Semester']] as const).map(([k, label]) => (
                   <th key={k} className="px-4 py-3 text-left font-normal">
                     <button onClick={() => handleSort(k)}
                       className="flex items-center gap-1 text-xs font-semibold text-gray-500 uppercase tracking-wide hover:text-[#002147] transition-colors">
@@ -382,7 +383,9 @@ export default function AdminMentorsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {filtered.map(m => (
+              {filtered.map(m => {
+                const presentation = membershipPresentation({ status: m.membership_status, readinessStatus: m.readiness_status })
+                return (
                 <Fragment key={m.id}>
                   <tr className="hover:bg-gray-50/50 transition-colors">
                     <td className="px-4 py-3">
@@ -398,10 +401,13 @@ export default function AdminMentorsPage() {
                       <p className="text-sm text-gray-700 truncate">{m.company ?? '—'}</p>
                     </td>
                     <td className="px-4 py-3">
-                      <button onClick={() => toggleActive(m.id, m.is_active)} disabled={togglingId === m.id || cohort.scope === 'all'}
-                        className={`text-xs font-semibold px-2.5 py-1 rounded-full transition-colors disabled:opacity-50 ${m.is_active ? 'text-green-600 bg-green-50 hover:bg-green-100' : 'text-gray-400 bg-gray-100 hover:bg-gray-200'}`}>
-                        {togglingId === m.id ? '…' : m.is_active ? 'Active' : 'Inactive'}
-                      </button>
+                      <div className="flex flex-col items-start gap-1.5">
+                        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${lifecycleToneClasses[presentation.tone]}`}>
+                          <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current" />
+                          {presentation.label}
+                        </span>
+                        {m.email && <Link href={adminMemberHref(m.email)} className="text-[11px] font-medium text-[#002147] underline-offset-2 hover:underline">Manage lifecycle</Link>}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       {m.semester_name
@@ -529,7 +535,7 @@ export default function AdminMentorsPage() {
                     </tr>
                   )}
                 </Fragment>
-              ))}
+              )})}
             </tbody>
           </table>
         </div>

@@ -123,6 +123,8 @@ test("mentor profile maps canonical identity, biography, and semester participat
     preferred_format: "online",
     profile_id: "profile-1",
     role_title: "CEO",
+    membership_status: "active",
+    readiness_status: "ready",
     semester_id: "semester-1",
     semester_name: "Fall 2026",
     slug: "ada-mentor-mentor-t",
