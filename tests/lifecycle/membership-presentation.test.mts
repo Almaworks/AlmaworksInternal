@@ -62,14 +62,21 @@ test("membership presentation supplies lifecycle labels and actions", () => {
   });
 });
 
-test("membership visibility retains only canonical active memberships in active view", () => {
+test("membership visibility retains all canonical statuses or only active memberships", () => {
   const memberships = [
     { id: "invited", status: "invited" as const },
-    { id: "ready", status: "onboarding" as const, readinessStatus: "ready" as const },
+    { id: "onboarding", status: "onboarding" as const, readinessStatus: "in_progress" as const },
     { id: "active", status: "active" as const },
     { id: "alumni", status: "alumni" as const },
+    { id: "suspended", status: "suspended" as const },
   ];
 
-  assert.deepEqual(filterMembershipsByVisibility(memberships, "all"), memberships);
-  assert.deepEqual(filterMembershipsByVisibility(memberships, "active"), [memberships[2]]);
+  assert.deepEqual(
+    filterMembershipsByVisibility(memberships, "all").map((member) => member.status),
+    ["invited", "onboarding", "active", "alumni", "suspended"],
+  );
+  assert.deepEqual(
+    filterMembershipsByVisibility(memberships, "active").map((member) => member.status),
+    ["active"],
+  );
 });

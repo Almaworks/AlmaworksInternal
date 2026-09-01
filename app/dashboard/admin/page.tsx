@@ -7,6 +7,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react'
 import TagInput from '@/components/TagInput'
 import StartupModal from '@/components/StartupModal'
 import { CohortScreenControls, useCohortScreen } from '@/components/CohortScreenControls'
+import { MembershipVisibilitySwitch } from '@/components/MembershipVisibilitySwitch'
 import MentorAssignmentPicker, {
   type AssignmentCommitResult,
   type AssignmentPickerTarget,
@@ -14,12 +15,16 @@ import MentorAssignmentPicker, {
 import { assignmentRefreshFeedback, buildScheduleRows, sessionFormatPresentation } from '@/src/assignments/picker'
 import { adminDashboardHref, resolveAdminDashboardTab } from '@/src/assignments/schedule-navigation'
 import type { CohortRecordReference } from '@/src/lifecycle/cohort-screen'
-import { roleForProfileInSemester } from '@/src/lifecycle/cohort-screen'
 import {
   ACTIVATION_TAB_LABEL,
   activationAttentionCount,
   membersReadyForActivation,
 } from '@/src/lifecycle/admin-activation'
+import {
+  filterMembershipsByVisibility,
+  membershipPresentation,
+  type MembershipVisibility,
+} from '@/src/lifecycle/membership-presentation'
 import { loadMentorDirectory, loadStartupDirectory } from '@/src/program/canonical-repository'
 
 type PendingUser = {
@@ -165,7 +170,7 @@ function AdminDashboardContent() {
   const [memberSearch, setMemberSearch] = useState('')
   const [memberSortKey, setMemberSortKey] = useState<MemberSortKey>('full_name')
   const [memberSortDir, setMemberSortDir] = useState<SortDir>('asc')
-  const [memberShowAll, setMemberShowAll] = useState(false)
+  const [memberVisibility, setMemberVisibility] = useState<MembershipVisibility>('all')
   const [togglingActive, setTogglingActive] = useState<string | null>(null)
   const [activationError, setActivationError] = useState<string | null>(null)
 
@@ -760,15 +765,16 @@ function AdminDashboardContent() {
     recordId: member.id, profileId: member.id, email: member.email,
   })), [members])
   const cohort = useCohortScreen(memberReferences, 'all')
-  const scopedMemberIds = new Set(cohort.scopedRecords.map(record => record.recordId))
-  const editableSemesterId = cohort.semesterId ?? activeSemesterId
   const selectedCohortMembers = cohort.semesterId === null
     ? []
     : cohort.members.filter(member => member.semesterId === cohort.semesterId)
+  const scopedCohortMembers = cohort.semesterId === null ? cohort.members : selectedCohortMembers
+  const lifecycleMutationEnabled = cohort.semesterId !== null && cohort.semesterId === cohort.cohorts.current?.id
   const readyMembers = membersReadyForActivation(selectedCohortMembers)
   const activationAttention = activationAttentionCount(selectedCohortMembers, pendingUsers.length)
 
   async function activateReadyMember(member: (typeof selectedCohortMembers)[number]) {
+    if (!lifecycleMutationEnabled) return
     setActivationError(null)
     const updated = await toggleMemberActive(
       member.profileId,
@@ -780,13 +786,23 @@ function AdminDashboardContent() {
     if (updated) await cohort.reload()
   }
 
-  const activeMembershipProfiles = new Set(cohort.members
-    .filter(member => member.status === 'active' && (cohort.semesterId === null || member.semesterId === cohort.semesterId))
+  const activeMembershipProfiles = new Set(scopedCohortMembers
+    .filter(member => member.status === 'active')
     .map(member => member.profileId))
 
-  const filteredMembers = members
-    .filter(m => scopedMemberIds.has(m.id))
-    .filter(m => memberShowAll || activeMembershipProfiles.has(m.id))
+  const filteredMembers = filterMembershipsByVisibility(scopedCohortMembers, memberVisibility)
+    .flatMap(membership => {
+      const member = members.find(profile => profile.id === membership.profileId)
+      return member ? [{
+        ...member,
+        role: membership.role,
+        is_active: membership.status === 'active',
+        membership_id: membership.membershipId,
+        semester_id: membership.semesterId,
+        membership,
+        presentation: membershipPresentation(membership),
+      }] : []
+    })
     .filter(m => {
       if (!memberSearch.trim()) return true
       const q = memberSearch.toLowerCase()
@@ -795,12 +811,34 @@ function AdminDashboardContent() {
         m.email.toLowerCase().includes(q)
       )
     })
-    .map(m => ({ ...m, role: roleForProfileInSemester(cohort.members, m.id, editableSemesterId) ?? m.role }))
     .sort((a, b) => {
       const aVal = String(a[memberSortKey] ?? '').toLowerCase()
       const bVal = String(b[memberSortKey] ?? '').toLowerCase()
       return memberSortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
     })
+
+  const lifecycleToneClasses = {
+    neutral: 'bg-gray-100 text-gray-700',
+    progress: 'bg-blue-50 text-blue-700',
+    attention: 'bg-amber-50 text-amber-800',
+    success: 'bg-green-50 text-green-700',
+    historical: 'bg-slate-100 text-slate-700',
+    danger: 'bg-red-50 text-red-700',
+  } as const
+
+  async function applyMemberLifecycleAction(member: (typeof filteredMembers)[number]) {
+    if (!lifecycleMutationEnabled || member.presentation.action === null) return
+    const memberName = member.full_name ?? member.email
+    if (member.presentation.action === 'suspend' && !window.confirm('Suspend ' + memberName + '? They will no longer have active program access.')) return
+
+    const updated = await toggleMemberActive(
+      member.id,
+      member.membership.membershipId,
+      member.membership.semesterId,
+      member.presentation.action === 'suspend',
+    )
+    if (updated) await cohort.reload()
+  }
 
   // ── Schedule ───────────────────────────────────────────────────────────────
 
@@ -1043,7 +1081,7 @@ function AdminDashboardContent() {
                     </div>
                     <button
                       onClick={() => void activateReadyMember(member)}
-                      disabled={togglingActive === member.profileId || cohort.scope === 'all'}
+                      disabled={togglingActive === member.profileId || !lifecycleMutationEnabled}
                       className="shrink-0 rounded-lg bg-[#002147] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#002147]/90 disabled:opacity-50"
                     >
                       {togglingActive === member.profileId ? 'Activating…' : 'Activate'}
@@ -1119,7 +1157,7 @@ function AdminDashboardContent() {
           {/* Header row */}
           <div className="flex items-center justify-between mb-4">
             <p className="text-sm text-gray-500">
-              Approved platform members. Deactivate to block login.
+              Manage membership access for the selected cohort.
             </p>
             <button
               onClick={() => { setShowAddUser(v => !v); setAddError(null); setAddSuccess(null) }}
@@ -1216,16 +1254,7 @@ function AdminDashboardContent() {
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <span className="text-xs text-gray-500">{filteredMembers.length} user{filteredMembers.length !== 1 ? 's' : ''}</span>
-              <button
-                onClick={() => setMemberShowAll(v => !v)}
-                className={`px-3 py-2 text-xs font-medium rounded-lg border transition-colors ${
-                  memberShowAll
-                    ? 'bg-[#002147] text-white border-[#002147]'
-                    : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                {memberShowAll ? 'Showing all' : 'Active only'}
-              </button>
+              <MembershipVisibilitySwitch value={memberVisibility} onChange={setMemberVisibility} />
             </div>
           </div>
 
@@ -1284,7 +1313,7 @@ function AdminDashboardContent() {
                         const memberSemesters = getMemberSemesters(m)
                         const isEditing = editingMember?.id === m.id
                         const rows = [
-                          <tr key={m.id} className={`transition-colors ${isEditing ? 'bg-[#002147]/3' : 'hover:bg-gray-50/60 border-b border-gray-50'}`}>
+                          <tr key={m.membership.membershipId} className={`transition-colors ${isEditing ? 'bg-[#002147]/3' : 'hover:bg-gray-50/60 border-b border-gray-50'}`}>
                             <td className="px-5 py-3.5 font-medium text-[#002147] whitespace-nowrap">
                               {m.full_name ?? <span className="text-gray-400 font-normal">—</span>}
                             </td>
@@ -1294,12 +1323,10 @@ function AdminDashboardContent() {
                                 {m.role}
                               </span>
                             </td>
-                            <td className="px-5 py-3.5 whitespace-nowrap">
-                              <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${
-                                m.is_active ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'
-                              }`}>
-                                <span className={`w-1.5 h-1.5 rounded-full ${m.is_active ? 'bg-green-500' : 'bg-red-400'}`} />
-                                {m.is_active ? 'Active' : 'Inactive'}
+                           <td className="px-5 py-3.5 whitespace-nowrap">
+                              <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${lifecycleToneClasses[m.presentation.tone]}`}>
+                                <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current" />
+                                {m.presentation.label}
                               </span>
                             </td>
                             <td className="px-5 py-3.5">
@@ -1320,7 +1347,7 @@ function AdminDashboardContent() {
                               <div className="flex items-center justify-end gap-2">
                                 <button
                                   onClick={() => isEditing ? cancelEdit() : openEdit(m)}
-                                  disabled={cohort.scope === 'all'}
+                                  disabled={!lifecycleMutationEnabled}
                                   className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
                                     isEditing
                                       ? 'bg-[#002147] text-white border-[#002147]'
@@ -1329,24 +1356,22 @@ function AdminDashboardContent() {
                                 >
                                   {isEditing ? 'Cancel' : 'Edit'}
                                 </button>
+                                {m.presentation.action !== null && (
                                 <button
-                                  onClick={() => toggleMemberActive(m.id, m.membership_id, m.semester_id, m.is_active)}
-                                  disabled={togglingActive === m.id || cohort.scope === 'all'}
-                                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors disabled:opacity-50 ${
-                                    m.is_active
-                                      ? 'border-red-200 text-red-600 hover:bg-red-50'
-                                      : 'border-green-200 text-green-700 hover:bg-green-50'
-                                  }`}
+                                  onClick={() => void applyMemberLifecycleAction(m)}
+                                  disabled={togglingActive === m.id || !lifecycleMutationEnabled}
+                                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors disabled:opacity-50 ${m.presentation.action === 'suspend' ? 'border-red-200 text-red-600 hover:bg-red-50' : 'border-green-200 text-green-700 hover:bg-green-50'}`}
                                 >
-                                  {togglingActive === m.id ? '…' : m.is_active ? 'Deactivate' : 'Activate'}
+                                  {togglingActive === m.id ? '…' : m.presentation.action === 'activate' ? 'Activate' : m.presentation.action === 'suspend' ? 'Suspend' : 'Restore to active'}
                                 </button>
+                                )}
                               </div>
                             </td>
                           </tr>,
                         ]
                         if (isEditing) {
                           rows.push(
-                            <tr key={`${m.id}-edit`} className="bg-gray-50/80 border-b border-gray-100">
+                            <tr key={`${m.membership.membershipId}-edit`} className="bg-gray-50/80 border-b border-gray-100">
                               <td colSpan={6} className="px-5 py-4">
                                 <div className="space-y-4">
                                   <form onSubmit={saveEdit} className="grid sm:grid-cols-3 gap-3">
