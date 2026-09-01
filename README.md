@@ -201,6 +201,12 @@ The database is anchored to the `semesters` table. Every record that is semester
 
 A semester is a cohort term such as Fall 2026. A meeting is one Friday program date. A session is one mentor-startup conversation in slot 1 or 2 during that meeting. Outreach contacts remain independent from program profiles even when the same person appears in both domains.
 
+### Migration safety
+
+The active local replay chain intentionally contains three migrations: one production-shaped baseline followed by Stage A and Stage B of the database hardening cutover. Run `npm run db:migration-safety` before any migration operation.
+
+The file ending in `production_baseline_local_replay_only.sql` exists only so `supabase db reset` can build a faithful local starting point. Never push or apply that baseline to production. Because local and remote migration histories do not match, do not use normal `supabase db push` for this cutover. Production deployment must apply only the two files ending in `database_hardening_cutover_stage_a.sql` and `database_hardening_cutover_stage_b.sql`, in that order, after verifying project ref `layjdjfvxkowxidwuvbs`.
+
 ---
 
 ## Project Structure
