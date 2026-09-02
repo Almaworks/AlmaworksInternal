@@ -58,8 +58,10 @@ The browser never receives a Supabase secret or service-role key. The authentica
 Add a separate **Account** presentation alongside the semester membership lifecycle:
 
 - **Login enabled** — `profiles.auth_user_id` is present and the profile is enabled.
-- **Removal incomplete** — program access has been suspended but the Auth deletion did not finish; the action is **Retry removal**.
-- **Login removed** — `profiles.auth_user_id` is null and the preserved profile remains.
+- **Account disabled** — the profile was disabled through an existing access-control workflow but login removal was not prepared; the action remains **Remove login account**.
+- **Removal incomplete** — the latest relevant account audit action is `member.login_removal_prepared` and the Auth deletion did not finish; the action is **Retry removal**.
+- **Login removed** — the latest relevant account audit action is `member.login_removal_prepared`, `profiles.auth_user_id` is null, and the preserved profile remains.
+- **No login** — `profiles.auth_user_id` is null without a removal audit, such as an imported historical profile that never received an account.
 
 Membership labels such as Active, Alumni, and Suspended remain independent. Historical records must not imply that the profile itself was deleted.
 
@@ -89,6 +91,8 @@ The admin must provide a reason and type `REMOVE`. The primary button is **Remov
 ### Successful outcome
 
 After completion, the row stays in the Members view with **Login removed** and its historical lifecycle information. It is excluded from Needs activation and active participant directories because all invited, onboarding, and active memberships were suspended. Alumni memberships remain Alumni.
+
+The Members read model derives the removal marker from the latest `member.login_removal_prepared` or `member.login_restored` audit action for the durable profile. It must not infer removal merely from `profiles.is_active = false`, because that flag is also used by the existing global account-disable workflow.
 
 The success message reads:
 
