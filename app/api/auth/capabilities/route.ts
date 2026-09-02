@@ -1,18 +1,18 @@
 import {
   createSupabaseAdminCapabilitySource,
   resolveAdminCapability,
-} from "@/src/auth/admin-capability";
+} from "../../../../src/auth/admin-capability.ts";
 import {
   AuthorizationError,
   requireAuthenticatedUserWithRls,
-} from "@/src/auth/server";
+} from "../../../../src/auth/server.ts";
 
 export async function GET(request: Request): Promise<Response> {
   try {
-    const { user, userClient } = await requireAuthenticatedUserWithRls(request);
+    const { profileId, userClient } = await requireAuthenticatedUserWithRls(request);
     const capability = await resolveAdminCapability(
       createSupabaseAdminCapabilitySource(userClient),
-      user.id,
+      profileId,
     );
     return Response.json({ data: capability });
   } catch (error) {
