@@ -166,11 +166,12 @@ async function verifyRemovedProfile(
   profileId: string,
 ): Promise<void> {
   const verification = await client.verifyProfile(profileId);
+  if (verification.error !== null || verification.data === null) return;
+  const verifiedProfile: unknown = verification.data;
+  if (!isRecord(verifiedProfile)) return;
   if (
-    verification.error !== null
-    || verification.data === null
-    || verification.data.auth_user_id !== null
-    || verification.data.is_active
+    (typeof verifiedProfile.auth_user_id === "string" && verifiedProfile.auth_user_id.length > 0)
+    || verifiedProfile.is_active === true
   ) {
     throw new MemberLoginReconciliationError(
       "Program access is disabled, but login removal could not be verified.",

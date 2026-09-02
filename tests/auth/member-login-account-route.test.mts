@@ -137,3 +137,48 @@ test("route maps ambiguous successful attachment state to reconciliation-require
     },
   });
 });
+
+test("route keeps completed removal at 200 when verification is unreadable and uses 502 only for proven inconsistency", async () => {
+  const completedClient: MemberLoginAccountClient = {
+    ...unusedClient,
+    prepare: async () => ({
+      data: [{
+        auth_user_id: null,
+        profile_id: profileId,
+        profile_is_active: false,
+        suspended_membership_ids: [],
+      }],
+      error: null,
+    }),
+    verifyProfile: async () => ({
+      data: null,
+      error: { code: "PGRST000", message: "Verification unavailable" },
+    }),
+  };
+  const completedHandlers = createMemberLoginAccountHandlers({ authorize: async () => completedClient });
+  const completed = await completedHandlers.DELETE(request("DELETE", {
+    confirmation: "REMOVE",
+    reason: "Duplicate account",
+  }), context);
+
+  assert.equal(completed.status, 200);
+  assert.deepEqual(await completed.json(), {
+    data: { profileActive: false, profileId, removed: true },
+  });
+
+  const inconsistentClient: MemberLoginAccountClient = {
+    ...unusedClient,
+    prepare: completedClient.prepare,
+    verifyProfile: async () => ({ data: { auth_user_id: "still-linked", is_active: false }, error: null }),
+  };
+  const inconsistentHandlers = createMemberLoginAccountHandlers({ authorize: async () => inconsistentClient });
+  const inconsistent = await inconsistentHandlers.DELETE(request("DELETE", {
+    confirmation: "REMOVE",
+    reason: "Duplicate account",
+  }), context);
+
+  assert.equal(inconsistent.status, 502);
+  const payload = await inconsistent.json();
+  assert.equal(payload.error.reconciliationRequired, true);
+  assert.equal(payload.error.databaseState, "disabled");
+});

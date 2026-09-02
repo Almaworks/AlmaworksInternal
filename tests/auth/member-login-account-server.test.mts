@@ -145,10 +145,47 @@ test("already-unlinked removal is idempotent and never calls Auth", async () => 
   assert.equal(result.removed, true);
 });
 
-test("successful Auth deletion still requires an unlinked profile verification", async () => {
+test("verification query error after successful Auth deletion remains an ordinary success", async () => {
+  const result = await removeMemberLogin(client({
+    verifyProfile: async () => ({ data: null, error: { code: "PGRST000", message: "Verification unavailable" } }),
+  }), { profileId: "profile-1", reason: "Duplicate test account" });
+
+  assert.deepEqual(result, { profileActive: false, profileId: "profile-1", removed: true });
+});
+
+test("null verification result after successful Auth deletion remains an ordinary success", async () => {
+  const result = await removeMemberLogin(client({
+    verifyProfile: async () => ({ data: null, error: null }),
+  }), { profileId: "profile-1", reason: "Duplicate test account" });
+
+  assert.deepEqual(result, { profileActive: false, profileId: "profile-1", removed: true });
+});
+
+test("malformed verification result after successful Auth deletion remains an ordinary success", async () => {
+  const result = await removeMemberLogin(client({
+    verifyProfile: async () => ({
+      data: { auth_user_id: undefined, is_active: "true" } as unknown as { auth_user_id: string | null; is_active: boolean },
+      error: null,
+    }),
+  }), { profileId: "profile-1", reason: "Duplicate test account" });
+
+  assert.deepEqual(result, { profileActive: false, profileId: "profile-1", removed: true });
+});
+
+test("verified still-linked profile after successful Auth deletion requires reconciliation", async () => {
   await assert.rejects(
     removeMemberLogin(client({
       verifyProfile: async () => ({ data: { auth_user_id: "auth-1", is_active: false }, error: null }),
+    }), { profileId: "profile-1", reason: "Duplicate test account" }),
+    (error: unknown) => error instanceof MemberLoginReconciliationError
+      && error.databaseState === "disabled",
+  );
+});
+
+test("verified active profile after successful Auth deletion requires reconciliation", async () => {
+  await assert.rejects(
+    removeMemberLogin(client({
+      verifyProfile: async () => ({ data: { auth_user_id: null, is_active: true }, error: null }),
     }), { profileId: "profile-1", reason: "Duplicate test account" }),
     (error: unknown) => error instanceof MemberLoginReconciliationError
       && error.databaseState === "disabled",
