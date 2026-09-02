@@ -1368,6 +1368,14 @@ export type Database = {
           semester_name: string
         }[]
       }
+      discard_replacement_auth_placeholder: {
+        Args: { p_auth_user_id: string; p_profile_id: string }
+        Returns: {
+          auth_user_id: string
+          placeholder_discarded: boolean
+          profile_id: string
+        }[]
+      }
       import_prior_semester_memberships: {
         Args: {
           p_membership_ids?: string[]

@@ -16,6 +16,7 @@ test("active migrations separate the local replay baseline, cutovers, and review
   assert.ok(plan.postCutover.includes("20260901220211_exclude_archived_outreach_carry_forward.sql"));
   assert.ok(plan.postCutover.includes("20260902034521_member_login_account_commands.sql"));
   assert.ok(plan.postCutover.includes("20260902041550_secure_member_login_account_commands.sql"));
+  assert.ok(plan.postCutover.includes("20260902043712_discard_replacement_auth_placeholder.sql"));
   assert.deepEqual(plan.unknown, []);
   assert.match(plan.localReplayOnly[0], /production_baseline_local_replay_only\.sql$/u);
   assert.ok(plan.preCutover.every((migration) => migration < plan.localReplayOnly[0]));

@@ -1,6 +1,6 @@
 begin;
 
-select plan(50);
+select plan(72);
 
 insert into public.semesters (id, name, start_date, end_date, lifecycle_status)
 values
@@ -60,13 +60,17 @@ values ('b9000000-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-0000000
 select ok(to_regprocedure('public.preview_member_login_removal(uuid)') is not null, 'preview RPC exists');
 select ok(to_regprocedure('public.prepare_member_login_removal(uuid,text)') is not null, 'preparation RPC exists');
 select ok(to_regprocedure('public.attach_replacement_auth_identity(uuid,uuid)') is not null, 'attachment RPC exists');
+select ok(to_regprocedure('public.discard_replacement_auth_placeholder(uuid,uuid)') is not null, 'placeholder discard RPC exists');
 select ok(not has_function_privilege('anon', 'public.preview_member_login_removal(uuid)', 'execute'), 'anon cannot preview removal');
 select ok(not has_function_privilege('anon', 'public.prepare_member_login_removal(uuid,text)', 'execute'), 'anon cannot prepare removal');
 select ok(not has_function_privilege('anon', 'public.attach_replacement_auth_identity(uuid,uuid)', 'execute'), 'anon cannot attach replacement identities');
+select ok(not has_function_privilege('anon', 'public.discard_replacement_auth_placeholder(uuid,uuid)', 'execute'), 'anon cannot discard replacement placeholders');
 select ok(has_function_privilege('authenticated', 'public.preview_member_login_removal(uuid)', 'execute'), 'authenticated may invoke the authorized preview RPC');
 select ok(has_function_privilege('authenticated', 'public.prepare_member_login_removal(uuid,text)', 'execute'), 'authenticated may invoke the authorized preparation RPC');
 select ok(has_function_privilege('authenticated', 'public.attach_replacement_auth_identity(uuid,uuid)', 'execute'), 'authenticated may invoke the authorized attachment RPC');
+select ok(has_function_privilege('authenticated', 'public.discard_replacement_auth_placeholder(uuid,uuid)', 'execute'), 'authenticated may invoke the authorized placeholder discard RPC');
 select ok(not has_function_privilege('service_role', 'public.prepare_member_login_removal(uuid,text)', 'execute'), 'service_role is not the application authorization path');
+select ok(not has_function_privilege('service_role', 'public.discard_replacement_auth_placeholder(uuid,uuid)', 'execute'), 'service_role cannot bypass placeholder discard authorization');
 
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"b2000000-0000-0000-0000-000000000002","role":"authenticated"}', true);
@@ -87,6 +91,12 @@ select throws_ok(
   '42501',
   'Platform super-administrator access required',
   'ordinary authenticated actors cannot attach replacement identities'
+);
+select throws_ok(
+  $$select * from public.discard_replacement_auth_placeholder('b2000000-0000-0000-0000-000000000003'::uuid, 'b2000000-0000-0000-0000-000000000005'::uuid)$$,
+  '42501',
+  'Platform super-administrator access required',
+  'ordinary authenticated actors cannot discard replacement placeholders'
 );
 reset role;
 
@@ -347,6 +357,186 @@ select is(
   4::bigint,
   'a second-cycle retry creates no duplicate preparation audits'
 );
+
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"b2000000-0000-0000-0000-000000000001","role":"authenticated"}', true);
+select throws_ok(
+  $$select * from public.discard_replacement_auth_placeholder(
+      'b2000000-0000-0000-0000-000000000001'::uuid,
+      'b2000000-0000-0000-0000-000000000001'::uuid
+    )$$,
+  '42501',
+  'You cannot discard a replacement placeholder for your own login identity',
+  'placeholder discard rejects the actor target'
+);
+select throws_ok(
+  $$select * from public.discard_replacement_auth_placeholder(
+      'b2000000-0000-0000-0000-000000000004'::uuid,
+      'b2000000-0000-0000-0000-000000000004'::uuid
+    )$$,
+  '42501',
+  'Platform role holders cannot have replacement placeholders discarded',
+  'placeholder discard rejects platform-role targets'
+);
+reset role;
+
+insert into public.profiles (id, auth_user_id, email, full_name, role, status, is_active)
+values
+  ('bd000000-0000-0000-0000-000000000001', null, 'cleanup@example.com', 'Cleanup Retained', 'mentor', 'approved', false),
+  ('bd000000-0000-0000-0000-000000000002', null, 'referenced-cleanup@example.com', 'Referenced Cleanup Retained', 'mentor', 'approved', false),
+  ('bd000000-0000-0000-0000-000000000003', null, 'shape-cleanup@example.com', 'Shape Cleanup Retained', 'mentor', 'approved', false),
+  ('bd000000-0000-0000-0000-000000000004', null, 'email-cleanup@example.com', 'Email Cleanup Retained', 'mentor', 'approved', false),
+  ('bd000000-0000-0000-0000-000000000005', null, 'absent-cleanup@example.com', 'Absent Cleanup Retained', 'mentor', 'approved', false),
+  ('bd000000-0000-0000-0000-000000000006', null, 'missing-auth-cleanup@example.com', 'Missing Auth Cleanup Retained', 'mentor', 'approved', false),
+  ('bd000000-0000-0000-0000-000000000007', null, 'active-cleanup@example.com', 'Active Cleanup Retained', 'mentor', 'approved', true);
+
+insert into public.semester_memberships (id, semester_id, profile_id, role, status, suspended_at)
+values ('bd300000-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000002', 'bd000000-0000-0000-0000-000000000001', 'mentor', 'suspended', now());
+insert into public.mentor_profiles (profile_id, biography)
+values ('bd000000-0000-0000-0000-000000000001', 'Cleanup retained biography');
+
+insert into auth.users (id, aud, role, email, raw_app_meta_data, raw_user_meta_data)
+values ('be000000-0000-0000-0000-000000000001', 'authenticated', 'authenticated', 'Cleanup@Example.COM', '{}', '{"full_name":"Safe Cleanup Placeholder"}');
+insert into public.profiles (id, auth_user_id, email, full_name, role, status, is_active)
+values ('be000000-0000-0000-0000-000000000001', 'be000000-0000-0000-0000-000000000001', 'cleanup@example.com', 'Safe Cleanup Placeholder', 'startup', 'pending', true);
+
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"b2000000-0000-0000-0000-000000000001","role":"authenticated"}', true);
+select results_eq(
+  $$select profile_id, auth_user_id, placeholder_discarded
+    from public.discard_replacement_auth_placeholder(
+      'bd000000-0000-0000-0000-000000000001'::uuid,
+      'be000000-0000-0000-0000-000000000001'::uuid
+    )$$,
+  $$values ('bd000000-0000-0000-0000-000000000001'::uuid, 'be000000-0000-0000-0000-000000000001'::uuid, true)$$,
+  'a verified empty Auth-trigger placeholder is discarded'
+);
+reset role;
+
+select ok(not exists(select 1 from public.profiles where id = 'be000000-0000-0000-0000-000000000001'), 'discard removes only the verified placeholder');
+select results_eq(
+  $$select auth_user_id, is_active from public.profiles where id = 'bd000000-0000-0000-0000-000000000001'::uuid$$,
+  $$values (null::uuid, false)$$,
+  'discard preserves the unlinked and disabled retained profile'
+);
+select is(
+  (select status::text from public.semester_memberships where id = 'bd300000-0000-0000-0000-000000000001'),
+  'suspended',
+  'discard preserves retained membership state'
+);
+select is(
+  (select biography from public.mentor_profiles where profile_id = 'bd000000-0000-0000-0000-000000000001'),
+  'Cleanup retained biography',
+  'discard preserves retained profile extensions'
+);
+
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"b2000000-0000-0000-0000-000000000001","role":"authenticated"}', true);
+select results_eq(
+  $$select profile_id, auth_user_id, placeholder_discarded
+    from public.discard_replacement_auth_placeholder(
+      'bd000000-0000-0000-0000-000000000001'::uuid,
+      'be000000-0000-0000-0000-000000000001'::uuid
+    )$$,
+  $$values ('bd000000-0000-0000-0000-000000000001'::uuid, 'be000000-0000-0000-0000-000000000001'::uuid, false)$$,
+  'discard is idempotent when only the already-absent verified placeholder remains to clean up'
+);
+reset role;
+
+insert into auth.users (id, aud, role, email, raw_app_meta_data, raw_user_meta_data)
+values ('be000000-0000-0000-0000-000000000002', 'authenticated', 'authenticated', 'referenced-cleanup@example.com', '{}', '{"full_name":"Referenced Cleanup Placeholder"}');
+insert into public.profiles (id, auth_user_id, email, full_name, role, status, is_active)
+values ('be000000-0000-0000-0000-000000000002', 'be000000-0000-0000-0000-000000000002', 'referenced-cleanup@example.com', 'Referenced Cleanup Placeholder', 'startup', 'pending', true);
+insert into public.semester_memberships (semester_id, profile_id, role, status)
+values ('b1000000-0000-0000-0000-000000000002', 'be000000-0000-0000-0000-000000000002', 'startup', 'invited');
+
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"b2000000-0000-0000-0000-000000000001","role":"authenticated"}', true);
+select throws_ok(
+  $$select * from public.discard_replacement_auth_placeholder(
+      'bd000000-0000-0000-0000-000000000002'::uuid,
+      'be000000-0000-0000-0000-000000000002'::uuid
+    )$$,
+  '55000',
+  'Replacement profile contains durable references',
+  'discard rejects a referenced placeholder'
+);
+reset role;
+select ok(exists(select 1 from public.profiles where id = 'be000000-0000-0000-0000-000000000002'), 'discard preserves a referenced placeholder');
+
+insert into auth.users (id, aud, role, email, raw_app_meta_data, raw_user_meta_data)
+values ('be000000-0000-0000-0000-000000000003', 'authenticated', 'authenticated', 'shape-cleanup@example.com', '{}', '{"full_name":"Altered Cleanup Placeholder"}');
+insert into public.profiles (id, auth_user_id, email, full_name, role, status, is_active)
+values ('be000000-0000-0000-0000-000000000003', 'be000000-0000-0000-0000-000000000003', 'shape-cleanup@example.com', 'Altered Cleanup Placeholder', 'startup', 'approved', true);
+
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"b2000000-0000-0000-0000-000000000001","role":"authenticated"}', true);
+select throws_ok(
+  $$select * from public.discard_replacement_auth_placeholder(
+      'bd000000-0000-0000-0000-000000000003'::uuid,
+      'be000000-0000-0000-0000-000000000003'::uuid
+    )$$,
+  '55000',
+  'Replacement profile is not an untouched Auth-trigger placeholder',
+  'discard rejects an altered placeholder shape'
+);
+reset role;
+select ok(exists(select 1 from public.profiles where id = 'be000000-0000-0000-0000-000000000003'), 'discard preserves an altered placeholder');
+
+insert into auth.users (id, aud, role, email, raw_app_meta_data, raw_user_meta_data)
+values ('be000000-0000-0000-0000-000000000004', 'authenticated', 'authenticated', 'email-cleanup@example.com', '{}', '{"full_name":"Divergent Cleanup Placeholder"}');
+insert into public.profiles (id, auth_user_id, email, full_name, role, status, is_active)
+values ('be000000-0000-0000-0000-000000000004', 'be000000-0000-0000-0000-000000000004', 'profile-diverged-cleanup@example.com', 'Divergent Cleanup Placeholder', 'startup', 'pending', true);
+
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"b2000000-0000-0000-0000-000000000001","role":"authenticated"}', true);
+select throws_ok(
+  $$select * from public.discard_replacement_auth_placeholder(
+      'bd000000-0000-0000-0000-000000000004'::uuid,
+      'be000000-0000-0000-0000-000000000004'::uuid
+    )$$,
+  '22023',
+  'Replacement profile email does not match its Auth identity',
+  'discard rejects Auth and placeholder email divergence'
+);
+reset role;
+select ok(exists(select 1 from public.profiles where id = 'be000000-0000-0000-0000-000000000004'), 'discard preserves an email-divergent placeholder');
+
+insert into auth.users (id, aud, role, email, raw_app_meta_data, raw_user_meta_data)
+values
+  ('be000000-0000-0000-0000-000000000005', 'authenticated', 'authenticated', 'different-absent-cleanup@example.com', '{}', '{"full_name":"Absent Mismatch Auth"}'),
+  ('be000000-0000-0000-0000-000000000007', 'authenticated', 'authenticated', 'active-cleanup@example.com', '{}', '{"full_name":"Active Cleanup Auth"}');
+
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"b2000000-0000-0000-0000-000000000001","role":"authenticated"}', true);
+select throws_ok(
+  $$select * from public.discard_replacement_auth_placeholder(
+      'bd000000-0000-0000-0000-000000000005'::uuid,
+      'be000000-0000-0000-0000-000000000005'::uuid
+    )$$,
+  '22023',
+  'Replacement email does not match the retained profile',
+  'an absent placeholder is not idempotent when Auth and retained emails diverge'
+);
+select throws_ok(
+  $$select * from public.discard_replacement_auth_placeholder(
+      'bd000000-0000-0000-0000-000000000006'::uuid,
+      'be000000-0000-0000-0000-000000000006'::uuid
+    )$$,
+  'P0002',
+  'Replacement Auth user not found',
+  'an absent placeholder is not idempotent when the authoritative Auth user is absent'
+);
+select throws_ok(
+  $$select * from public.discard_replacement_auth_placeholder(
+      'bd000000-0000-0000-0000-000000000007'::uuid,
+      'be000000-0000-0000-0000-000000000007'::uuid
+    )$$,
+  '55000',
+  'Retained profile must be unlinked and disabled',
+  'an absent placeholder is not idempotent when the retained target is active'
+);
+reset role;
 
 select * from finish();
 

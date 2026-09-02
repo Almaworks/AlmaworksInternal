@@ -25,6 +25,11 @@ const commands = [
     signature: "uuid, uuid",
     declaration: "p_profile_id uuid, p_auth_user_id uuid",
   },
+  {
+    name: "discard_replacement_auth_placeholder",
+    signature: "uuid, uuid",
+    declaration: "p_profile_id uuid, p_auth_user_id uuid",
+  },
 ] as const;
 
 const functionSource = (name: string) => {
@@ -93,4 +98,34 @@ test("member login mutations serialize state and assign causal audit order", () 
   assert.doesNotMatch(attach, /raw_user_meta_data/u);
   assert.match(attach, /greatest\(\s*clock_timestamp\(\),[\s\S]*?interval '1 microsecond'/u);
   assert.match(attach, /insert into public\.program_audit_events \([\s\S]*?created_at[\s\S]*?v_account_event_created_at/u);
+});
+
+test("replacement placeholder discard fails closed around the verified Auth-trigger identity", () => {
+  const discard = functionSource("discard_replacement_auth_placeholder");
+
+  const retainedLock = discard.search(
+    /from public\.profiles profile[\s\S]*?where profile\.id = p_profile_id[\s\S]*?for update;/u,
+  );
+  const authLock = discard.search(
+    /from auth\.users auth_user[\s\S]*?where auth_user\.id = p_auth_user_id[\s\S]*?for update;/u,
+  );
+  const placeholderLock = discard.search(
+    /select\s+profile\.id,\s+profile\.auth_user_id[\s\S]*?from public\.profiles profile[\s\S]*?where profile\.id = p_auth_user_id[\s\S]*?for update;/u,
+  );
+
+  assert.ok(retainedLock >= 0, "discard locks the retained target");
+  assert.ok(authLock > retainedLock, "discard locks the authoritative Auth row after the retained target");
+  assert.ok(placeholderLock > authLock, "discard locks the exact Auth-trigger placeholder last");
+  assert.match(discard, /v_retained_auth_user_id is not null or v_retained_is_active/u);
+  assert.match(discard, /v_placeholder_auth_user_id is distinct from p_auth_user_id/u);
+  assert.match(discard, /v_placeholder_role is distinct from 'startup'::public\.user_role/u);
+  assert.match(discard, /v_placeholder_status is distinct from 'pending'/u);
+  assert.match(discard, /v_placeholder_is_active is distinct from true/u);
+  assert.match(discard, /v_placeholder_semester_id is not null/u);
+  assert.match(discard, /v_placeholder_created_at is distinct from v_placeholder_updated_at/u);
+  assert.match(discard, /v_placeholder_email[\s\S]*?v_auth_email/u);
+  assert.match(discard, /v_retained_email[\s\S]*?v_auth_email/u);
+  assert.match(discard, /replacement profile contains durable references/u);
+  assert.match(discard, /if not found then[\s\S]*?profile\.auth_user_id = p_auth_user_id[\s\S]*?false/u);
+  assert.doesNotMatch(discard, /raw_user_meta_data/u);
 });
