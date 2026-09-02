@@ -1,6 +1,6 @@
 begin;
 
-select plan(39);
+select plan(50);
 
 insert into public.semesters (id, name, start_date, end_date, lifecycle_status)
 values
@@ -179,10 +179,71 @@ select is(
 reset role;
 
 delete from auth.users where id = 'b2000000-0000-0000-0000-000000000003';
+
+insert into auth.users (id, aud, role, email, raw_app_meta_data, raw_user_meta_data)
+values
+  ('bb000000-0000-0000-0000-000000000001', 'authenticated', 'authenticated', 'id-mismatch@example.com', '{}', '{"full_name":"ID Mismatch Placeholder"}'),
+  ('bb000000-0000-0000-0000-000000000002', 'authenticated', 'authenticated', 'nontrigger@example.com', '{}', '{"full_name":"Linked Non-trigger Profile"}'),
+  ('bb000000-0000-0000-0000-000000000003', 'authenticated', 'authenticated', 'altered-role@example.com', '{}', '{"full_name":"Altered Role Placeholder"}'),
+  ('bb000000-0000-0000-0000-000000000004', 'authenticated', 'authenticated', 'altered-status@example.com', '{}', '{"full_name":"Altered Status Placeholder"}'),
+  ('bb000000-0000-0000-0000-000000000005', 'authenticated', 'authenticated', 'retained@example.com', '{}', '{"full_name":"Divergent Email Placeholder"}');
+
+insert into public.profiles (id, auth_user_id, email, full_name, role, status, is_active)
+values
+  ('bc000000-0000-0000-0000-000000000001', 'bb000000-0000-0000-0000-000000000001', 'id-mismatch@example.com', 'ID Mismatch Placeholder', 'startup', 'pending', true),
+  ('bb000000-0000-0000-0000-000000000002', 'bb000000-0000-0000-0000-000000000002', 'nontrigger@example.com', 'Linked Non-trigger Profile', 'startup', 'pending', false),
+  ('bb000000-0000-0000-0000-000000000003', 'bb000000-0000-0000-0000-000000000003', 'altered-role@example.com', 'Altered Role Placeholder', 'mentor', 'pending', true),
+  ('bb000000-0000-0000-0000-000000000004', 'bb000000-0000-0000-0000-000000000004', 'altered-status@example.com', 'Altered Status Placeholder', 'startup', 'approved', true),
+  ('bb000000-0000-0000-0000-000000000005', 'bb000000-0000-0000-0000-000000000005', 'profile-diverged@example.com', 'Divergent Email Placeholder', 'startup', 'pending', true);
+
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"b2000000-0000-0000-0000-000000000001","role":"authenticated"}', true);
+select throws_ok(
+  $$select * from public.attach_replacement_auth_identity('b2000000-0000-0000-0000-000000000003'::uuid, 'bb000000-0000-0000-0000-000000000001'::uuid)$$,
+  '55000',
+  'Replacement profile ID must match Auth user ID',
+  'a linked profile with a non-trigger ID is rejected'
+);
+select throws_ok(
+  $$select * from public.attach_replacement_auth_identity('b2000000-0000-0000-0000-000000000003'::uuid, 'bb000000-0000-0000-0000-000000000002'::uuid)$$,
+  '55000',
+  'Replacement profile is not an untouched Auth-trigger placeholder',
+  'a linked non-trigger profile is rejected'
+);
+select throws_ok(
+  $$select * from public.attach_replacement_auth_identity('b2000000-0000-0000-0000-000000000003'::uuid, 'bb000000-0000-0000-0000-000000000003'::uuid)$$,
+  '55000',
+  'Replacement profile is not an untouched Auth-trigger placeholder',
+  'a placeholder with an altered role is rejected'
+);
+select throws_ok(
+  $$select * from public.attach_replacement_auth_identity('b2000000-0000-0000-0000-000000000003'::uuid, 'bb000000-0000-0000-0000-000000000004'::uuid)$$,
+  '55000',
+  'Replacement profile is not an untouched Auth-trigger placeholder',
+  'a placeholder with an altered status is rejected'
+);
+select throws_ok(
+  $$select * from public.attach_replacement_auth_identity('b2000000-0000-0000-0000-000000000003'::uuid, 'bb000000-0000-0000-0000-000000000005'::uuid)$$,
+  '22023',
+  'Replacement profile email does not match its Auth identity',
+  'Auth and placeholder profile email divergence is rejected'
+);
+reset role;
+
+delete from public.profiles
+where id in (
+  'bc000000-0000-0000-0000-000000000001',
+  'bb000000-0000-0000-0000-000000000002',
+  'bb000000-0000-0000-0000-000000000003',
+  'bb000000-0000-0000-0000-000000000004',
+  'bb000000-0000-0000-0000-000000000005'
+);
+delete from auth.users where id::text like 'bb000000-0000-0000-0000-00000000000%';
+
 insert into auth.users (id, aud, role, email, raw_app_meta_data, raw_user_meta_data)
 values ('ba000000-0000-0000-0000-000000000001', 'authenticated', 'authenticated', 'retained@example.com', '{}', '{"full_name":"Unsafe Placeholder"}');
 insert into public.profiles (id, auth_user_id, email, full_name, role, status)
-values ('ba000000-0000-0000-0000-000000000001', 'ba000000-0000-0000-0000-000000000001', 'retained@example.com', 'Unsafe Placeholder', 'mentor', 'pending');
+values ('ba000000-0000-0000-0000-000000000001', 'ba000000-0000-0000-0000-000000000001', 'retained@example.com', 'Unsafe Placeholder', 'startup', 'pending');
 insert into public.semester_memberships (semester_id, profile_id, role, status)
 values ('b1000000-0000-0000-0000-000000000002', 'ba000000-0000-0000-0000-000000000001', 'mentor', 'invited');
 
@@ -212,11 +273,12 @@ select throws_ok(
 reset role;
 
 delete from public.mentor_profiles where profile_id = 'ba000000-0000-0000-0000-000000000001';
+delete from public.profiles where id = 'ba000000-0000-0000-0000-000000000001';
 delete from auth.users where id = 'ba000000-0000-0000-0000-000000000001';
 insert into auth.users (id, aud, role, email, raw_app_meta_data, raw_user_meta_data)
 values ('ba000000-0000-0000-0000-000000000002', 'authenticated', 'authenticated', 'Retained@Example.COM', '{}', '{"full_name":"Safe Placeholder"}');
 insert into public.profiles (id, auth_user_id, email, full_name, role, status)
-values ('ba000000-0000-0000-0000-000000000002', 'ba000000-0000-0000-0000-000000000002', 'Retained@Example.COM', 'Safe Placeholder', 'startup', 'pending');
+values ('ba000000-0000-0000-0000-000000000002', 'ba000000-0000-0000-0000-000000000002', 'retained@example.com', 'Safe Placeholder', 'startup', 'pending');
 
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"b2000000-0000-0000-0000-000000000001","role":"authenticated"}', true);
@@ -243,6 +305,47 @@ select is(
   (select count(distinct semester_id) from public.program_audit_events where action = 'member.login_restored' and subject_id = 'b2000000-0000-0000-0000-000000000003'),
   2::bigint,
   'restoration audit events do not duplicate a semester'
+);
+
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"b2000000-0000-0000-0000-000000000001","role":"authenticated"}', true);
+select results_eq(
+  $$select profile_is_active, suspended_membership_ids from public.prepare_member_login_removal('b2000000-0000-0000-0000-000000000003'::uuid, 'Second removal cycle')$$,
+  $$values (false, '{}'::uuid[])$$,
+  'preparation after restoration creates a new removal cycle without changing memberships'
+);
+reset role;
+
+select is(
+  (select count(*) from public.program_audit_events where action = 'member.login_removal_prepared' and subject_id = 'b2000000-0000-0000-0000-000000000003'),
+  4::bigint,
+  'a second removal cycle creates exactly one new preparation audit per semester'
+);
+select ok(
+  (select max(created_at) from public.program_audit_events where action = 'member.login_removal_prepared' and subject_id = 'b2000000-0000-0000-0000-000000000003')
+    >
+  (select max(created_at) from public.program_audit_events where action = 'member.login_restored' and subject_id = 'b2000000-0000-0000-0000-000000000003'),
+  'the post-restoration preparation has a causally later audit timestamp'
+);
+
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"b2000000-0000-0000-0000-000000000001","role":"authenticated"}', true);
+select results_eq(
+  $$select profile_is_active, suspended_membership_ids from public.prepare_member_login_removal('b2000000-0000-0000-0000-000000000003'::uuid, 'Second-cycle retry')$$,
+  $$values (false, '{}'::uuid[])$$,
+  'a retry in the second removal cycle makes no state change'
+);
+select is(
+  (select already_prepared from public.preview_member_login_removal('b2000000-0000-0000-0000-000000000003'::uuid)),
+  true,
+  'preview resolves the causally latest second-cycle preparation'
+);
+reset role;
+
+select is(
+  (select count(*) from public.program_audit_events where action = 'member.login_removal_prepared' and subject_id = 'b2000000-0000-0000-0000-000000000003'),
+  4::bigint,
+  'a second-cycle retry creates no duplicate preparation audits'
 );
 
 select * from finish();
