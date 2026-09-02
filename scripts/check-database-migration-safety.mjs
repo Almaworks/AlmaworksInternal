@@ -12,6 +12,7 @@ const reviewedPostCutoverMigrations = [
   "20260902041550_secure_member_login_account_commands.sql",
   "20260902043712_discard_replacement_auth_placeholder.sql",
   "20260902055206_reject_zero_membership_login_commands.sql",
+  "20260902140432_allow_authenticated_audit_read.sql",
 ];
 const requiredOutreachArchiveMigrations = [
   "20260901215752_archive_outreach_contacts.sql",
