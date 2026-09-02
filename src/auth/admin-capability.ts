@@ -18,14 +18,19 @@ export interface AdminCapabilitySource {
 export async function resolveAdminCapability(
   source: AdminCapabilitySource,
   profileId: string,
-): Promise<{ canManageAdmin: boolean }> {
+): Promise<{ canManageAdmin: boolean; canRemoveMemberLogin: boolean }> {
   const superAdmin = await source.isSuperAdmin(profileId);
-  if (superAdmin.error !== null) return { canManageAdmin: false };
-  if (superAdmin.data) return { canManageAdmin: true };
+  if (superAdmin.error !== null) {
+    return { canManageAdmin: false, canRemoveMemberLogin: false };
+  }
+  if (superAdmin.data) {
+    return { canManageAdmin: true, canRemoveMemberLogin: true };
+  }
 
   const membership = await source.hasActiveSemesterAdminMembership(profileId);
   return {
     canManageAdmin: membership.error === null && membership.data,
+    canRemoveMemberLogin: false,
   };
 }
 
