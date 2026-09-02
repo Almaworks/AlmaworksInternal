@@ -1285,6 +1285,14 @@ export type Database = {
           closed_semester_id: string
         }[]
       }
+      attach_replacement_auth_identity: {
+        Args: { p_auth_user_id: string; p_profile_id: string }
+        Returns: {
+          auth_user_id: string
+          profile_id: string
+          profile_is_active: boolean
+        }[]
+      }
       authorize_semester_member_identity_update: {
         Args: { p_profile_id: string; p_semester_id: string }
         Returns: string
@@ -1414,6 +1422,29 @@ export type Database = {
           p_to_startup_semester_id: string
         }
         Returns: string
+      }
+      prepare_member_login_removal: {
+        Args: { p_profile_id: string; p_reason: string }
+        Returns: {
+          auth_user_id: string
+          profile_id: string
+          profile_is_active: boolean
+          suspended_membership_ids: string[]
+        }[]
+      }
+      preview_member_login_removal: {
+        Args: { p_profile_id: string }
+        Returns: {
+          already_prepared: boolean
+          auth_user_id: string
+          email: string
+          full_name: string
+          profile_id: string
+          profile_is_active: boolean
+          semester_count: number
+          session_count: number
+          suspend_membership_ids: string[]
+        }[]
       }
       release_inactive_owner_work: {
         Args: { p_owner_profile_id: string }
