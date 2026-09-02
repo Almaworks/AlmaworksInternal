@@ -109,7 +109,7 @@ test("502 removal keeps its mode and appends refresh failure after the database 
 test("completed operation stays stable while its dialog remains open", () => {
   let removal = acceptMemberLoginPreflight(beginMemberLoginPreflight(createMemberLoginInteraction("remove")));
   removal = completeMemberLoginRemoval(beginMemberLoginMutation(removal, true));
-  removal = synchronizeMemberLoginPresentation(removal, "restore", true);
+  removal = synchronizeMemberLoginPresentation(removal, "restore", "removed", true);
   assert.equal(removal.mode, "remove");
   assert.equal(removal.completed, "remove");
   assert.equal(removal.primaryMessage, "Login removed. Contact information and program history were retained.");
@@ -126,9 +126,13 @@ test("completed operation stays stable while its dialog remains open", () => {
   assert.match(restoration.primaryMessage ?? "", /Semester membership remains suspended/u);
   assert.equal(restoration.refreshMessage, "Login updated, but the Members list could not refresh");
 
-  const afterClose = synchronizeMemberLoginPresentation(restoration, "remove", false);
-  assert.equal(afterClose.mode, "remove");
-  assert.equal(afterClose.completed, null);
+  const staleAfterClose = synchronizeMemberLoginPresentation(restoration, "remove", "removed", false);
+  assert.equal(staleAfterClose.mode, "restore");
+  assert.equal(staleAfterClose.completed, "restore");
+
+  const refreshedAfterClose = synchronizeMemberLoginPresentation(restoration, "remove", "enabled", false);
+  assert.equal(refreshedAfterClose.mode, "remove");
+  assert.equal(refreshedAfterClose.completed, null);
 });
 
 test("mutation gating prevents stale-preflight and double submission", () => {
@@ -142,7 +146,7 @@ test("mutation gating prevents stale-preflight and double submission", () => {
   assert.equal(beginMemberLoginMutation(pending, true), pending);
   assert.equal(failMemberLoginMutation(pending).pending, false);
 
-  const synchronized = synchronizeMemberLoginPresentation(ready, "restore", true);
+  const synchronized = synchronizeMemberLoginPresentation(ready, "restore", "not_configured", true);
   assert.equal(synchronized.mode, "restore");
 });
 

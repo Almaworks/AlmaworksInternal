@@ -150,10 +150,13 @@ export function MemberLoginAccountControl({
       state: controlledState,
       tone: controlledTone,
     };
-    if (!dialogOpen || interaction.completed === null) setPresentation(nextPresentation);
+    const preserveLocalOutcome = interaction.expectedAccountState !== null
+      && (dialogOpen || nextPresentation.state !== interaction.expectedAccountState);
+    if (!preserveLocalOutcome) setPresentation(nextPresentation);
     setInteraction((current) => synchronizeMemberLoginPresentation(
       current,
       operationMode(nextPresentation),
+      nextPresentation.state,
       dialogOpen,
     ));
   }, [
@@ -163,6 +166,7 @@ export function MemberLoginAccountControl({
     controlledTone,
     dialogOpen,
     interaction.completed,
+    interaction.expectedAccountState,
   ]);
 
   const closeDialog = useCallback(() => {
@@ -207,7 +211,12 @@ export function MemberLoginAccountControl({
       });
       setPresentation(previewPresentation);
       setInteraction((current) => acceptMemberLoginPreflight(
-        synchronizeMemberLoginPresentation(current, operationMode(previewPresentation), true),
+        synchronizeMemberLoginPresentation(
+          current,
+          operationMode(previewPresentation),
+          previewPresentation.state,
+          true,
+        ),
       ));
     } catch (cause) {
       if (!preflightRef.current.isCurrent(request.id)) return;

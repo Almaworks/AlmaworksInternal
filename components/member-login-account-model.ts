@@ -3,6 +3,7 @@ export type MemberLoginOperationMode = "remove" | "restore";
 export type MemberLoginInteraction = {
   actionLink: string | null;
   completed: MemberLoginOperationMode | null;
+  expectedAccountState: "enabled" | "removal_incomplete" | "removed" | null;
   mode: MemberLoginOperationMode;
   mustSendLink: boolean;
   pending: boolean;
@@ -16,6 +17,7 @@ export function createMemberLoginInteraction(mode: MemberLoginOperationMode): Me
   return {
     actionLink: null,
     completed: null,
+    expectedAccountState: null,
     mode,
     mustSendLink: false,
     pending: false,
@@ -53,6 +55,7 @@ export function markMemberLoginPartialRemoval(state: MemberLoginInteraction): Me
     ...state,
     mode: "remove",
     pending: false,
+    expectedAccountState: "removal_incomplete",
     primaryMessage: "Program access is blocked, but login deletion needs to be retried",
   };
 }
@@ -61,6 +64,7 @@ export function completeMemberLoginRemoval(state: MemberLoginInteraction): Membe
   return {
     ...state,
     completed: "remove",
+    expectedAccountState: "removed",
     mode: "remove",
     pending: false,
     primaryMessage: "Login removed. Contact information and program history were retained.",
@@ -75,6 +79,7 @@ export function completeMemberLoginRestoration(
     ...state,
     actionLink: result.actionLink,
     completed: "restore",
+    expectedAccountState: "enabled",
     mode: "restore",
     mustSendLink: result.mustSendLink,
     pending: false,
@@ -102,9 +107,13 @@ export function recordMemberLoginRefresh(
 export function synchronizeMemberLoginPresentation(
   state: MemberLoginInteraction,
   mode: MemberLoginOperationMode,
+  controlledState: string,
   dialogOpen: boolean,
 ): MemberLoginInteraction {
-  if (dialogOpen && state.completed !== null) return state;
+  if (
+    state.expectedAccountState !== null
+    && (dialogOpen || controlledState !== state.expectedAccountState)
+  ) return state;
   if (dialogOpen) return { ...state, mode };
   return createMemberLoginInteraction(mode);
 }
