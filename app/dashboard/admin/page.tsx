@@ -4,6 +4,7 @@ import { createClient } from '@/utils/supabase/client'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useMemo, useState } from 'react'
+import { MemberLoginAccountControl } from '@/components/MemberLoginAccountControl'
 import TagInput from '@/components/TagInput'
 import StartupModal from '@/components/StartupModal'
 import { CohortScreenControls, useCohortScreen } from '@/components/CohortScreenControls'
@@ -14,6 +15,7 @@ import MentorAssignmentPicker, {
 } from '@/components/assignments/MentorAssignmentPicker'
 import { assignmentRefreshFeedback, buildScheduleRows, sessionFormatPresentation } from '@/src/assignments/picker'
 import { adminDashboardHref, adminMemberHref, resolveAdminDashboardTab } from '@/src/assignments/schedule-navigation'
+import { memberLoginPresentation } from '@/src/auth/member-login-account'
 import type { CohortRecordReference } from '@/src/lifecycle/cohort-screen'
 import {
   ACTIVATION_TAB_LABEL,
@@ -41,7 +43,10 @@ type Member = {
   email: string
   full_name: string | null
   role: string
-  is_active: boolean
+  auth_user_id: string | null
+  profile_is_active: boolean
+  membership_is_active: boolean
+  latest_removal_audit_action: 'member.login_removal_prepared' | 'member.login_restored' | null
   membership_id: string | null
   semester_id: string | null
   created_at: string
@@ -154,9 +159,25 @@ type MeetingDate = {
 }
 
 type SortDir = 'asc' | 'desc'
-type MemberSortKey = 'full_name' | 'email' | 'role' | 'is_active'
+type MemberSortKey = 'full_name' | 'email' | 'role' | 'membership_is_active'
 
 type Tab = 'users' | 'members' | 'schedule' | 'startups'
+
+const MEMBER_LOGIN_AUDIT_ACTIONS = ['member.login_removal_prepared', 'member.login_restored']
+
+async function loadMemberLoginCapability(accessToken: string | null): Promise<boolean> {
+  if (!accessToken) return false
+  try {
+    const response = await fetch('/api/auth/capabilities', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    if (!response.ok) return false
+    const payload = await response.json() as { data?: { canRemoveMemberLogin?: boolean } }
+    return payload.data?.canRemoveMemberLogin === true
+  } catch {
+    return false
+  }
+}
 
 
 function AdminDashboardContent() {
@@ -183,6 +204,7 @@ function AdminDashboardContent() {
   const [membershipRefreshFeedback, setMembershipRefreshFeedback] = useState<string | null>(null)
   const [membershipRefreshRetryRequired, setMembershipRefreshRetryRequired] = useState(false)
   const [membershipRefreshRetrying, setMembershipRefreshRetrying] = useState(false)
+  const [canRemoveMemberLogin, setCanRemoveMemberLogin] = useState(false)
 
   // Add user form
   const [showAddUser, setShowAddUser] = useState(false)
@@ -350,30 +372,67 @@ function AdminDashboardContent() {
   const [editSaving, setEditSaving] = useState<boolean>(false)
 
   async function loadAll() {
-    const [usersRes, membersRes, mentorsRes, startupsRes, sessionsRes, semesterRes] = await Promise.all([
+    const { data: { session: authSession } } = await supabase.auth.getSession()
+    const [usersRes, membersRes, mentorsRes, startupsRes, sessionsRes, semesterRes, removeLoginCapability] = await Promise.all([
       supabase.from('profiles').select('id, email, full_name, created_at').eq('status', 'pending').order('created_at'),
-      supabase.from('profiles').select('id, email, full_name, created_at, memberships:semester_memberships(id,role,status,semester_id,semester:semesters(is_active))').eq('status', 'approved').order('full_name'),
+      supabase.from('profiles').select('id, email, full_name, auth_user_id, is_active, created_at, memberships:semester_memberships(id,role,status,semester_id,semester:semesters(is_active))').eq('status', 'approved').order('full_name'),
       loadMentorDirectory(supabase),
       loadStartupDirectory(supabase),
       supabase.from('sessions').select('id, mentor_semester_id, startup_semester_id, status, topic, slot, format, startup_absent, substitute_name, meeting:meetings(meeting_date, label, semester_id, semester:semesters(name)), mentor:mentor_semesters(membership:semester_memberships(profile:profiles(full_name))), startup:startup_semesters(organization:startup_organizations(name,slug))').order('slot'),
       supabase.from('semesters').select('id, name').eq('is_active', true).maybeSingle(),
+      loadMemberLoginCapability(authSession?.access_token ?? null),
     ])
     const loadError = usersRes.error ?? membersRes.error ?? sessionsRes.error ?? semesterRes.error
     if (loadError) throw new Error(loadError.message)
     setPendingUsers((usersRes.data as PendingUser[]) ?? [])
-    type MemberRow = Omit<Member, 'role' | 'is_active' | 'membership_id' | 'semester_id'> & { memberships: { id: string; role: string; status: string; semester_id: string; semester: { is_active: boolean } | null }[] | null }
-    setMembers(((membersRes.data ?? []) as unknown as MemberRow[]).map((member) => ({
-      ...member,
-      ...(() => {
-        const membership = member.memberships?.find((item) => item.semester?.is_active) ?? member.memberships?.[0] ?? null
-        return {
-          is_active: membership?.status === 'active',
-          membership_id: membership?.id ?? null,
-          role: membership?.role ?? 'startup',
-          semester_id: membership?.semester_id ?? null,
-        }
-      })(),
-    })))
+    setCanRemoveMemberLogin(removeLoginCapability)
+    type MemberRow = {
+      id: string
+      email: string
+      full_name: string | null
+      auth_user_id: string | null
+      is_active: boolean
+      created_at: string
+      memberships: { id: string; role: string; status: string; semester_id: string; semester: { is_active: boolean } | null }[] | null
+    }
+    type MemberLoginAuditRow = { subject_id: string | null; action: string; created_at: string }
+    const memberRows = (membersRes.data ?? []) as unknown as MemberRow[]
+    const memberProfileIds = memberRows.map(member => member.id)
+    let accountAuditRows: MemberLoginAuditRow[] = []
+    if (memberProfileIds.length > 0) {
+      const auditRes = await supabase
+        .from('program_audit_events')
+        .select('subject_id, action, created_at')
+        .eq('subject_type', 'profile')
+        .in('subject_id', memberProfileIds)
+        .in('action', MEMBER_LOGIN_AUDIT_ACTIONS)
+        .order('created_at', { ascending: false })
+      if (auditRes.error) throw new Error(auditRes.error.message)
+      accountAuditRows = (auditRes.data ?? []) as MemberLoginAuditRow[]
+    }
+    const latestAccountActionByProfile = new Map<string, Member['latest_removal_audit_action']>()
+    for (const audit of accountAuditRows) {
+      if (!audit.subject_id || latestAccountActionByProfile.has(audit.subject_id)) continue
+      if (audit.action === 'member.login_removal_prepared' || audit.action === 'member.login_restored') {
+        latestAccountActionByProfile.set(audit.subject_id, audit.action)
+      }
+    }
+    setMembers(memberRows.map((member) => {
+      const membership = member.memberships?.find((item) => item.semester?.is_active) ?? member.memberships?.[0] ?? null
+      return {
+        id: member.id,
+        email: member.email,
+        full_name: member.full_name,
+        auth_user_id: member.auth_user_id,
+        profile_is_active: member.is_active,
+        membership_is_active: membership?.status === 'active',
+        latest_removal_audit_action: latestAccountActionByProfile.get(member.id) ?? null,
+        membership_id: membership?.id ?? null,
+        role: membership?.role ?? 'startup',
+        semester_id: membership?.semester_id ?? null,
+        created_at: member.created_at,
+      }
+    }))
     setMentors(mentorsRes as unknown as Mentor[])
     setStartups((startupsRes as unknown as Startup[]).map((startup) => ({
       ...startup,
@@ -782,6 +841,11 @@ function AdminDashboardContent() {
 
   const membershipRefreshes = () => [loadAll, cohort.reload, cohort.reloadCurrent] as const
 
+  async function refreshMemberLoginReadModels() {
+    const refreshed = await refreshMembershipReadModels(membershipRefreshes())
+    if (!refreshed) throw new Error('Member account updated, but related workspace data could not refresh.')
+  }
+
   async function applyMembershipActivity(
     memberId: string,
     membershipId: string | null,
@@ -842,11 +906,16 @@ function AdminDashboardContent() {
       return member ? [{
         ...member,
         role: membership.role,
-        is_active: membership.status === 'active',
+        membership_is_active: membership.status === 'active',
         membership_id: membership.membershipId,
         semester_id: membership.semesterId,
         membership,
         presentation: membershipPresentation(membership),
+        accountPresentation: memberLoginPresentation({
+          authUserId: member.auth_user_id,
+          latestRemovalAuditAction: member.latest_removal_audit_action,
+          profileActive: member.profile_is_active,
+        }),
       }] : []
     })
     .filter(m => {
@@ -1345,12 +1414,15 @@ function AdminDashboardContent() {
                       </th>
                       <th
                         className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer select-none hover:text-[#002147] whitespace-nowrap"
-                        onClick={() => handleMemberSort('is_active')}
+                        onClick={() => handleMemberSort('membership_is_active')}
                       >
-                        Status <SortIcon field="is_active" />
+                        Status <SortIcon field="membership_is_active" />
                       </th>
                       <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
                         Semesters
+                      </th>
+                      <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                        Account
                       </th>
                       <th className="px-5 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
                         Action
@@ -1401,6 +1473,18 @@ function AdminDashboardContent() {
                                 <span className="text-xs text-gray-300">—</span>
                               )}
                             </td>
+                            <td className="px-5 py-3.5 whitespace-nowrap">
+                              <MemberLoginAccountControl
+                                profileId={m.id}
+                                name={m.full_name ?? m.email}
+                                email={m.email}
+                                authUserId={m.auth_user_id}
+                                profileActive={m.profile_is_active}
+                                canRemoveMemberLogin={canRemoveMemberLogin}
+                                accountPresentation={m.accountPresentation}
+                                onChanged={refreshMemberLoginReadModels}
+                              />
+                            </td>
                             <td className="px-5 py-3.5 text-right whitespace-nowrap">
                               <div className="flex items-center justify-end gap-2">
                                 <button
@@ -1430,7 +1514,7 @@ function AdminDashboardContent() {
                         if (isEditing) {
                           rows.push(
                             <tr key={`${m.membership.membershipId}-edit`} className="bg-gray-50/80 border-b border-gray-100">
-                              <td colSpan={6} className="px-5 py-4">
+                              <td colSpan={7} className="px-5 py-4">
                                 <div className="space-y-4">
                                   <form onSubmit={saveEdit} className="grid sm:grid-cols-3 gap-3">
                                     <div>

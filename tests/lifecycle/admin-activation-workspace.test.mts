@@ -87,3 +87,16 @@ test("all-time activation workspace disables registration-request mutations", ()
   assert.match(registrationRequests, /onClick=\{\(\) => approveUser\(u\.id\)\}[\s\S]*?disabled=\{approving === u\.id \|\| !roleSelections\[u\.id\] \|\| cohort\.scope === 'all'\}/);
   assert.match(registrationRequests, /onClick=\{\(\) => rejectUser\(u\.id\)\}[\s\S]*?disabled=\{cohort\.scope === 'all'\}/);
 });
+
+test("member account changes refresh current activation and directory read models", () => {
+  const page = readFileSync(new URL("../../app/dashboard/admin/page.tsx", import.meta.url), "utf8");
+
+  assert.match(
+    page,
+    /const membershipRefreshes = \(\) => \[loadAll, cohort\.reload, cohort\.reloadCurrent\] as const/u,
+  );
+  assert.match(
+    page,
+    /async function refreshMemberLoginReadModels\(\)[\s\S]*?refreshMembershipReadModels\(membershipRefreshes\(\)\)/u,
+  );
+});
