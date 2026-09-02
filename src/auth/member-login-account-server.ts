@@ -127,6 +127,10 @@ function operationError(error: RpcError): MemberLoginAccountError {
   return new MemberLoginAccountError(error.message, error.code);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function requireSingleRow<T extends { profile_id: string }>(
   result: RpcResult<T[]>,
   profileId: string,
@@ -214,12 +218,15 @@ async function discardAndDeleteReplacement(
     p_auth_user_id: authUserId,
     p_profile_id: profileId,
   });
+  const discardRow: unknown = Array.isArray(discard.data) ? discard.data[0] : undefined;
   if (
     discard.error !== null
-    || discard.data === null
+    || !Array.isArray(discard.data)
     || discard.data.length !== 1
-    || discard.data[0].profile_id !== profileId
-    || discard.data[0].auth_user_id !== authUserId
+    || !isRecord(discardRow)
+    || discardRow.profile_id !== profileId
+    || discardRow.auth_user_id !== authUserId
+    || typeof discardRow.placeholder_discarded !== "boolean"
   ) {
     throw new MemberLoginReconciliationError(
       "The replacement login could not be safely reconciled with the retained profile.",
@@ -271,10 +278,21 @@ export async function restoreMemberLogin(
     await discardAndDeleteReplacement(client, input.profileId, invitation.data.userId);
     throw operationError(attachment.error);
   }
-  const attached = requireSingleRow(attachment, input.profileId, "Replacement login attachment");
+  const attached: unknown = Array.isArray(attachment.data) ? attachment.data[0] : undefined;
   if (
-    attached.auth_user_id !== invitation.data.userId
-    || !attached.profile_is_active
+    !Array.isArray(attachment.data)
+    || attachment.data.length !== 1
+    || !isRecord(attached)
+  ) {
+    throw new MemberLoginReconciliationError(
+      "Replacement login attachment returned an ambiguous result.",
+      "unknown",
+    );
+  }
+  if (
+    attached.profile_id !== input.profileId
+    || attached.auth_user_id !== invitation.data.userId
+    || attached.profile_is_active !== true
   ) {
     throw new MemberLoginReconciliationError(
       "Replacement login attachment returned an ambiguous result.",
@@ -294,7 +312,7 @@ function rpcError(error: { code?: string; message: string } | null): RpcError | 
   return error === null ? null : { code: error.code, message: error.message };
 }
 
-function createProductionClient(
+export function createMemberLoginAccountProductionClient(
   userClient: SupabaseClient<Database>,
   adminClient: SupabaseClient<Database>,
 ): MemberLoginAccountClient {
@@ -348,5 +366,5 @@ export async function authorizeMemberLoginAccountClient(
   request: Request,
 ): Promise<MemberLoginAccountClient> {
   const { userClient, adminClient } = await requireAuthenticatedUser(request);
-  return createProductionClient(userClient, adminClient);
+  return createMemberLoginAccountProductionClient(userClient, adminClient);
 }

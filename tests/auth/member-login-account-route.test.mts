@@ -117,3 +117,23 @@ test("route maps authentication and operation failures to stable statuses", asyn
     }
   }
 });
+
+test("route maps ambiguous successful attachment state to reconciliation-required 502", async () => {
+  const handlers = createMemberLoginAccountHandlers({
+    authorize: async () => unusedClient,
+    restore: async () => {
+      throw new MemberLoginReconciliationError("Replacement login attachment returned an ambiguous result.", "unknown");
+    },
+  });
+  const response = await handlers.POST(request("POST", { confirmation: "RESTORE" }), context);
+
+  assert.equal(response.status, 502);
+  assert.deepEqual(await response.json(), {
+    error: {
+      code: "reconciliation_required",
+      databaseState: "unknown",
+      message: "Replacement login attachment returned an ambiguous result.",
+      reconciliationRequired: true,
+    },
+  });
+});
