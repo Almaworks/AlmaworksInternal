@@ -129,3 +129,23 @@ test("replacement placeholder discard fails closed around the verified Auth-trig
   assert.match(discard, /if not found then[\s\S]*?profile\.auth_user_id = p_auth_user_id[\s\S]*?false/u);
   assert.doesNotMatch(discard, /raw_user_meta_data/u);
 });
+
+test("all retained-profile commands reject zero-membership targets before durable effects", () => {
+  const commandsWithFirstDurableEffect = [
+    ["preview_member_login_removal", "return query"],
+    ["prepare_member_login_removal", "update public.profiles profile"],
+    ["attach_replacement_auth_identity", "delete from public.profiles profile"],
+    ["discard_replacement_auth_placeholder", "delete from public.profiles profile"],
+  ] as const;
+
+  for (const [name, firstDurableEffect] of commandsWithFirstDurableEffect) {
+    const command = functionSource(name);
+    const membershipGuard = command.indexOf(
+      "raise exception 'retained profile must have at least one semester membership' using errcode = '55000'",
+    );
+    const durableEffect = command.indexOf(firstDurableEffect);
+
+    assert.ok(membershipGuard >= 0, `${name} has the exact zero-membership fail-closed guard`);
+    assert.ok(durableEffect > membershipGuard, `${name} checks membership history before its first durable effect`);
+  }
+});

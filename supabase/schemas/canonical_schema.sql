@@ -3354,6 +3354,20 @@ begin
   ) then
     raise exception 'Platform role holders cannot have their login account removed' using errcode = '42501';
   end if;
+  if not exists (
+    select 1
+    from public.profiles profile
+    where profile.id = p_profile_id
+  ) then
+    raise exception 'Member profile not found' using errcode = 'P0002';
+  end if;
+  if not exists (
+    select 1
+    from public.semester_memberships membership
+    where membership.profile_id = p_profile_id
+  ) then
+    raise exception 'Retained profile must have at least one semester membership' using errcode = '55000';
+  end if;
 
   select audit_event.action
   into v_latest_account_action
@@ -3470,6 +3484,10 @@ begin
   where membership.profile_id = p_profile_id
   order by membership.id
   for update;
+
+  if not found then
+    raise exception 'Retained profile must have at least one semester membership' using errcode = '55000';
+  end if;
 
   select audit_event.action, audit_event.created_at
   into v_latest_account_action, v_latest_account_created_at
@@ -3615,6 +3633,10 @@ begin
   where membership.profile_id = p_profile_id
   order by membership.id
   for update;
+
+  if not found then
+    raise exception 'Retained profile must have at least one semester membership' using errcode = '55000';
+  end if;
 
   select max(audit_event.created_at)
   into v_latest_account_created_at
@@ -3799,6 +3821,16 @@ begin
   end if;
   if v_retained_auth_user_id is not null or v_retained_is_active then
     raise exception 'Retained profile must be unlinked and disabled' using errcode = '55000';
+  end if;
+
+  perform membership.id
+  from public.semester_memberships membership
+  where membership.profile_id = p_profile_id
+  order by membership.id
+  for update;
+
+  if not found then
+    raise exception 'Retained profile must have at least one semester membership' using errcode = '55000';
   end if;
 
   select auth_user.email

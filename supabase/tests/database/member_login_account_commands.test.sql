@@ -1,6 +1,6 @@
 begin;
 
-select plan(72);
+select plan(80);
 
 insert into public.semesters (id, name, start_date, end_date, lifecycle_status)
 values
@@ -391,7 +391,14 @@ values
   ('bd000000-0000-0000-0000-000000000007', null, 'active-cleanup@example.com', 'Active Cleanup Retained', 'mentor', 'approved', true);
 
 insert into public.semester_memberships (id, semester_id, profile_id, role, status, suspended_at)
-values ('bd300000-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000002', 'bd000000-0000-0000-0000-000000000001', 'mentor', 'suspended', now());
+values
+  ('bd300000-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000002', 'bd000000-0000-0000-0000-000000000001', 'mentor', 'suspended', now()),
+  ('bd300000-0000-0000-0000-000000000002', 'b1000000-0000-0000-0000-000000000002', 'bd000000-0000-0000-0000-000000000002', 'mentor', 'suspended', now()),
+  ('bd300000-0000-0000-0000-000000000003', 'b1000000-0000-0000-0000-000000000002', 'bd000000-0000-0000-0000-000000000003', 'mentor', 'suspended', now()),
+  ('bd300000-0000-0000-0000-000000000004', 'b1000000-0000-0000-0000-000000000002', 'bd000000-0000-0000-0000-000000000004', 'mentor', 'suspended', now()),
+  ('bd300000-0000-0000-0000-000000000005', 'b1000000-0000-0000-0000-000000000002', 'bd000000-0000-0000-0000-000000000005', 'mentor', 'suspended', now()),
+  ('bd300000-0000-0000-0000-000000000006', 'b1000000-0000-0000-0000-000000000002', 'bd000000-0000-0000-0000-000000000006', 'mentor', 'suspended', now()),
+  ('bd300000-0000-0000-0000-000000000007', 'b1000000-0000-0000-0000-000000000002', 'bd000000-0000-0000-0000-000000000007', 'mentor', 'suspended', now());
 insert into public.mentor_profiles (profile_id, biography)
 values ('bd000000-0000-0000-0000-000000000001', 'Cleanup retained biography');
 
@@ -537,6 +544,80 @@ select throws_ok(
   'an absent placeholder is not idempotent when the retained target is active'
 );
 reset role;
+
+insert into auth.users (id, aud, role, email, raw_app_meta_data, raw_user_meta_data)
+values
+  ('bf000000-0000-0000-0000-000000000001', 'authenticated', 'authenticated', 'zero-linked@example.com', '{}', '{"full_name":"Zero Membership Linked"}'),
+  ('bf000000-0000-0000-0000-000000000003', 'authenticated', 'authenticated', 'zero-cleanup@example.com', '{}', '{"full_name":"Zero Membership Placeholder"}');
+insert into public.profiles (id, auth_user_id, email, full_name, role, status, is_active)
+values
+  ('bf000000-0000-0000-0000-000000000001', 'bf000000-0000-0000-0000-000000000001', 'zero-linked@example.com', 'Zero Membership Linked', 'mentor', 'approved', true),
+  ('bf000000-0000-0000-0000-000000000002', null, 'zero-cleanup@example.com', 'Zero Membership Retained', 'mentor', 'approved', false),
+  ('bf000000-0000-0000-0000-000000000003', 'bf000000-0000-0000-0000-000000000003', 'zero-cleanup@example.com', 'Zero Membership Placeholder', 'startup', 'pending', true);
+
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"b2000000-0000-0000-0000-000000000001","role":"authenticated"}', true);
+select throws_ok(
+  $$select * from public.preview_member_login_removal('bf000000-0000-0000-0000-000000000001'::uuid)$$,
+  '55000',
+  'Retained profile must have at least one semester membership',
+  'preview rejects a zero-membership retained target'
+);
+select throws_ok(
+  $$select * from public.prepare_member_login_removal(
+      'bf000000-0000-0000-0000-000000000001'::uuid,
+      'Zero membership must fail closed'
+    )$$,
+  '55000',
+  'Retained profile must have at least one semester membership',
+  'preparation rejects a zero-membership retained target'
+);
+reset role;
+
+select is(
+  (select is_active from public.profiles where id = 'bf000000-0000-0000-0000-000000000001'),
+  true,
+  'zero-membership preparation leaves the retained profile active state unchanged'
+);
+select is(
+  (select count(*) from public.program_audit_events where subject_id = 'bf000000-0000-0000-0000-000000000001'),
+  0::bigint,
+  'zero-membership preparation creates no audit without a valid semester context'
+);
+
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"b2000000-0000-0000-0000-000000000001","role":"authenticated"}', true);
+select throws_ok(
+  $$select * from public.attach_replacement_auth_identity(
+      'bf000000-0000-0000-0000-000000000002'::uuid,
+      'bf000000-0000-0000-0000-000000000003'::uuid
+    )$$,
+  '55000',
+  'Retained profile must have at least one semester membership',
+  'attachment rejects a zero-membership retained target'
+);
+reset role;
+select ok(
+  exists(select 1 from public.profiles where id = 'bf000000-0000-0000-0000-000000000003'),
+  'zero-membership attachment preserves the replacement placeholder'
+);
+
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"b2000000-0000-0000-0000-000000000001","role":"authenticated"}', true);
+select throws_ok(
+  $$select * from public.discard_replacement_auth_placeholder(
+      'bf000000-0000-0000-0000-000000000002'::uuid,
+      'bf000000-0000-0000-0000-000000000003'::uuid
+    )$$,
+  '55000',
+  'Retained profile must have at least one semester membership',
+  'placeholder discard rejects a zero-membership retained target'
+);
+reset role;
+select ok(
+  exists(select 1 from public.profiles where id = 'bf000000-0000-0000-0000-000000000003'),
+  'zero-membership discard preserves the replacement placeholder'
+);
 
 select * from finish();
 
