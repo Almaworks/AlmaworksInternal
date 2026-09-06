@@ -3,7 +3,7 @@ import type { Json } from "../db/types.ts";
 export interface SemesterConfiguration {
   location: string;
   sessionCadence: "weekly";
-  defaultFormat: "online" | "in-person" | "hybrid";
+  defaultFormat: "online" | "in-person";
 }
 
 export interface CreateSemesterDraftInput {
@@ -110,7 +110,7 @@ export function parseCreateSemesterDraftRequest(value: unknown): CreateSemesterD
   if (input.sessionCadence !== "weekly") {
     throw new SemesterTransitionError("sessionCadence must be weekly.", "validation_error");
   }
-  if (!(["online", "in-person", "hybrid"] as const).includes(input.defaultFormat as "online" | "in-person" | "hybrid")) {
+  if (!(["online", "in-person"] as const).includes(input.defaultFormat as "online" | "in-person")) {
     throw new SemesterTransitionError("defaultFormat is invalid.", "validation_error");
   }
   return {

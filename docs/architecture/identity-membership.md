@@ -38,7 +38,7 @@ Every program-scoped table has a non-null foreign key to `semesters`:
 
 ## Authority
 
-User-supplied authentication metadata is never authoritative for role or status. Database authorization derives from server-created membership and platform-role rows. The browser may edit safe profile fields only; role, membership, and semester lifecycle changes go through server-owned commands protected by RLS and database constraints.
+User-supplied authentication metadata is never authoritative for role or status. Database authorization derives from server-created membership and platform-role rows. The browser may edit safe profile fields only; role, membership, and semester lifecycle changes go through server-owned commands protected by RLS and database constraints. Only platform super administrators may create semester drafts, replace a draft semester's meeting plan, or activate a semester transition. Active semester administrators may still manage members, scheduling, sessions, and outreach within the semesters they administer.
 
 ## Lifecycle
 

@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
 
 import type { Database } from "../db/types.ts";
+import { createSupabaseAdminCapabilitySource } from "./admin-capability.ts";
 import { readBearerToken } from "./request.ts";
 
 export class AuthorizationError extends Error {
@@ -239,3 +240,12 @@ export function createSuspendOutreachMembershipCommand(
 export const suspendOutreachMembership = createSuspendOutreachMembershipCommand(
   authorizeSuspensionWithServerContext,
 );
+
+export async function requireSuperAdminWithRls(request: Request): Promise<AuthenticatedRlsContext> {
+  const context = await requireAuthenticatedUserWithRls(request);
+  const result = await createSupabaseAdminCapabilitySource(context.userClient).isSuperAdmin(context.profileId);
+  if (result.error !== null || !result.data) {
+    throw new AuthorizationError("Super Admin access required.", 403);
+  }
+  return context;
+}

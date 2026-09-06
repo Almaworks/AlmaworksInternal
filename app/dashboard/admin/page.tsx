@@ -3,6 +3,7 @@
 import { createClient } from '@/utils/supabase/client'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { ShieldCheck } from 'lucide-react'
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import { MemberLoginAccountControl } from '@/components/MemberLoginAccountControl'
 import TagInput from '@/components/TagInput'
@@ -30,7 +31,8 @@ import {
 import type { MembershipStatus } from '@/src/lifecycle/types'
 import { persistAndRefreshMembership, refreshMembershipReadModels } from '@/src/lifecycle/membership-mutation'
 import { loadMentorDirectory, loadStartupDirectory } from '@/src/program/canonical-repository'
-import type { SessionAttendanceView } from '@/src/sessions/attendance'
+import { normalizeAvailabilityFormat } from '@/src/program/availability-windows'
+import type { SessionAttendanceView, SessionRsvpCoverageState, SessionRsvpIssue } from '@/src/sessions/attendance'
 import { memberDirectorySelect } from '@/src/dashboard/admin-members-query'
 
 type PendingUser = {
@@ -68,7 +70,7 @@ type Mentor = {
   email: string | null
   general_availability: string | null
   preferred_format: string | null
-  per_week_availability: Record<string, { slot: string; format: string }> | null
+  membership_id: string
   opening_talk: string | null
   membership_status: MembershipStatus
   readiness_status: MembershipReadinessStatus
@@ -111,7 +113,7 @@ type Session = {
   startup_absent: boolean
   substitute_name: string | null
   is_confirmed: boolean
-  meeting: { date: string; label: string | null; semester_id?: string | null; semester_name?: string | null; semesters?: { name: string } | { name: string }[] | null } | null
+  meeting: { id: string; date: string; label: string | null; semester_id?: string | null; semester_name?: string | null; semesters?: { name: string } | { name: string }[] | null } | null
   mentors: { full_name: string; slug: string | null } | null
   startups: { name: string; slug: string | null } | null
 }
@@ -126,7 +128,7 @@ type CanonicalSessionRow = {
   format: string | null
   startup_absent: boolean
   substitute_name: string | null
-  meeting: { meeting_date: string; label: string | null; semester_id: string; semester: { name: string } | null } | null
+  meeting: { id: string; meeting_date: string; label: string | null; semester_id: string; semester: { name: string } | null } | null
   mentor: { membership: { profile: { full_name: string | null } | null } | null } | null
   startup: { organization: { name: string; slug: string } | null } | null
 }
@@ -144,6 +146,7 @@ function mapSession(row: CanonicalSessionRow): Session {
     substitute_name: row.substitute_name,
     is_confirmed: row.status === 'confirmed',
     meeting: row.meeting ? {
+      id: row.meeting.id,
       date: row.meeting.meeting_date,
       label: row.meeting.label,
       semester_id: row.meeting.semester_id,
@@ -158,6 +161,30 @@ type MeetingDate = {
   id: string
   date: string
   label: string | null
+}
+
+type ConcreteMeetingFormat = 'online' | 'in_person'
+type MentorSlotPreference = { isAvailable: boolean; format: string | null }
+
+function concreteMeetingFormat(value: string | null | undefined): ConcreteMeetingFormat | null {
+  if (value === 'online' || value === 'remote') return 'online'
+  if (value === 'in_person' || value === 'in-person') return 'in_person'
+  return null
+}
+
+function mentorSupportsMeetingFormat(
+  mentor: Mentor,
+  format: ConcreteMeetingFormat | '',
+  meetingId: string | null,
+  timeSlot: string,
+  slotPreferences: Readonly<Record<string, MentorSlotPreference>>,
+): boolean {
+  if (format === '') return false
+  const slot = timeSlot === '4:15-5:00' ? 2 : 1
+  const preference = meetingId === null ? undefined : slotPreferences[`${mentor.membership_id}:${meetingId}:${slot}`]
+  const preferredFormat = preference?.format ?? mentor.preferred_format
+  const normalizedPreference = normalizeAvailabilityFormat(preferredFormat)
+  return normalizedPreference === 'hybrid' || normalizedPreference === (format === 'online' ? 'remote' : 'in_person')
 }
 
 type SortDir = 'asc' | 'desc'
@@ -182,6 +209,14 @@ async function loadAdminCapabilities(accessToken: string | null): Promise<{ canR
   } catch {
     return { canRemoveMemberLogin: false, isSuperAdmin: false }
   }
+}
+
+type SessionAttendanceResponse = SessionAttendanceView & { rsvpState: SessionRsvpCoverageState }
+
+const rsvpIssuePresentation: Record<SessionRsvpIssue, { label: string; tone: string }> = {
+  replace_mentor: { label: 'Replace mentor', tone: 'bg-rose-100 text-rose-800' },
+  startup_coverage_needed: { label: 'Startup coverage needed', tone: 'bg-amber-100 text-amber-800' },
+  rsvp_pending: { label: 'RSVPs pending', tone: 'bg-sky-100 text-sky-800' },
 }
 
 
@@ -307,6 +342,7 @@ function AdminDashboardContent() {
   const [startups, setStartups] = useState<Startup[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
   const [meetingDates, setMeetingDates] = useState<MeetingDate[]>([])
+  const [mentorSlotPreferences, setMentorSlotPreferences] = useState<Record<string, MentorSlotPreference>>({})
   const [activeSemesterId, setActiveSemesterId] = useState<string | null>(null)
   const [activeSemesterName, setActiveSemesterName] = useState<string | null>(null)
   const [assignmentPickerTarget, setAssignmentPickerTarget] = useState<AssignmentPickerTarget | null>(null)
@@ -318,7 +354,7 @@ function AdminDashboardContent() {
   const [assignStartupId, setAssignStartupId] = useState<string>('')
   const [assignTopic, setAssignTopic] = useState<string>('')
   const [assignTimeSlot, setAssignTimeSlot] = useState<string>('3:30-4:15')
-  const [assignFormat, setAssignFormat] = useState<string>('online')
+  const [assignFormat, setAssignFormat] = useState<ConcreteMeetingFormat>('online')
   const [assignStartupAbsent, setAssignStartupAbsent] = useState<boolean>(false)
   const [assignSubstituteName, setAssignSubstituteName] = useState<string>('')
   const [assigning, setAssigning] = useState<boolean>(false)
@@ -369,15 +405,37 @@ function AdminDashboardContent() {
   const [editMentorId, setEditMentorId] = useState<string>('')
   const [editStartupId, setEditStartupId] = useState<string>('')
   const [editTimeSlot, setEditTimeSlot] = useState<string>('3:30-4:15')
-  const [editFormat, setEditFormat] = useState<string>('online')
+  const [editFormat, setEditFormat] = useState<ConcreteMeetingFormat | ''>('online')
   const [editTopic, setEditTopic] = useState<string>('')
-  const [editIsConfirmed, setEditIsConfirmed] = useState<boolean>(true)
   const [editStartupAbsent, setEditStartupAbsent] = useState<boolean>(false)
   const [editSubstituteName, setEditSubstituteName] = useState<string>('')
   const [editSaving, setEditSaving] = useState<boolean>(false)
   const [editAttendance, setEditAttendance] = useState<SessionAttendanceView | null>(null)
   const [editAttendanceError, setEditAttendanceError] = useState<string | null>(null)
   const [editAttendanceLoading, setEditAttendanceLoading] = useState(false)
+  const [sessionRsvpStates, setSessionRsvpStates] = useState<Record<string, SessionRsvpCoverageState>>({})
+
+  const selectedAssignmentMeeting = useMemo(
+    () => meetingDates.find((meeting) => meeting.id === selectedMeetingId) ?? null,
+    [meetingDates, selectedMeetingId],
+  )
+  const assignmentMentors = useMemo(() => mentors.filter((mentor) => (
+    mentor.is_active
+    && mentor.semester_id === activeSemesterId
+    && mentorSupportsMeetingFormat(mentor, assignFormat, selectedAssignmentMeeting?.id ?? null, assignTimeSlot, mentorSlotPreferences)
+  )), [activeSemesterId, assignFormat, assignTimeSlot, mentorSlotPreferences, mentors, selectedAssignmentMeeting])
+  const editMentors = useMemo(() => mentors.filter((mentor) => (
+    mentor.is_active
+    && mentor.semester_id === editingSession?.meeting?.semester_id
+    && mentorSupportsMeetingFormat(mentor, editFormat, editingSession?.meeting?.id ?? null, editTimeSlot, mentorSlotPreferences)
+  )), [editFormat, editTimeSlot, editingSession?.meeting?.id, editingSession?.meeting?.semester_id, mentorSlotPreferences, mentors])
+
+  useEffect(() => {
+    if (assignMentorId && !assignmentMentors.some((mentor) => mentor.id === assignMentorId)) setAssignMentorId('')
+  }, [assignMentorId, assignmentMentors])
+  useEffect(() => {
+    if (editMentorId && !editMentors.some((mentor) => mentor.id === editMentorId)) setEditMentorId('')
+  }, [editMentorId, editMentors])
 
   async function loadSessionAttendance(session: Session) {
     if (!session.meeting?.semester_id) return
@@ -389,13 +447,30 @@ function AdminDashboardContent() {
       const response = await fetch(`/api/admin/session-attendance?semesterId=${encodeURIComponent(session.meeting.semester_id)}&sessionId=${encodeURIComponent(session.id)}`, {
         headers: authSession?.access_token ? { Authorization: `Bearer ${authSession.access_token}` } : {},
       })
-      const payload = await response.json() as { data?: SessionAttendanceView; error?: string }
+      const payload = await response.json() as { data?: SessionAttendanceResponse; error?: string }
       if (!response.ok || !payload.data) throw new Error(payload.error ?? 'Attendance could not be loaded.')
       setEditAttendance(payload.data)
     } catch (cause) {
       setEditAttendanceError(cause instanceof Error ? cause.message : 'Attendance could not be loaded.')
     } finally {
       setEditAttendanceLoading(false)
+    }
+  }
+
+  async function loadSessionRsvpStates(sessionRows: Session[], accessToken: string | null) {
+    try {
+      const entries = await Promise.all(sessionRows
+        .filter((session) => session.status === 'confirmed' && session.meeting?.semester_id)
+        .map(async (session) => {
+          const response = await fetch(`/api/admin/session-attendance?semesterId=${encodeURIComponent(session.meeting?.semester_id ?? '')}&sessionId=${encodeURIComponent(session.id)}`, {
+            headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+          })
+          const payload = await response.json() as { data?: SessionAttendanceResponse }
+          return response.ok && payload.data ? [session.id, payload.data.rsvpState] as const : null
+        }))
+      setSessionRsvpStates(Object.fromEntries(entries.filter((entry): entry is readonly [string, SessionRsvpCoverageState] => entry !== null)))
+    } catch {
+      setSessionRsvpStates({})
     }
   }
 
@@ -406,7 +481,7 @@ function AdminDashboardContent() {
       supabase.from('profiles').select(memberDirectorySelect).eq('status', 'approved').order('full_name'),
       loadMentorDirectory(supabase),
       loadStartupDirectory(supabase),
-      supabase.from('sessions').select('id, mentor_semester_id, startup_semester_id, status, topic, slot, format, startup_absent, substitute_name, meeting:meetings(meeting_date, label, semester_id, semester:semesters(name)), mentor:mentor_semesters(membership:semester_memberships(profile:profiles(full_name))), startup:startup_semesters(organization:startup_organizations(name,slug))').order('slot'),
+      supabase.from('sessions').select('id, mentor_semester_id, startup_semester_id, status, topic, slot, format, startup_absent, substitute_name, meeting:meetings(id, meeting_date, label, semester_id, semester:semesters(name)), mentor:mentor_semesters(membership:semester_memberships(profile:profiles(full_name))), startup:startup_semesters(organization:startup_organizations(name,slug))').order('slot'),
       supabase.from('semesters').select('id, name').eq('is_active', true).maybeSingle(),
       loadAdminCapabilities(authSession?.access_token ?? null),
     ])
@@ -470,12 +545,35 @@ function AdminDashboardContent() {
       ...startup,
       founder_name: startup.founders[0]?.name ?? null,
     })))
-    setSessions(((sessionsRes.data ?? []) as unknown as CanonicalSessionRow[]).map(mapSession))
+    const loadedSessions = ((sessionsRes.data ?? []) as unknown as CanonicalSessionRow[]).map(mapSession)
+    setSessions(loadedSessions)
+    void loadSessionRsvpStates(loadedSessions, authSession?.access_token ?? null)
 
     const semData = semesterRes.data as { id: string; name: string } | null
     const semId = semData?.id ?? null
     setActiveSemesterId(semId)
     setActiveSemesterName(semData?.name ?? null)
+    const mentorSemesterIds = [...new Set((mentorsRes as unknown as Mentor[])
+      .map((mentor) => mentor.semester_id)
+      .filter((semesterId): semesterId is string => semesterId !== null))]
+    if (mentorSemesterIds.length > 0) {
+      const { data: availabilityRows, error: availabilityError } = await supabase
+        .from('meeting_availability')
+        .select('*')
+        .in('semester_id', mentorSemesterIds)
+      if (availabilityError) {
+        setMentorSlotPreferences({})
+        throw new Error(availabilityError.message)
+      }
+      setMentorSlotPreferences(Object.fromEntries((availabilityRows ?? []).flatMap((availability) => {
+        const format = 'format' in availability && typeof availability.format === 'string' ? availability.format : null
+        return availability.slot === 1 || availability.slot === 2
+          ? [[`${availability.semester_membership_id}:${availability.meeting_id}:${availability.slot}`, { isAvailable: availability.is_available, format }]]
+          : []
+      })))
+    } else {
+      setMentorSlotPreferences({})
+    }
     if (semId) {
       const { data: dateRows, error: dateError } = await supabase
         .from('meetings')
@@ -755,10 +853,13 @@ function AdminDashboardContent() {
   async function refreshSessions() {
     const { data, error } = await supabase
       .from('sessions')
-      .select('id, mentor_semester_id, startup_semester_id, status, topic, slot, format, startup_absent, substitute_name, meeting:meetings(meeting_date, label, semester_id, semester:semesters(name)), mentor:mentor_semesters(membership:semester_memberships(profile:profiles(full_name))), startup:startup_semesters(organization:startup_organizations(name,slug))')
+      .select('id, mentor_semester_id, startup_semester_id, status, topic, slot, format, startup_absent, substitute_name, meeting:meetings(id, meeting_date, label, semester_id, semester:semesters(name)), mentor:mentor_semesters(membership:semester_memberships(profile:profiles(full_name))), startup:startup_semesters(organization:startup_organizations(name,slug))')
       .order('slot')
     if (error) throw error
-    setSessions(((data ?? []) as unknown as CanonicalSessionRow[]).map(mapSession))
+    const refreshedSessions = ((data ?? []) as unknown as CanonicalSessionRow[]).map(mapSession)
+    setSessions(refreshedSessions)
+    const { data: { session } } = await supabase.auth.getSession()
+    void loadSessionRsvpStates(refreshedSessions, session?.access_token ?? null)
   }
 
   function openAssignmentPicker(startup: Startup, meeting: MeetingDate, timeSlot: '3:30-4:15' | '4:15-5:00') {
@@ -1088,9 +1189,8 @@ function AdminDashboardContent() {
     setEditMentorId(s.mentor_id)
     setEditStartupId(s.startup_id ?? '')
     setEditTimeSlot(s.slot_label ?? '3:30-4:15')
-    setEditFormat(s.format ?? 'online')
+    setEditFormat(concreteMeetingFormat(s.format) ?? '')
     setEditTopic(s.topic ?? '')
-    setEditIsConfirmed(s.is_confirmed)
     setEditStartupAbsent(s.startup_absent)
     setEditSubstituteName(s.substitute_name ?? '')
     void loadSessionAttendance(s)
@@ -1111,7 +1211,7 @@ function AdminDashboardContent() {
         slot: editTimeSlot === '4:15-5:00' ? 2 : 1,
         format: editFormat,
         topic: editTopic.trim() || null,
-        status: editIsConfirmed ? 'confirmed' : 'requested',
+        status: 'confirmed',
         startupAbsent: editStartupAbsent,
         substituteName: editStartupAbsent && editSubstituteName.trim() ? editSubstituteName.trim() : null,
         }),
@@ -1476,7 +1576,7 @@ function AdminDashboardContent() {
                   <colgroup>
                     <col className="w-[10rem]" />
                     <col className="w-[15rem]" />
-                    <col className="w-[6.5rem]" />
+                    <col className="w-[10.5rem]" />
                     <col className="w-[8.5rem]" />
                     <col className="w-[8.5rem]" />
                     <col className="w-[14rem]" />
@@ -1539,8 +1639,9 @@ function AdminDashboardContent() {
                             </td>
                             <td className="px-5 py-3.5 text-gray-500 truncate" title={m.email}>{m.email}</td>
                             <td className="px-5 py-3.5 whitespace-nowrap">
-                              <span className={`inline-block text-xs font-semibold px-2.5 py-1 rounded-full capitalize ${roleColors[m.role] ?? 'bg-gray-100 text-gray-600'}`}>
-                                {m.role}
+                              <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${m.is_super_admin ? 'bg-[#002147] text-white ring-1 ring-[#002147]/15' : `capitalize ${roleColors[m.role] ?? 'bg-gray-100 text-gray-600'}`}`} title={m.is_super_admin ? 'Platform-wide Super Admin access' : undefined}>
+                                {m.is_super_admin && <ShieldCheck size={13} aria-hidden="true" />}
+                                {m.is_super_admin ? 'Super Admin' : m.role}
                               </span>
                             </td>
                            <td className="px-5 py-3.5 whitespace-nowrap">
@@ -1702,6 +1803,11 @@ function AdminDashboardContent() {
           const key = `${s.meeting.date}__${slot}__${s.startup_id ?? ''}`
           cellMap.set(key, s)
         }
+        const rsvpIssues = sessions.flatMap((session) => (
+          session.status === 'confirmed' && !session.startup_absent && session.meeting?.semester_id === activeSemesterId
+            ? (sessionRsvpStates[session.id]?.issues ?? []).map((issue) => ({ session, issue }))
+            : []
+        ))
 
         return (
           <div className="space-y-4">
@@ -1754,6 +1860,26 @@ function AdminDashboardContent() {
                   </button>
                 )}
               </div>
+            )}
+
+            {rsvpIssues.length > 0 && (
+              <section className="rounded-xl border border-amber-200 bg-amber-50 p-4" aria-labelledby="rsvp-attention-title">
+                <div className="flex items-baseline justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-800">Attendance</p>
+                    <h2 id="rsvp-attention-title" className="mt-1 text-sm font-semibold text-[#002147]">Needs attention</h2>
+                  </div>
+                  <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-900">{rsvpIssues.length}</span>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {rsvpIssues.map(({ session, issue }) => (
+                    <button key={`${session.id}:${issue}`} type="button" onClick={() => openEditSession(session)} className="flex w-full items-center justify-between gap-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-left text-xs hover:border-amber-400">
+                      <span><strong className="text-[#002147]">{session.startups?.name ?? 'Startup'} with {session.mentors?.full_name ?? 'mentor'}</strong><small className="ml-2 text-gray-500">{session.meeting?.label ?? session.meeting?.date}</small></span>
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 font-semibold ${rsvpIssuePresentation[issue].tone}`}>{rsvpIssuePresentation[issue].label}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
             )}
 
             {/* Session dates wizard */}
@@ -1884,6 +2010,7 @@ function AdminDashboardContent() {
                           {colStartups.map(st => {
                             const cellKey = `${row.date}__${row.slot}__${st.id}`
                             const cell = cellMap.get(cellKey)
+                            const rsvpState = cell ? sessionRsvpStates[cell.id] : undefined
                             const formatPresentation = sessionFormatPresentation(cell?.format ?? null)
                             const formatBg =
                               formatPresentation.tone === 'in_person' ? 'bg-green-50 text-green-800 border border-green-200 hover:bg-green-100' :
@@ -1906,6 +2033,9 @@ function AdminDashboardContent() {
                                     {!cell.is_confirmed && (
                                       <span className="block text-[9px] font-normal opacity-70">unconfirmed</span>
                                     )}
+                                    {rsvpState?.issues.map((issue) => (
+                                      <span key={issue} className={`mt-1 block w-fit rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${rsvpIssuePresentation[issue].tone}`}>{rsvpIssuePresentation[issue].label}</span>
+                                    ))}
                                   </button>
                                 ) : (
                                   <button
@@ -2269,11 +2399,10 @@ function AdminDashboardContent() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Format</label>
-                <select value={assignFormat} onChange={e => setAssignFormat(e.target.value)}
+                <select value={assignFormat} onChange={e => { setAssignFormat(e.target.value as ConcreteMeetingFormat); setAssignMentorId('') }}
                   className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
                   <option value="online">Online</option>
-                  <option value="in-person">In-person</option>
-                  <option value="hybrid">Hybrid</option>
+                  <option value="in_person">In person</option>
                 </select>
               </div>
               <div>
@@ -2281,7 +2410,7 @@ function AdminDashboardContent() {
                 <select value={assignMentorId} onChange={e => setAssignMentorId(e.target.value)}
                   className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
                   <option value="">Select mentor…</option>
-                  {mentors.filter(m => m.is_active && m.semester_id === activeSemesterId).map(m => (
+                  {assignmentMentors.map(m => (
                     <option key={m.id} value={m.id}>{m.full_name}{m.company ? ` · ${m.company}` : ''}</option>
                   ))}
                 </select>
@@ -2422,7 +2551,7 @@ function AdminDashboardContent() {
                 <select value={editMentorId} onChange={e => setEditMentorId(e.target.value)}
                   className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
                   <option value="">Select mentor…</option>
-                  {mentors.filter(m => m.semester_id === editingSession.meeting?.semester_id).map(m => (
+                  {editMentors.map(m => (
                     <option key={m.id} value={m.id}>{m.full_name}</option>
                   ))}
                 </select>
@@ -2448,11 +2577,11 @@ function AdminDashboardContent() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Format</label>
-                <select value={editFormat} onChange={e => setEditFormat(e.target.value)}
+                <select value={editFormat} onChange={e => { setEditFormat(e.target.value as ConcreteMeetingFormat | ''); setEditMentorId('') }}
                   className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
+                  <option value="">Choose a format…</option>
                   <option value="online">Online</option>
-                  <option value="in-person">In-person</option>
-                  <option value="hybrid">Hybrid</option>
+                  <option value="in_person">In person</option>
                 </select>
               </div>
               <div className="sm:col-span-2">
@@ -2462,14 +2591,9 @@ function AdminDashboardContent() {
               </div>
               <div className="flex flex-col gap-2 sm:col-span-2">
                 <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input type="checkbox" checked={editIsConfirmed} onChange={e => setEditIsConfirmed(e.target.checked)}
-                    className="w-4 h-4 rounded accent-[#002147]" />
-                  <span className="text-sm text-gray-700">Confirmed</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input type="checkbox" checked={editStartupAbsent} onChange={e => setEditStartupAbsent(e.target.checked)}
                     className="w-4 h-4 rounded accent-[#002147]" />
-                  <span className="text-sm text-gray-700">Startup absent / may cancel</span>
+                  <span className="text-sm text-gray-700">Startup absent / add fill-in</span>
                 </label>
                 {editStartupAbsent && (
                   <input value={editSubstituteName} onChange={e => setEditSubstituteName(e.target.value)}
@@ -2512,7 +2636,7 @@ function AdminDashboardContent() {
                   className="px-4 py-2 text-sm font-medium text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">
                   Cancel
                 </button>
-                <button onClick={updateSession} disabled={editSaving || !editMentorId}
+                <button onClick={updateSession} disabled={editSaving || !editMentorId || !editFormat}
                   className="px-4 py-2 bg-[#002147] text-white text-sm font-medium rounded-lg hover:bg-[#002147]/90 disabled:opacity-50 transition-colors">
                   {editSaving ? 'Saving…' : 'Save'}
                 </button>

@@ -20,7 +20,7 @@ test("draft input is normalized into a private semester configuration", () => {
     endDate: "2026-12-11",
     location: " New York ",
     sessionCadence: "weekly",
-    defaultFormat: "hybrid",
+    defaultFormat: "online",
   }), {
     sourceSemesterId: "spring-2026",
     name: "Fall 2026",
@@ -29,7 +29,7 @@ test("draft input is normalized into a private semester configuration", () => {
     configuration: {
       location: "New York",
       sessionCadence: "weekly",
-      defaultFormat: "hybrid",
+      defaultFormat: "online",
     },
   });
 });
@@ -43,7 +43,7 @@ test("draft input rejects an end date before the start date", () => {
       endDate: "2026-08-31",
       location: "New York",
       sessionCadence: "weekly",
-      defaultFormat: "hybrid",
+      defaultFormat: "online",
     }),
     /endDate must be after startDate/,
   );
@@ -70,14 +70,14 @@ test("draft creation authorizes the current semester and returns the persisted d
     name: "Fall 2026",
     startDate: "2026-08-31",
     endDate: "2026-12-11",
-    configuration: { location: "New York", sessionCadence: "weekly", defaultFormat: "hybrid" },
+    configuration: { location: "New York", sessionCadence: "weekly", defaultFormat: "online" },
   });
 
   assert.deepEqual(result, { id: "fall-2026", name: "Fall 2026", status: "draft" });
   assert.deepEqual(observed, [
     { authorizedSemesterId: "spring-2026" },
     {
-      p_configuration: { location: "New York", sessionCadence: "weekly", defaultFormat: "hybrid" },
+      p_configuration: { location: "New York", sessionCadence: "weekly", defaultFormat: "online" },
       p_end_date: "2026-12-11",
       p_name: "Fall 2026",
       p_source_semester_id: "spring-2026",
@@ -201,4 +201,11 @@ test("transition commands reject malformed RPC results", async () => {
     }),
     SemesterTransitionError,
   );
+});
+
+test("semester defaults require a concrete meeting format", () => {
+  assert.throws(() => parseCreateSemesterDraftRequest({
+    sourceSemesterId: "spring-2026", name: "Fall 2026", startDate: "2026-08-31",
+    endDate: "2026-12-11", location: "New York", sessionCadence: "weekly", defaultFormat: "hybrid",
+  }), /defaultFormat is invalid/);
 });

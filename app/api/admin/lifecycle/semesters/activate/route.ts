@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 
-import { AuthorizationError, requireSemesterAdmin } from "@/src/auth/server";
+import { AuthorizationError, requireSuperAdminWithRls } from "@/src/auth/server";
 import {
   createActivateSemesterCommand,
   parseActivateSemesterRequest,
   SemesterTransitionError,
 } from "@/src/lifecycle/semester-transition";
 
-const activateSemester = createActivateSemesterCommand(async (request, semesterId) => {
-  const { userClient } = await requireSemesterAdmin(request, semesterId);
+const activateSemester = createActivateSemesterCommand(async (request) => {
+  const { userClient } = await requireSuperAdminWithRls(request);
   return {
     activateSemester: async (args) => await userClient.rpc("activate_semester_transition", args),
   };

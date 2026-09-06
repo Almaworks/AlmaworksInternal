@@ -53,9 +53,9 @@ const network: ParticipantDirectoryEntry[] = [
   { id: "demo-mentor-maya", semesterId: "demo-semester", kind: "mentor", name: "Maya Chen", headline: "VP Revenue · Helio", tags: ["Enterprise sales", "Go-to-market", "Hiring"], summary: "Helps early teams build repeatable revenue systems and land their first enterprise customers.", websiteUrl: "helio.demo", photoUrl: null },
   { id: "demo-mentor-jordan", semesterId: "demo-semester", kind: "mentor", name: "Jordan Ellis", headline: "Founder · Fieldwork", tags: ["Fundraising", "Pricing", "Product"], summary: "Former founder and operator focused on positioning, pricing, and fundraising narratives.", websiteUrl: "fieldwork.demo", photoUrl: null },
   { id: "demo-mentor-amara", semesterId: "demo-semester", kind: "mentor", name: "Amara Okafor", headline: "COO · Current Labs", tags: ["Operations", "Leadership", "Scaling"], summary: "Partners with founders on operating cadence, team design, and scaling through inflection points.", websiteUrl: "currentlabs.demo", photoUrl: null },
-  { id: "demo-startup-northstar", semesterId: "demo-semester", kind: "startup", name: "Northstar Labs", headline: "Climate intelligence · Seed", tags: ["Climate", "B2B SaaS", "Data"], summary: "Decision tools that help industrial teams forecast and manage climate-related operational risk.", websiteUrl: "northstar.demo", photoUrl: null },
-  { id: "demo-startup-luma", semesterId: "demo-semester", kind: "startup", name: "Luma Health", headline: "Care navigation · Pre-seed", tags: ["Healthtech", "Marketplace", "Consumer"], summary: "A guided care platform that helps families understand options and find trusted providers faster.", websiteUrl: "luma.demo", photoUrl: null },
-  { id: "demo-startup-forge", semesterId: "demo-semester", kind: "startup", name: "Forge Robotics", headline: "Warehouse automation · Seed", tags: ["Robotics", "Hardware", "Logistics"], summary: "Modular robotic systems that make warehouse automation accessible to mid-market operators.", websiteUrl: "forge.demo", photoUrl: null },
+  { id: "demo-startup-northstar", semesterId: "demo-semester", kind: "startup", name: "Eli Brooks", headline: "Northstar Labs · Climate intelligence · Seed", tags: ["Climate", "B2B SaaS", "Data"], summary: "Decision tools that help industrial teams forecast and manage climate-related operational risk.", websiteUrl: "northstar.demo", photoUrl: null },
+  { id: "demo-startup-luma", semesterId: "demo-semester", kind: "startup", name: "Alex Rivera", headline: "Luma Health · Care navigation · Pre-seed", tags: ["Healthtech", "Marketplace", "Consumer"], summary: "A guided care platform that helps families understand options and find trusted providers faster.", websiteUrl: "luma.demo", photoUrl: null },
+  { id: "demo-startup-forge", semesterId: "demo-semester", kind: "startup", name: "Sam Patel", headline: "Forge Robotics · Warehouse automation · Seed", tags: ["Robotics", "Hardware", "Logistics"], summary: "Modular robotic systems that make warehouse automation accessible to mid-market operators.", websiteUrl: "forge.demo", photoUrl: null },
 ];
 
 export function buildParticipantPreview(
@@ -142,7 +142,11 @@ export function buildParticipantPreview(
     profileComplete: true,
     roleSetupComplete: true,
     sessions,
-    network,
+    network: network.map((entry) => ({
+      ...entry,
+      email: `${entry.id.replace("demo-", "")}@example.com`,
+      linkedinUrl: entry.kind === "mentor" ? "https://linkedin.com/in/example" : null,
+    })),
     mentorNeeds: isMentor ? null : { needs: ["Enterprise sales", "Pricing"], context: "We are preparing for our first enterprise pilot and need help tightening the buying process.", noPreference: false },
     profile: isMentor
       ? { headline: "VP Revenue · Helio", summary: "I help early teams build repeatable enterprise sales systems.", tags: ["Enterprise sales", "Go-to-market", "Hiring"], websiteUrl: "https://helio.demo", linkedinUrl: "https://linkedin.com/in/maya-demo" }

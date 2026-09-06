@@ -24,7 +24,8 @@ export interface AssignmentPickerTarget {
   meetingId: string;
   date: string;
   timeSlot: PickerTimeSlot;
-  initialFormat?: PickerFormat;
+  /** `hybrid` is retained only to make legacy edits choose a concrete format explicitly. */
+  initialFormat?: PickerFormat | "hybrid";
   initialTopic?: string;
   existingMentorName?: string | null;
 }
@@ -78,7 +79,6 @@ interface ErrorEnvelope {
 const formatLabels: Record<PickerFormat, string> = {
   online: "Online",
   in_person: "In person",
-  hybrid: "Hybrid",
 };
 
 function responseError(payload: unknown, fallback: string): string {
@@ -119,7 +119,7 @@ export default function MentorAssignmentPicker({ open, target, onClose, onCommit
   const [search, setSearch] = useState("");
   const [expertiseFilter, setExpertiseFilter] = useState("");
   const [selectedMentorId, setSelectedMentorId] = useState<string | null>(null);
-  const [format, setFormat] = useState<PickerFormat>("in_person");
+  const [format, setFormat] = useState<PickerFormat | null>("in_person");
   const [topic, setTopic] = useState("");
   const [overrideAcknowledged, setOverrideAcknowledged] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
@@ -130,7 +130,7 @@ export default function MentorAssignmentPicker({ open, target, onClose, onCommit
     setSearch("");
     setExpertiseFilter("");
     setSelectedMentorId(null);
-    setFormat(target.initialFormat ?? "in_person");
+    setFormat(target.initialFormat === "hybrid" ? null : (target.initialFormat ?? "in_person"));
     setTopic(target.initialTopic ?? "");
     setOverrideAcknowledged(false);
     setOverrideReason("");
@@ -153,7 +153,7 @@ export default function MentorAssignmentPicker({ open, target, onClose, onCommit
   }, [open, target]);
 
   useEffect(() => {
-    if (!open || target === null) return;
+    if (!open || target === null || format === null) return;
     const abortController = new AbortController();
     const query = new URLSearchParams({
       semesterId: target.semesterId,
@@ -163,6 +163,7 @@ export default function MentorAssignmentPicker({ open, target, onClose, onCommit
       format,
     });
     setLoading(true);
+    setContext(null);
     setLoadError(null);
     setSubmitError(null);
     setSelectedMentorId(null);
@@ -175,10 +176,10 @@ export default function MentorAssignmentPicker({ open, target, onClose, onCommit
         if (typeof payload !== "object" || payload === null || !("data" in payload)) {
           throw new Error("The candidate response was incomplete.");
         }
-        setContext((payload as { data: CandidateContext }).data);
+        if (!abortController.signal.aborted) setContext((payload as { data: CandidateContext }).data);
       })
       .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
+        if (abortController.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) return;
         setContext(null);
         setLoadError(error instanceof Error ? error.message : "Unable to load mentor candidates.");
       })
@@ -240,7 +241,7 @@ export default function MentorAssignmentPicker({ open, target, onClose, onCommit
 
   async function submitAssignment(event: React.FormEvent) {
     event.preventDefault();
-    if (target === null || context === null || selectedCandidate === null) return;
+    if (target === null || context === null || selectedCandidate === null || format === null) return;
     if (!canSubmitAssignment(selectedCandidate, overrideAcknowledged, overrideReason)) {
       setSubmitError("Acknowledge every required override and provide a reason before assigning.");
       return;
@@ -357,7 +358,7 @@ export default function MentorAssignmentPicker({ open, target, onClose, onCommit
               </div>
             </div>
             <fieldset className={styles.formatGroup}>
-              <legend>Supported format</legend>
+              <legend>Meeting format</legend>
               <div>
                 {(Object.keys(formatLabels) as PickerFormat[]).map((option) => (
                   <label key={option}>
@@ -372,6 +373,7 @@ export default function MentorAssignmentPicker({ open, target, onClose, onCommit
                   </label>
                 ))}
               </div>
+              {format === null && <p className={styles.error}>This existing Either session needs an Online or In person format before it can be reassigned.</p>}
             </fieldset>
             <label className={styles.topicField}>
               <span>Topic <small>optional</small></span>

@@ -34,3 +34,9 @@ export function resolveAdminRouteAccess(input: AdminRouteAccessInput): string | 
   if (input.profile.role === "startup") return "/dashboard/startup";
   return "/pending";
 }
+
+export function resolveSuperAdminRouteAccess(input: AdminRouteAccessInput): string | null {
+  const destination = resolveAdminRouteAccess(input);
+  if (destination) return destination;
+  return input.authority.isSuperAdmin ? null : "/dashboard/admin";
+}

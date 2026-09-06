@@ -391,8 +391,8 @@ test("candidate format aliases are canonicalized and two startup needs remain pr
     ...data.startup!,
     mentorshipNeeds: ["Enterprise sales", "Fundraising strategy"],
   };
-  data.mentors[0] = { ...data.mentors[0]!, expertise: ["Enterprise sales"], capacity: 4 } as unknown as (typeof data.mentors)[number];
-  data.mentors[1] = { ...data.mentors[1]!, expertise: ["Fundraising strategy"], capacity: 4 } as unknown as (typeof data.mentors)[number];
+  data.mentors[0] = { ...data.mentors[0]!, expertise: ["Enterprise sales"], preferredFormat: "hybrid", capacity: 4 } as unknown as (typeof data.mentors)[number];
+  data.mentors[1] = { ...data.mentors[1]!, expertise: ["Fundraising strategy"], preferredFormat: "hybrid", capacity: 4 } as unknown as (typeof data.mentors)[number];
   const response = await routesFor(createSource({ loadCandidateData: async () => data })).getCandidates(candidateRequest(`${new URL(candidateRequest().url).searchParams}&format=virtual`));
   const payload = await response.json() as { data: { slot: { format: string }; candidates: Array<{ mentor: { id: string }; reasons: string[] }> } };
 
@@ -407,8 +407,8 @@ test("only structured Mentor Needs contribute to assignment matches", async () =
     ...data.startup!,
     mentorshipNeeds: ["Enterprise sales", "Pricing"],
   };
-  data.mentors[0] = { ...data.mentors[0]!, expertise: ["Enterprise sales"], capacity: 4 } as unknown as (typeof data.mentors)[number];
-  data.mentors[1] = { ...data.mentors[1]!, expertise: ["Fundraising strategy"], capacity: 4 } as unknown as (typeof data.mentors)[number];
+  data.mentors[0] = { ...data.mentors[0]!, expertise: ["Enterprise sales"], preferredFormat: "hybrid", capacity: 4 } as unknown as (typeof data.mentors)[number];
+  data.mentors[1] = { ...data.mentors[1]!, expertise: ["Fundraising strategy"], preferredFormat: "hybrid", capacity: 4 } as unknown as (typeof data.mentors)[number];
 
   const response = await routesFor(createSource({ loadCandidateData: async () => data })).getCandidates(candidateRequest());
   const payload = await response.json() as { data: { candidates: Array<{ mentor: { id: string }; reasons: string[] }> } };
@@ -496,12 +496,13 @@ test("Supabase candidate source maps lifecycle mentors and the selected schedule
     mentor_semesters: { rows: [{ id: "mentor-semester", semester_membership_id: "mentor-membership", semester_id: ids.semester, capacity: 3, preferred_format: "online", readiness_status: "ready" }] },
     profiles: { rows: [{ id: ids.mentor, full_name: "Lifecycle mentor", email: "mentor@example.com" }] },
     mentor_profiles: { rows: [{ profile_id: ids.mentor, expertise_tags: ["Enterprise sales"] }] },
-    meeting_availability: { rows: [{ semester_membership_id: "mentor-membership", meeting_id: ids.date, slot: 1, is_available: true }] },
+    meeting_availability: { rows: [{ semester_membership_id: "mentor-membership", meeting_id: ids.date, slot: 1, is_available: true, format: "hybrid" }] },
     sessions: { rows: [] },
   }));
   const result = await source.loadCandidateData({ semesterId: ids.semester, startupSemesterId: ids.startup, meetingId: ids.date, slot: 1, format: "online" });
 
   assert.equal(result.startupScheduleId, ids.startup);
+  assert.equal(result.availability[0]?.format, "hybrid");
   assert.deepEqual(result.mentors, [{ id: "mentor-semester", scheduleMentorIds: ["mentor-semester"], profileId: ids.mentor, name: "Lifecycle mentor", expertise: ["Enterprise sales"], preferredFormat: "online", capacity: 3 }]);
 });
 
@@ -522,7 +523,7 @@ test("canonical mentor-semester sessions count capacity and recency", async () =
     meeting_availability: { rows: [] },
     sessions: { rows: [{ mentor_semester_id: "mentor-semester", startup_semester_id: ids.startup, meeting_id: priorDateId, slot: 1, status: "confirmed", semester_id: ids.semester }] },
   }));
-  const response = await routesFor(source).getCandidates(candidateRequest());
+  const response = await routesFor(source).getCandidates(candidateRequest(`${new URL(candidateRequest().url).searchParams}&format=online`));
   const payload = await response.json() as { data: { candidates: Array<{ mentor: { id: string; assignmentLoad: number; recentMeetingCount: number }; requiredOverrideTypes: string[] }> } };
   const candidate = payload.data.candidates.find((item) => item.mentor.id === ids.mentor);
 
@@ -550,4 +551,49 @@ test("actual RPC adapter maps known SQLSTATEs and hides unknown database message
     assert.equal(response.status, scenario.status);
     assert.deepEqual(await response.json(), scenario.body);
   }
+});
+
+for (const format of ["online", "in_person"] as const) {
+  test(`candidate list for ${format} includes Either and exact formats only`, async () => {
+    const data = structuredClone(candidateData);
+    data.sessions = [];
+    data.mentors[0].preferredFormat = "hybrid";
+    data.mentors[1].preferredFormat = format === "online" ? "in_person" : "online";
+    const exactId = "10000000-0000-4000-8000-000000000009";
+    data.mentors.push({ ...data.mentors[0], id: exactId, profileId: exactId, scheduleMentorIds: [exactId], preferredFormat: format });
+    const response = await routesFor(createSource({ loadCandidateData: async () => data })).getCandidates(
+      candidateRequest(`${new URL(candidateRequest().url).searchParams}&format=${format}`));
+    const payload = await response.json();
+    assert.equal(response.status, 200);
+    assert.deepEqual(payload.data.candidates.map((item: { mentor: { id: string } }) => item.mentor.id), [ids.mentor, exactId]);
+    assert.ok(payload.data.candidates[0].reasons.includes("format fit"));
+  });
+}
+
+test("slot format overrides general preference and other slot preferences", async () => {
+  const data = structuredClone(candidateData);
+  data.sessions = [];
+  data.mentors[0].preferredFormat = "online";
+  data.availability = [
+    { profileId: ids.mentor, sessionDateId: ids.date, timeSlot: "3:30-4:15", isAvailable: true, format: "online" },
+    { profileId: ids.mentor, sessionDateId: ids.date, timeSlot: "4:15-5:00", isAvailable: true, format: "hybrid" },
+    { profileId: ids.firstSlotMentor, sessionDateId: ids.date, timeSlot: "4:15-5:00", isAvailable: true, format: "remote" },
+  ];
+  const response = await routesFor(createSource({ loadCandidateData: async () => data })).getCandidates(candidateRequest());
+  const payload = await response.json();
+  assert.deepEqual(payload.data.candidates.map((item: { mentor: { id: string } }) => item.mentor.id), [ids.mentor]);
+});
+
+test("assignment refuses Either as a meeting format", async () => {
+  const routes = routesFor(createSource());
+  assert.equal((await routes.getCandidates(candidateRequest(`${new URL(candidateRequest().url).searchParams}&format=hybrid`))).status, 400);
+  assert.equal((await routes.commit(commitRequest({ ...validCommit, format: "hybrid" }))).status, 400);
+});
+
+test("commit rechecks mentor format and never writes an incompatible assignment", async () => {
+  let writes = 0;
+  const routes = routesFor(createSource({ commitAssignment: async () => { writes++; return {}; } }));
+  const response = await routes.commit(commitRequest({ ...validCommit, format: "online" }));
+  assert.equal(response.status, 409);
+  assert.equal(writes, 0);
 });

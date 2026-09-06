@@ -18,6 +18,7 @@ import { useRouter } from "next/navigation";
 import { AlmaworksBrand } from "@/components/AlmaworksBrand";
 import { ExpertiseTagPicker } from "@/components/ExpertiseTagPicker";
 import { buildOnboardingWrites, calculateOnboardingProgress, getOnboardingChecklist, isRoleSetupSaveConfirmed, onboardingPreparationError, selectActiveOnboardingMembership, startupAssignmentPreparationError } from "@/src/lifecycle/onboarding";
+import { authenticatedFetch } from "@/src/auth/authenticated-fetch";
 import type { ProgramRole } from "@/src/lifecycle/types";
 import { createClient } from "@/utils/supabase/client";
 
@@ -129,12 +130,14 @@ export default function OnboardingFlow() {
       return false;
     }
     if (role === "mentor" && "mentorProfile" in writes && writes.mentorProfile && "mentorSemester" in writes && writes.mentorSemester) {
-      const [profileResult, semesterResult] = await Promise.all([
+      const [profileResult, semesterResult, tagsResult] = await Promise.all([
         supabase.from("mentor_profiles").update(writes.mentorProfile).eq("profile_id", profileId),
         supabase.from("mentor_semesters").update(writes.mentorSemester).eq("semester_id", semesterId).eq("semester_membership_id", membershipId).select("id, readiness_status").maybeSingle(),
+        authenticatedFetch("/api/expertise-tags/mentor", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tags: expertise }) }),
       ]);
-      if (profileResult.error || semesterResult.error) {
-        setSaveError(profileResult.error?.message ?? semesterResult.error?.message ?? "Mentor setup could not be saved.");
+      if (profileResult.error || semesterResult.error || !tagsResult.ok) {
+        const tagsPayload = !tagsResult.ok ? await tagsResult.json() as { error?: string } : null;
+        setSaveError(profileResult.error?.message ?? semesterResult.error?.message ?? tagsPayload?.error ?? "Mentor setup could not be saved.");
         setSaving(false);
         return false;
       }

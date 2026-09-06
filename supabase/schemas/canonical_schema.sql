@@ -268,7 +268,7 @@ CREATE OR REPLACE FUNCTION "public"."activate_semester_transition"("p_source_sem
 declare v_alumni_count integer;
 begin
   if p_source_semester_id=p_target_semester_id then raise exception 'Source and target semesters must differ' using errcode='22023'; end if;
-  if auth.uid() is null or not private.can_manage_semester(p_source_semester_id,auth.uid()) or not private.can_manage_semester(p_target_semester_id,auth.uid()) then raise exception 'Semester administrator access required for both semesters' using errcode='42501'; end if;
+  if auth.uid() is null or not private.is_super_admin(auth.uid()) then raise exception 'Platform super-administrator access required' using errcode='42501'; end if;
   if not exists(select 1 from public.semesters where id=p_source_semester_id and is_active) or not exists(select 1 from public.semesters where id=p_target_semester_id and lifecycle_status='draft') then raise exception 'Transition requires an active source and draft target semester' using errcode='22023'; end if;
   update public.semester_memberships set status='alumni',alumni_at=now(),updated_at=now() where semester_id=p_source_semester_id and role<>'admin' and status in('onboarding','active');
   get diagnostics v_alumni_count=row_count;
@@ -513,7 +513,7 @@ CREATE OR REPLACE FUNCTION "public"."create_semester_draft"("p_source_semester_i
     AS $$
 declare v_semester_id uuid;
 begin
-  if auth.uid() is null or not private.can_manage_semester(p_source_semester_id, auth.uid()) then raise exception 'Semester administrator access required' using errcode = '42501'; end if;
+  if auth.uid() is null or not private.is_super_admin(auth.uid()) then raise exception 'Platform super-administrator access required' using errcode = '42501'; end if;
   if nullif(trim(p_name), '') is null or p_end_date <= p_start_date then raise exception 'Valid semester name and date range are required' using errcode = '22023'; end if;
   insert into public.semesters(name,start_date,end_date,is_active,lifecycle_status,configuration) values(trim(p_name),p_start_date,p_end_date,false,'draft',coalesce(p_configuration,'{}')) returning id into v_semester_id;
   insert into public.semester_memberships(semester_id,profile_id,role,status,activated_at) values(v_semester_id,private.current_profile_id(),'admin','active',now());
@@ -873,7 +873,7 @@ CREATE OR REPLACE FUNCTION "public"."replace_draft_meetings"("p_semester_id" "uu
     AS $$
 declare v_count integer;
 begin
-  if auth.uid() is null or not private.can_manage_semester(p_semester_id, auth.uid()) then raise exception 'Semester administrator access required' using errcode = '42501'; end if;
+  if auth.uid() is null or not private.is_super_admin(auth.uid()) then raise exception 'Platform super-administrator access required' using errcode = '42501'; end if;
   if jsonb_typeof(p_meetings) is distinct from 'array' then raise exception 'Meetings must be a JSON array' using errcode = '22023'; end if;
   if exists(select 1 from jsonb_to_recordset(p_meetings) proposed(date date,label text) where extract(isodow from proposed.date) <> 5) then raise exception 'Every meeting date must be a Friday' using errcode = '22023'; end if;
   delete from public.meetings where semester_id = p_semester_id;
@@ -3018,7 +3018,9 @@ CREATE POLICY "owners or admins read startup team memberships" ON "public"."star
 
 
 
-CREATE POLICY "owners or super admins read platform roles" ON "public"."platform_roles" FOR SELECT TO "authenticated" USING ((("profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) OR "private"."is_super_admin"(( SELECT "auth"."uid"() AS "uid"))));
+CREATE POLICY "owners or super admins read platform roles" ON "public"."platform_roles" FOR SELECT TO "authenticated" USING ((("profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) OR "private"."is_super_admin"(( SELECT "auth"."uid"() AS "uid")) OR (("role" = 'super_admin'::"public"."platform_role") AND (EXISTS ( SELECT 1
+   FROM "public"."semester_memberships" "member_visibility"
+  WHERE (("member_visibility"."profile_id" = "platform_roles"."profile_id") AND "private"."can_manage_semester"("member_visibility"."semester_id", ( SELECT "auth"."uid"() AS "uid"))))))));
 
 
 
@@ -4465,3 +4467,185 @@ ALTER POLICY "program members read profiles" ON "public"."profiles" USING (("id"
 
 
 REVOKE ALL ON FUNCTION "private"."can_read_session_participant"("target_membership_id" "uuid", "target_semester_id" "uuid", "candidate_id" "uuid") FROM PUBLIC;
+-- Per-participant read receipts for the derived dashboard notifications.
+CREATE TABLE IF NOT EXISTS public.participant_notification_reads (
+    profile_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    semester_id uuid NOT NULL REFERENCES public.semesters(id) ON DELETE CASCADE,
+    notification_key text NOT NULL CHECK (length(btrim(notification_key)) BETWEEN 1 AND 256),
+    read_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (profile_id, semester_id, notification_key)
+);
+ALTER TABLE public.participant_notification_reads ENABLE ROW LEVEL SECURITY;
+CREATE INDEX participant_notification_reads_semester_id_idx ON public.participant_notification_reads (semester_id);
+
+CREATE POLICY "participants read own notification receipts"
+ON public.participant_notification_reads FOR SELECT TO authenticated
+USING (
+    profile_id = (SELECT private.current_profile_id((SELECT auth.uid())))
+    AND EXISTS (
+        SELECT 1 FROM public.semester_memberships membership
+        WHERE membership.profile_id = participant_notification_reads.profile_id
+          AND membership.semester_id = participant_notification_reads.semester_id
+          AND membership.role IN ('mentor', 'startup')
+          AND membership.status IN ('onboarding', 'active', 'alumni')
+    )
+);
+CREATE POLICY "participants insert own notification receipts"
+ON public.participant_notification_reads FOR INSERT TO authenticated
+WITH CHECK (
+    profile_id = (SELECT private.current_profile_id((SELECT auth.uid())))
+    AND EXISTS (
+        SELECT 1 FROM public.semester_memberships membership
+        WHERE membership.profile_id = participant_notification_reads.profile_id
+          AND membership.semester_id = participant_notification_reads.semester_id
+          AND membership.role IN ('mentor', 'startup')
+          AND membership.status IN ('onboarding', 'active')
+    )
+);
+
+-- Active participant network visibility. Keep this final policy overlay after
+-- the session-participant policies above so declarative schema sync preserves
+-- both same-cohort directory access and assigned-session access.
+CREATE OR REPLACE FUNCTION private.can_read_active_cohort_participant (
+    target_membership_id uuid,
+    target_semester_id uuid,
+    candidate_id uuid DEFAULT auth.uid()
+) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO ''
+    AS $$
+  SELECT candidate_id IS NOT NULL
+    AND candidate_id IS NOT DISTINCT FROM auth.uid()
+    AND EXISTS (
+      SELECT 1
+      FROM public.semesters target_semester
+      WHERE target_semester.id = target_semester_id
+        AND target_semester.is_active
+    )
+    AND EXISTS (
+      SELECT 1
+      FROM public.semester_memberships target_membership
+      WHERE target_membership.id = target_membership_id
+        AND target_membership.semester_id = target_semester_id
+        AND target_membership.role IN ('mentor', 'startup')
+        AND target_membership.status = 'active'
+    )
+    AND EXISTS (
+      SELECT 1
+      FROM public.semester_memberships viewer_membership
+      WHERE viewer_membership.semester_id = target_semester_id
+        AND viewer_membership.profile_id = private.current_profile_id(candidate_id)
+        AND viewer_membership.role IN ('mentor', 'startup')
+        AND viewer_membership.status = 'active'
+    );
+$$;
+
+ALTER FUNCTION private.can_read_active_cohort_participant(uuid, uuid, uuid) OWNER TO postgres;
+
+CREATE OR REPLACE FUNCTION private.can_read_mentor_profile (
+    target_profile_id uuid,
+    candidate_id uuid DEFAULT auth.uid()
+) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO ''
+    AS $$
+  SELECT candidate_id IS NOT NULL
+    AND candidate_id IS NOT DISTINCT FROM auth.uid()
+    AND EXISTS (
+      SELECT 1
+      FROM public.semester_memberships target_membership
+      WHERE target_membership.profile_id = target_profile_id
+        AND target_membership.role = 'mentor'
+        AND (
+          private.can_manage_semester(target_membership.semester_id, candidate_id)
+          OR private.can_read_active_cohort_participant(
+            target_membership.id,
+            target_membership.semester_id,
+            candidate_id
+          )
+          OR private.can_read_session_participant(
+            target_membership.id,
+            target_membership.semester_id,
+            candidate_id
+          )
+        )
+    );
+$$;
+
+ALTER POLICY "program members read mentor profiles" ON public.mentor_profiles
+USING (
+    profile_id = (SELECT private.current_profile_id((SELECT auth.uid())))
+    OR private.is_super_admin((SELECT auth.uid()))
+    OR EXISTS (
+      SELECT 1
+      FROM public.semester_memberships administrator
+      WHERE administrator.profile_id = (SELECT private.current_profile_id((SELECT auth.uid())))
+        AND administrator.role = 'admin'
+        AND administrator.status IN ('onboarding', 'active')
+    )
+    OR private.can_read_mentor_profile(profile_id, (SELECT auth.uid()))
+);
+
+ALTER POLICY "program members read profiles" ON public.profiles
+USING (
+    id = (SELECT private.current_profile_id((SELECT auth.uid())))
+    OR private.is_super_admin((SELECT auth.uid()))
+    OR EXISTS (
+      SELECT 1
+      FROM public.semester_memberships administrator
+      WHERE administrator.profile_id = (SELECT private.current_profile_id((SELECT auth.uid())))
+        AND administrator.role = 'admin'
+        AND administrator.status IN ('onboarding', 'active')
+    )
+    OR private.can_read_mentor_profile(id, (SELECT auth.uid()))
+    OR EXISTS (
+      SELECT 1
+      FROM public.semester_memberships cohort_participant
+      WHERE cohort_participant.profile_id = profiles.id
+        AND private.can_read_active_cohort_participant(
+          cohort_participant.id,
+          cohort_participant.semester_id,
+          (SELECT auth.uid())
+        )
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM public.semester_memberships session_participant
+      WHERE session_participant.profile_id = profiles.id
+        AND private.can_read_session_participant(
+          session_participant.id,
+          session_participant.semester_id,
+          (SELECT auth.uid())
+        )
+    )
+);
+
+ALTER POLICY "members read authorized semester memberships" ON public.semester_memberships
+USING (
+    profile_id = (SELECT private.current_profile_id((SELECT auth.uid())))
+    OR private.can_manage_semester(semester_id, (SELECT auth.uid()))
+    OR private.can_read_active_cohort_participant(id, semester_id, (SELECT auth.uid()))
+    OR private.can_read_session_participant(id, semester_id, (SELECT auth.uid()))
+);
+
+ALTER POLICY "owners or admins read startup team memberships" ON public.startup_team_memberships
+USING (
+    private.can_manage_semester(semester_id, (SELECT auth.uid()))
+    OR EXISTS (
+      SELECT 1
+      FROM public.semester_memberships membership
+      WHERE membership.id = startup_team_memberships.semester_membership_id
+        AND membership.semester_id = startup_team_memberships.semester_id
+        AND membership.profile_id = (SELECT private.current_profile_id((SELECT auth.uid())))
+    )
+    OR private.can_read_active_cohort_participant(
+      semester_membership_id,
+      semester_id,
+      (SELECT auth.uid())
+    )
+    OR private.can_read_session_participant(
+      semester_membership_id,
+      semester_id,
+      (SELECT auth.uid())
+    )
+);

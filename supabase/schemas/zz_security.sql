@@ -71,6 +71,7 @@ grant execute on function public.delete_startup_permanently(uuid,text) to authen
 grant execute on function private.can_read_outreach_relationship_labels(uuid) to authenticated;
 grant execute on function private.has_outreach_contact_access(uuid,uuid) to authenticated;
 grant execute on function private.has_outreach_company_access(uuid,uuid) to authenticated;
+grant execute on function private.can_read_active_cohort_participant(uuid,uuid,uuid) to authenticated;
 grant execute on function private.can_read_mentor_profile(uuid,uuid) to authenticated;
 grant execute on function private.can_read_session_rsvp(uuid,uuid,uuid) to authenticated;
 grant execute on function private.can_read_session_participant(uuid,uuid,uuid) to authenticated;
@@ -105,3 +106,5 @@ grant execute on function public.upsert_outreach_contact_bundle(uuid,uuid,text,t
 grant execute on function public.create_mentor_records(uuid,uuid,uuid,text,text,text,text[],boolean,text,text,text,text,text) to service_role;
 grant execute on function public.set_semester_member_access(uuid,uuid,uuid,public.user_role,boolean,text,text) to service_role;
 grant execute on function public.update_mentor_records(uuid,uuid,jsonb) to service_role;
+-- Receipts are immutable and private to the participant; no administrator override.
+grant select, insert on table public.participant_notification_reads to authenticated;

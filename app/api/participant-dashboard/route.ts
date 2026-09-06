@@ -12,6 +12,7 @@ import type { ParticipantDirectoryEntry, ParticipantMembershipInput, Participant
 import type { Database } from "@/src/db/types";
 import type { SessionAttendeeRsvp, SessionRsvpState } from "@/src/sessions/rsvp";
 import { normalizeAvailabilityFormat } from "@/src/program/availability-windows";
+import { scopeActiveNetwork } from "@/src/dashboard/participant-network";
 
 type RlsClient = SupabaseClient<Database>;
 
@@ -77,10 +78,18 @@ async function loadSnapshot(client: RlsClient, user: User, profileId: string): P
   };
   if (!activeSemester || !membership || membership.role === "admin") return base;
 
-  const meetingsResult = await client.from("meetings")
-    .select("id,meeting_date,slot_1_starts_at,slot_1_ends_at,slot_2_starts_at,slot_2_ends_at")
-    .eq("semester_id", activeSemester.id);
+  const [meetingsResult, notificationReadsResult] = await Promise.all([
+    client.from("meetings")
+      .select("id,meeting_date,slot_1_starts_at,slot_1_ends_at,slot_2_starts_at,slot_2_ends_at")
+      .eq("semester_id", activeSemester.id),
+    client.from("participant_notification_reads")
+      .select("notification_key")
+      .eq("profile_id", profileId)
+      .eq("semester_id", activeSemester.id),
+  ]);
   ensure(meetingsResult.error);
+  ensure(notificationReadsResult.error);
+  base.readNotificationKeys = (notificationReadsResult.data ?? []).map((row) => row.notification_key);
   const meetings = new Map((meetingsResult.data ?? []).map((row) => [row.id, row]));
   const sessionsResult = await client.from("sessions")
     .select("id,semester_id,meeting_id,mentor_semester_id,startup_semester_id,slot,status,topic,format")
@@ -122,14 +131,6 @@ async function loadSnapshot(client: RlsClient, user: User, profileId: string): P
       websiteUrl: own?.website_url ?? "",
       linkedinUrl: own?.linkedin_url ?? "",
     };
-    base.network = startupRows.map((row): ParticipantDirectoryEntry => {
-      const org = relation(row.startup_organizations);
-      return {
-        id: row.id, semesterId: row.semester_id, kind: "startup", name: org?.name ?? "Startup",
-        headline: [org?.industry, row.stage].filter(Boolean).join(" · "), tags: [...row.goals, ...row.mentorship_needs],
-        summary: row.company_snapshot ?? org?.description ?? "", websiteUrl: org?.website_url ?? null, photoUrl: org?.logo_url ?? null,
-      };
-    });
     const availabilityResult = await client.from("meeting_availability")
       .select("meeting_id,slot,is_available")
       .eq("semester_id", activeSemester.id)
@@ -177,19 +178,25 @@ async function loadSnapshot(client: RlsClient, user: User, profileId: string): P
       context: own?.mentor_need_context ?? null,
       noPreference: own?.mentor_need_no_preference ?? false,
     };
-    const mentorsResult = await client.from("mentor_profiles")
-      .select("profile_id,biography,company,title,linkedin_url,website_url,photo_url,expertise_tags,profiles(full_name)");
-    ensure(mentorsResult.error);
-    const mentors = (mentorsResult.data ?? []) as unknown as Array<{
-      profile_id: string; biography: string | null; company: string | null; title: string | null; linkedin_url: string | null;
-      website_url: string | null; photo_url: string | null; expertise_tags: string[]; profiles: { full_name: string | null } | null;
-    }>;
-    base.network = mentors.map((mentor): ParticipantDirectoryEntry => ({
-      id: mentor.profile_id, semesterId: activeSemester.id, kind: "mentor", name: relation(mentor.profiles)?.full_name ?? "Almaworks mentor",
-      headline: [mentor.title, mentor.company].filter(Boolean).join(" · "), tags: mentor.expertise_tags,
-      summary: mentor.biography ?? "", websiteUrl: mentor.website_url ?? mentor.linkedin_url, photoUrl: mentor.photo_url,
-    }));
   }
+
+  const networkMembershipsResult = await client.from("semester_memberships")
+    .select("id,semester_id,profile_id,role,status")
+    .eq("semester_id", activeSemester.id).eq("status", "active").in("role", ["mentor", "startup"]);
+  ensure(networkMembershipsResult.error);
+  const networkMemberships = (networkMembershipsResult.data ?? []).map((row): ParticipantMembershipInput => ({
+    id: row.id, semesterId: row.semester_id, profileId: row.profile_id, role: row.role, status: row.status,
+  }));
+  const networkProfileIds = [...new Set(networkMemberships.map((member) => member.profileId))];
+  const mentorProfileIds = networkMemberships.filter((member) => member.role === "mentor").map((member) => member.profileId);
+  const [networkProfilesResult, networkMentorsResult] = await Promise.all([
+    networkProfileIds.length ? client.from("profiles").select("id,full_name,email").in("id", networkProfileIds) : { data: [], error: null },
+    mentorProfileIds.length ? client.from("mentor_profiles").select("profile_id,biography,company,title,linkedin_url,website_url,photo_url,expertise_tags").in("profile_id", mentorProfileIds) : { data: [], error: null },
+  ]);
+  ensure(networkProfilesResult.error);
+  ensure(networkMentorsResult.error);
+  const networkProfiles = new Map((networkProfilesResult.data ?? []).map((person) => [person.id, person]));
+  const networkMentors = new Map((networkMentorsResult.data ?? []).map((mentor) => [mentor.profile_id, mentor]));
 
   const timezone = timezoneFrom(activeSemester.configuration);
 
@@ -201,6 +208,28 @@ async function loadSnapshot(client: RlsClient, user: User, profileId: string): P
     .select("startup_semester_id,semester_membership_id")
     .eq("semester_id", activeSemester.id);
   ensure(teamRowsResult.error);
+  base.network = scopeActiveNetwork(activeSemester.id, profileId, networkMemberships, networkMemberships.flatMap((member): ParticipantDirectoryEntry[] => {
+    const person = networkProfiles.get(member.profileId);
+    if (!person) return [];
+    if (member.role === "mentor") {
+      const mentor = networkMentors.get(member.profileId);
+      return [{
+        id: person.id, semesterId: member.semesterId, kind: "mentor", name: person.full_name || "Almaworks mentor",
+        headline: [mentor?.title, mentor?.company].filter(Boolean).join(" · "), tags: mentor?.expertise_tags ?? [],
+        summary: mentor?.biography ?? "", websiteUrl: mentor?.website_url ?? null, photoUrl: mentor?.photo_url ?? null,
+        email: person.email, linkedinUrl: mentor?.linkedin_url ?? null,
+      }];
+    }
+    const team = (teamRowsResult.data ?? []).find((row) => row.semester_membership_id === member.id);
+    const startup = startupRows.find((row) => row.id === team?.startup_semester_id);
+    const org = relation(startup?.startup_organizations ?? null);
+    return [{
+      id: person.id, semesterId: member.semesterId, kind: "startup", name: person.full_name || "Startup member",
+      headline: [org?.name, org?.industry, startup?.stage].filter(Boolean).join(" · "), tags: [...(startup?.goals ?? []), ...(startup?.mentorship_needs ?? [])],
+      summary: startup?.company_snapshot ?? org?.description ?? "", websiteUrl: org?.website_url ?? null, photoUrl: null,
+      email: person.email, linkedinUrl: null,
+    }];
+  }));
   const eligibleMembershipIds = [...new Set([
     ...(mentorTermsResult.data ?? []).map((row) => row.semester_membership_id),
     ...(teamRowsResult.data ?? []).map((row) => row.semester_membership_id),

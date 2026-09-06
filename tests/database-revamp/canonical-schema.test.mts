@@ -21,13 +21,14 @@ const tables = [
   "mentor_profiles", "mentor_semesters", "startup_organizations", "startup_semesters",
   "startup_team_memberships", "meetings", "meeting_availability", "sessions",
   "session_rsvps",
+  "participant_notification_reads",
   "schedule_attention_alerts",
   "program_audit_events", "outreach_contacts", "outreach_companies",
   "outreach_contact_companies", "outreach_opportunities", "outreach_activities",
   "outreach_imports",
 ] as const;
 
-test("canonical schema contains exactly the twenty-two Almaworks tables", () => {
+test("canonical schema contains exactly the declared Almaworks tables", () => {
   const declared = [...source.matchAll(/create table(?: if not exists)? public\.([a-z_]+)/gu)].map((match) => match[1]);
   assert.deepEqual(declared.sort(), [...tables].sort());
   for (const legacy of ["mentors", "startups", "session_dates", "availability"]) {

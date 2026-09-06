@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "../db/types.ts";
+import { createOrFindExpertiseTag } from "../expertise-tags/server.ts";
 import { buildMentorNeedsBoard, type MentorNeedSelection, type MentorNeedsBoardRow } from "./domain.ts";
 
 export class MentorNeedsRepositoryError extends Error {
@@ -56,9 +57,23 @@ export async function loadStartupMentorNeeds(
 
 export async function saveStartupMentorNeeds(
   client: SupabaseClient<Database>,
+  profileId: string,
   startupSemesterId: string,
+  semesterId: string,
   selection: MentorNeedSelection,
 ): Promise<void> {
+  const tags = await Promise.all(selection.needs.map(async (name) => await createOrFindExpertiseTag(client, profileId, name)));
+  const clearResult = await client.from("startup_mentor_need_tags").delete().eq("startup_semester_id", startupSemesterId);
+  if (clearResult.error !== null) fail("clear canonical mentor needs", clearResult.error.message);
+  if (tags.length > 0) {
+    const insertResult = await client.from("startup_mentor_need_tags").insert(tags.map((tag, index) => ({
+      startup_semester_id: startupSemesterId,
+      semester_id: semesterId,
+      expertise_tag_id: tag.id,
+      priority: index + 1,
+    })));
+    if (insertResult.error !== null) fail("save canonical mentor needs", insertResult.error.message);
+  }
   const result = await client.from("startup_semesters").update({
     mentorship_needs: selection.needs,
     mentor_need_context: selection.context,

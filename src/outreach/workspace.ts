@@ -65,12 +65,11 @@ export interface WorkspaceRowsPage<Row> {
 export type OutreachWorkspaceView = "mine" | "team" | "people" | "companies" | "imports";
 
 export function resolveOutreachSemesterId(
-  view: OutreachWorkspaceView,
+  _view: OutreachWorkspaceView,
   requestedSemesterId: string | null,
   semesters: readonly { id: string; isActive: boolean }[],
 ): string {
   const activeSemesterId = semesters.find((semester) => semester.isActive)?.id ?? "";
-  if (view === "people") return activeSemesterId;
   if (
     requestedSemesterId !== null
     && requestedSemesterId !== "all"

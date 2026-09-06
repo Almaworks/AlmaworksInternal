@@ -13,7 +13,6 @@ interface WorkspaceHeaderProps {
   semesters: readonly WorkspaceSemester[];
   semesterId: string;
   activeSemesterId: string;
-  semesterSelectionLocked: boolean;
   onSemesterChange: (value: string) => void;
   onSearchChange: (value: string) => void;
   onImport: () => void;
@@ -26,12 +25,12 @@ const healthLabels: { key: keyof WorkspaceHealth; label: string }[] = [
   { key: "awaitingResponse", label: "Awaiting response" },
 ];
 
-export function WorkspaceHeader({ health, search, semesters, semesterId, activeSemesterId, semesterSelectionLocked, onSemesterChange, onSearchChange, onImport }: WorkspaceHeaderProps) {
+export function WorkspaceHeader({ health, search, semesters, semesterId, activeSemesterId, onSemesterChange, onSearchChange, onImport }: WorkspaceHeaderProps) {
   const [adding, setAdding] = useState(false);
   return <><header className={styles.header}>
     <div>
       <p className={styles.eyebrow}>Relationship operations</p>
-      <div className={styles.titleLine}><h1>Outreach</h1><label className={styles.semester}><CalendarDays size={14} /><span className={styles.srOnly}>Semester</span><select value={semesterId} onChange={(event) => onSemesterChange(event.target.value)} disabled={semesterSelectionLocked} title={semesterSelectionLocked ? "People is scoped to the active semester" : undefined}>{semesters.map((semester) => <option key={semester.id} value={semester.id}>{semester.name}{semester.isActive ? " (active)" : ""}</option>)}</select></label></div>
+      <div className={styles.titleLine}><h1>Outreach</h1><label className={styles.semester}><CalendarDays size={14} /><span className={styles.srOnly}>Semester</span><select value={semesterId} onChange={(event) => onSemesterChange(event.target.value)}>{semesters.map((semester) => <option key={semester.id} value={semester.id}>{semester.name}{semester.isActive ? " (active)" : ""}</option>)}</select></label></div>
       <p className={styles.subtitle}>Keep the next conversation clear, owned, and on time.</p>
     </div>
     <div className={styles.headerControls}>

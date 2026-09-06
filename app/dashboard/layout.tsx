@@ -28,6 +28,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname()
   const [profile, setProfile] = useState<Profile | null>(null)
   const [canManageAdmin, setCanManageAdmin] = useState(false)
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
   const [pendingView, setPendingView] = useState<AdminView | null>(null)
   const [isViewTransitionPending, startViewTransition] = useTransition()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -83,8 +84,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           && 'canManageAdmin' in payload.data
           && payload.data.canManageAdmin === true
         setCanManageAdmin(canManage)
+        setIsSuperAdmin(canManage && typeof payload === 'object' && payload !== null && 'data' in payload && typeof payload.data === 'object' && payload.data !== null && 'isSuperAdmin' in payload.data && payload.data.isSuperAdmin === true)
       } catch {
         setCanManageAdmin(false)
+        setIsSuperAdmin(false)
       }
     })
   }, [router, supabase])
@@ -105,7 +108,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       ? [
           { href: '/dashboard/admin', label: 'Overview' },
           { href: '/dashboard/admin/schedule', label: 'Schedule' },
-          { href: '/dashboard/admin/semesters', label: 'Semesters' },
+          ...(isSuperAdmin ? [{ href: '/dashboard/admin/semesters', label: 'Semesters' }] : []),
           { href: '/dashboard/admin/outreach', label: 'Outreach' },
           { href: '/dashboard/admin/mentor-needs', label: 'Mentor Needs' },
           { href: '/dashboard/admin/mentors', label: 'Mentors' },

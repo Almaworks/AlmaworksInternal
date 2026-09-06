@@ -1,7 +1,7 @@
 ---
 title: Mentor Assignment Schedule Operations
 status: active
-updated: 2026-08-31
+updated: 2026-09-06
 ---
 
 # Mentor assignment schedule operations
@@ -18,7 +18,7 @@ Before scheduling, confirm that the intended semester is active and its Friday s
 
 1. Open **Schedule** and locate the startup, Friday, and time slot.
 2. Select an empty, linked startup cell. The assignment drawer shows the canonical organization, primary and secondary Mentor Needs, preferred expertise, selected date and slot, topic, and meeting format.
-3. Review ranked candidates. Search by mentor name or filter by expertise without changing the server-provided rank order. Changing the meeting format reloads ranking, availability, capacity, and conflict context for that format.
+3. Review ranked candidates. Search by mentor name or filter by expertise without changing the server-provided rank order. Choose Online or In Person. Only mentors compatible with the chosen format appear; mentors who chose Either qualify for both. The selected slot's preference takes precedence over the general mentor preference. Changing the meeting format clears the selection and reloads ranking, availability, capacity, and conflict context.
 4. Review every availability, capacity, expertise, format, recency, and conflict explanation. A mentor already occupying the selected slot is a hard conflict and cannot be selected. The second slot also respects the API's selected-startup exclusion metadata.
 5. For a candidate that requires an override, explicitly acknowledge the override and enter a specific operational reason. The assignment cannot be submitted until all required override types are acknowledged with a non-empty reason.
 6. Add or confirm the topic and supported format, then submit once. The browser commits only through the atomic assignment API; it must not insert sessions directly or invoke the database RPC.

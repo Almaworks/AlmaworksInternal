@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 
 import { AuthorizationError, requireAuthenticatedUser, requireSemesterAdmin } from '@/src/auth/server'
 
+import { SessionFormatError, sessionFormatSource, validateSessionMeetingFormat } from '@/src/sessions/meeting-format'
+
 type SessionWrite = {
   format?: string | null
   meetingId?: string
@@ -16,14 +18,14 @@ type SessionWrite = {
 
 async function authorizeExisting(request: Request, sessionId: string) {
   const context = await requireAuthenticatedUser(request)
-  const session = await context.adminClient.from('sessions').select('semester_id').eq('id', sessionId).maybeSingle()
+  const session = await context.userClient.from('sessions').select('semester_id, meeting_id, mentor_semester_id, slot, format').eq('id', sessionId).maybeSingle()
   if (session.error || !session.data) throw new Error('Session not found.')
   const manage = await context.userClient.rpc('can_manage_semester', {
     candidate_id: context.user.id,
     target_semester_id: session.data.semester_id,
   })
   if (manage.error || manage.data !== true) throw new AuthorizationError('Semester administrator access required.', 403)
-  return context
+  return { ...context, session: session.data }
 }
 
 export async function POST(request: Request) {
@@ -32,9 +34,10 @@ export async function POST(request: Request) {
     if (!body.semesterId || !body.meetingId || !body.mentorSemesterId || !body.startupSemesterId || !body.slot) {
       return NextResponse.json({ error: 'semesterId, meetingId, mentorSemesterId, startupSemesterId, and slot are required.' }, { status: 400 })
     }
-    const { adminClient } = await requireSemesterAdmin(request, body.semesterId)
-    const result = await adminClient.from('sessions').insert({
-      format: body.format ?? null,
+    const { userClient } = await requireSemesterAdmin(request, body.semesterId)
+    const format = await validateSessionMeetingFormat({ ...body, format: body.format, semesterId: body.semesterId, meetingId: body.meetingId, mentorSemesterId: body.mentorSemesterId, slot: body.slot }, sessionFormatSource(userClient))
+    const result = await userClient.from('sessions').insert({
+      format,
       meeting_id: body.meetingId,
       mentor_semester_id: body.mentorSemesterId,
       semester_id: body.semesterId,
@@ -48,6 +51,7 @@ export async function POST(request: Request) {
     if (result.error) throw new Error(result.error.message)
     return NextResponse.json({ ok: true })
   } catch (error) {
+    if (error instanceof SessionFormatError) return NextResponse.json({ error: error.message }, { status: 400 })
     if (error instanceof AuthorizationError) return NextResponse.json({ error: error.message }, { status: error.status })
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to create session.' }, { status: 500 })
   }
@@ -57,9 +61,17 @@ export async function PATCH(request: Request) {
   try {
     const body = (await request.json()) as SessionWrite & { sessionId: string }
     if (!body.sessionId) return NextResponse.json({ error: 'sessionId is required.' }, { status: 400 })
-    const { adminClient } = await authorizeExisting(request, body.sessionId)
-    const result = await adminClient.from('sessions').update({
-      format: body.format,
+    const { userClient, session } = await authorizeExisting(request, body.sessionId)
+    const changesAssignment = body.format !== undefined || body.mentorSemesterId !== undefined || body.slot !== undefined
+    const format = changesAssignment ? await validateSessionMeetingFormat({
+      semesterId: session.semester_id,
+      meetingId: session.meeting_id,
+      mentorSemesterId: body.mentorSemesterId ?? session.mentor_semester_id,
+      slot: body.slot ?? session.slot as 1 | 2,
+      format: body.format === undefined ? session.format : body.format,
+    }, sessionFormatSource(userClient)) : undefined
+    const result = await userClient.from('sessions').update({
+      format,
       mentor_semester_id: body.mentorSemesterId,
       slot: body.slot,
       startup_absent: body.startupAbsent,
@@ -71,6 +83,7 @@ export async function PATCH(request: Request) {
     if (result.error) throw new Error(result.error.message)
     return NextResponse.json({ ok: true })
   } catch (error) {
+    if (error instanceof SessionFormatError) return NextResponse.json({ error: error.message }, { status: 400 })
     if (error instanceof AuthorizationError) return NextResponse.json({ error: error.message }, { status: error.status })
     const status = error instanceof Error && error.message === 'Session not found.' ? 404 : 500
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to update session.' }, { status })

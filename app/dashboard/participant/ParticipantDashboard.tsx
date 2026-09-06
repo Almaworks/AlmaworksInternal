@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Bell, CalendarCheck, CalendarDays, Check, ChevronRight, CircleUserRound, ExternalLink, LockKeyhole, LogOut, Mail, RefreshCw, Search, ShieldCheck, Sparkles, Target, UserRoundPen, UsersRound } from "lucide-react";
 
 import { createClient } from "@/utils/supabase/client";
@@ -11,16 +11,18 @@ import { AlmaworksBrand } from "@/components/AlmaworksBrand";
 import MentorNeedsForm, { type MentorNeedsFormRecord } from "@/components/mentor-needs/MentorNeedsForm";
 import { MentorNeedsSummaryCard } from "@/components/mentor-needs/MentorNeedsSummaryCard";
 import { ParticipantSessionCard } from "@/components/sessions/ParticipantSessionCard";
-import TagInput from "@/components/TagInput";
+import { ExpertiseTagPicker } from "@/components/ExpertiseTagPicker";
 import { authenticatedFetch } from "@/src/auth/authenticated-fetch";
 import { signOutParticipant } from "@/src/auth/participant-sign-out";
 import { adminViewDestination, resolveAdminViewTransition, shouldShowAdminViewLoading, type AdminView } from "@/src/dashboard/participant-preview";
 import type { ParticipantDashboardResponse, ParticipantProfileForm } from "@/src/dashboard/participant-dashboard-server";
-import type { ParticipantDashboardView, ParticipantDirectoryEntry, ParticipantRole } from "@/src/dashboard/participant-dashboard";
+import { markParticipantNotificationRead, unreadNotificationCount, type ParticipantDashboardView, type ParticipantDirectoryEntry, type ParticipantRole } from "@/src/dashboard/participant-dashboard";
+import { participantNotificationReadCacheKey, persistParticipantNotificationRead } from "@/src/dashboard/participant-notification-read";
 import type { SessionRsvpResponse } from "@/src/sessions/rsvp";
 import styles from "@/app/design-preview/participant-dashboard/participant-dashboard.module.css";
 
 type TabId = "home" | "network" | "sessions" | "availability" | "mentor-needs" | "notifications" | "profile";
+type NotificationReadScope = { profileId: string; semesterId: string };
 const baseTabs = [
   { id: "home" as const, label: "Home", icon: Sparkles },
   { id: "network" as const, label: "Network", icon: UsersRound },
@@ -42,7 +44,17 @@ function initials(name: string) { return name.split(/\s+/u).filter(Boolean).map(
 function externalUrl(value: string) { return value.startsWith("http") ? value : `https://${value}`; }
 
 function NetworkCard({ entry, preview }: { entry: ParticipantDirectoryEntry; preview: boolean }) {
-  return <article className={styles.networkCard}><div className={styles.networkTop}><div className={styles.avatar}>{initials(entry.name)}</div>{entry.websiteUrl && (preview ? <button type="button" className={styles.iconButton} disabled aria-label={`${entry.name} website is disabled in demo mode`}><ExternalLink size={16} /></button> : <a className={styles.iconButton} href={externalUrl(entry.websiteUrl)} target="_blank" rel="noreferrer" aria-label={`Open ${entry.name}`}><ExternalLink size={16} /></a>)}</div><h3>{entry.name}</h3><p className={styles.headline}>{entry.headline || "Active participant"}</p><p className={styles.summary}>{entry.summary || "This participant is completing their profile."}</p><div className={styles.tags}>{entry.tags.slice(0, 6).map((tag) => <span key={tag}>{tag}</span>)}</div></article>;
+  return <article className={styles.networkCard}>
+    <div className={styles.networkTop}><div className={styles.avatar}>{initials(entry.name)}</div><span className={styles.eyebrow}>{entry.kind === "mentor" ? "Mentor" : "Startup member"}</span></div>
+    <h3>{entry.name}</h3><p className={styles.headline}>{entry.headline || "Active participant"}</p>
+    <p className={styles.summary}>{entry.summary || "This participant is completing their profile."}</p>
+    <div className={styles.tags}>{entry.tags.slice(0, 6).map((tag) => <span key={tag}>{tag}</span>)}</div>
+    <div className={styles.networkContacts} aria-label={`${entry.name} contact information`}>
+      {entry.email ? (preview ? <span><Mail size={15} />{entry.email}</span> : <a href={`mailto:${entry.email}`}><Mail size={15} />{entry.email}</a>) : <span>Email not provided</span>}
+      {entry.linkedinUrl && (preview ? <span>LinkedIn</span> : <a href={externalUrl(entry.linkedinUrl)} target="_blank" rel="noreferrer">LinkedIn<ExternalLink size={14} /></a>)}
+      {entry.websiteUrl && (preview ? <span>Website</span> : <a href={externalUrl(entry.websiteUrl)} target="_blank" rel="noreferrer">Website<ExternalLink size={14} /></a>)}
+    </div>
+  </article>;
 }
 
 function Gate({ kind, retry }: { kind: "loading" | "pending" | "unavailable" | "error"; retry: () => void }) {
@@ -62,8 +74,9 @@ function tagValues(value: string): string[] {
 export default function ParticipantDashboard({ expectedRole, previewView }: { expectedRole: ParticipantRole; previewView?: ParticipantDashboardView }) {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const isPreview = previewView !== undefined;
-  const [tab, setTab] = useState<TabId>("home");
+  const [tab, setTab] = useState<TabId>(() => searchParams.get("tab") === "sessions" ? "sessions" : "home");
   const [result, setResult] = useState<ParticipantDashboardResponse | null>(previewView ?? null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -81,6 +94,13 @@ export default function ParticipantDashboard({ expectedRole, previewView }: { ex
   const [availabilityDraft, setAvailabilityDraft] = useState<ParticipantDashboardView["availability"]>(previewView?.availability ?? []);
   const [availabilityMessage, setAvailabilityMessage] = useState<string | null>(null);
   const [savingAvailability, setSavingAvailability] = useState(false);
+  const [notificationReadFailure, setNotificationReadFailure] = useState<{
+    notice: ParticipantDashboardView["notifications"][number];
+    scope: NotificationReadScope;
+    message: string;
+  } | null>(null);
+  const pendingNotificationReadsRef = useRef(new Map<string, symbol>());
+  const locallyReadNotificationKeysRef = useRef(new Set<string>());
 
   const load = useCallback(async () => {
     setError(null);
@@ -94,12 +114,24 @@ export default function ParticipantDashboard({ expectedRole, previewView }: { ex
       const response = await authenticatedFetch("/api/participant-dashboard");
       const payload = await response.json() as { data?: ParticipantDashboardResponse; error?: string };
       if (!response.ok || !payload.data) throw new Error(payload.error ?? "Dashboard could not be loaded.");
-      setResult(payload.data);
-      if (payload.data.state === "participant") {
-        if (payload.data.role !== expectedRole) { router.replace(`/dashboard/${payload.data.role}`); return; }
-        setEmail(payload.data.identity.email);
-        setForm({ fullName: payload.data.identity.fullName, headline: payload.data.profile.headline, summary: payload.data.profile.summary, tags: payload.data.profile.tags.join(", "), websiteUrl: payload.data.profile.websiteUrl, linkedinUrl: payload.data.profile.linkedinUrl });
-        setAvailabilityDraft(payload.data.availability);
+      const dashboardData = payload.data;
+      setResult(dashboardData.state === "participant" ? {
+        ...dashboardData,
+        notifications: dashboardData.notifications.map((notification) => (
+          locallyReadNotificationKeysRef.current.has(participantNotificationReadCacheKey(
+            dashboardData.identity.profileId,
+            dashboardData.semester.id,
+            notification.key,
+          ))
+            ? { ...notification, read: true }
+            : notification
+        )),
+      } : dashboardData);
+      if (dashboardData.state === "participant") {
+        if (dashboardData.role !== expectedRole) { router.replace(`/dashboard/${dashboardData.role}`); return; }
+        setEmail(dashboardData.identity.email);
+        setForm({ fullName: dashboardData.identity.fullName, headline: dashboardData.profile.headline, summary: dashboardData.profile.summary, tags: dashboardData.profile.tags.join(", "), websiteUrl: dashboardData.profile.websiteUrl, linkedinUrl: dashboardData.profile.linkedinUrl });
+        setAvailabilityDraft(dashboardData.availability);
       }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Dashboard could not be loaded."); }
   }, [expectedRole, previewView, router]);
@@ -113,15 +145,81 @@ export default function ParticipantDashboard({ expectedRole, previewView }: { ex
   if (!result && !error) return <Gate kind="loading" retry={() => void load()} />;
   if (error) return <Gate kind="error" retry={() => void load()} />;
   if (result?.state === "pending") return <Gate kind="pending" retry={() => void load()} />;
-  if (result?.state === "unavailable" || !view) return <Gate kind="unavailable" retry={() => void load()} />;
+  if (result?.state === "unavailable") return <Gate kind="unavailable" retry={() => void load()} />;
+  if (!view) return <Gate kind="unavailable" retry={() => void load()} />;
+  const participantView = view;
 
   const isMentor = view.role === "mentor";
-  const expertiseSuggestions = [...new Set(view.network.flatMap((entry) => entry.tags))].sort((left, right) => left.localeCompare(right));
   const tabs = baseTabs.filter((item) => (item.id !== "mentor-needs" || !isMentor) && (item.id !== "availability" || isMentor));
   const upcoming = view.sessions.filter((session) => session.timing === "upcoming" && session.status !== "cancelled");
   const past = view.sessions.filter((session) => session.timing === "past");
   const complete = view.activation.filter((step) => step.status === "complete").length;
+  const unreadNotifications = unreadNotificationCount(view);
   function open(next: TabId) { setTab(next); window.scrollTo({ top: 0, behavior: "smooth" }); }
+
+  async function saveNotificationRead(
+    notice: ParticipantDashboardView["notifications"][number],
+    scope: NotificationReadScope,
+  ) {
+    if (participantView.identity.profileId !== scope.profileId || participantView.semester.id !== scope.semesterId) return;
+    const cacheKey = participantNotificationReadCacheKey(scope.profileId, scope.semesterId, notice.key);
+    if (locallyReadNotificationKeysRef.current.has(cacheKey)) return;
+    const attempt = Symbol(cacheKey);
+    locallyReadNotificationKeysRef.current.add(cacheKey);
+    pendingNotificationReadsRef.current.set(cacheKey, attempt);
+    setNotificationReadFailure((current) => (
+      current?.scope.profileId === scope.profileId
+      && current.scope.semesterId === scope.semesterId
+      && current.notice.key === notice.key
+        ? null
+        : current
+    ));
+    setResult((current) => {
+      if (current?.state !== "participant") return current;
+      if (current.identity.profileId !== scope.profileId || current.semester.id !== scope.semesterId) return current;
+      return markParticipantNotificationRead(current, notice.key);
+    });
+    if (isPreview) {
+      pendingNotificationReadsRef.current.delete(cacheKey);
+      return;
+    }
+    try {
+      await persistParticipantNotificationRead(authenticatedFetch, {
+        semesterId: scope.semesterId,
+        notificationKey: notice.key,
+      });
+      if (pendingNotificationReadsRef.current.get(cacheKey) === attempt) {
+        pendingNotificationReadsRef.current.delete(cacheKey);
+      }
+    } catch (cause) {
+      if (pendingNotificationReadsRef.current.get(cacheKey) !== attempt) return;
+      pendingNotificationReadsRef.current.delete(cacheKey);
+      locallyReadNotificationKeysRef.current.delete(cacheKey);
+      setResult((current) => {
+        if (current?.state !== "participant") return current;
+        if (current.identity.profileId !== scope.profileId || current.semester.id !== scope.semesterId) return current;
+        return {
+          ...current,
+          notifications: current.notifications.map((notification) => (
+            notification.key === notice.key ? { ...notification, read: false } : notification
+          )),
+        };
+      });
+      setNotificationReadFailure({
+        notice,
+        scope,
+        message: cause instanceof Error ? cause.message : "Notification read status could not be saved.",
+      });
+    }
+  }
+
+  function openNotification(notice: ParticipantDashboardView["notifications"][number]) {
+    open(notice.destination);
+    if (!notice.read) void saveNotificationRead(notice, {
+      profileId: participantView.identity.profileId,
+      semesterId: participantView.semester.id,
+    });
+  }
 
   function applyPreviewRsvp(sessionId: string, response: SessionRsvpResponse) {
     setResult((current) => {
@@ -190,7 +288,17 @@ export default function ParticipantDashboard({ expectedRole, previewView }: { ex
       setSaving(false);
       return;
     }
-    try { const response = await authenticatedFetch("/api/participant-dashboard", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) }); const payload = await response.json() as { error?: string }; if (!response.ok) throw new Error(payload.error ?? "Profile could not be saved."); setMessage("Changes saved"); await load(); }
+    try {
+      const profileResponse = await authenticatedFetch("/api/participant-dashboard", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      const profilePayload = await profileResponse.json() as { error?: string };
+      if (!profileResponse.ok) throw new Error(profilePayload.error ?? "Profile could not be saved.");
+      if (isMentor) {
+        const expertiseResponse = await authenticatedFetch("/api/expertise-tags/mentor", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tags: tagValues(form.tags) }) });
+        const expertisePayload = await expertiseResponse.json() as { error?: string };
+        if (!expertiseResponse.ok) throw new Error(expertisePayload.error ?? "Mentor expertise could not be saved.");
+      }
+      setMessage("Changes saved"); await load();
+    }
     catch (cause) { setMessage(cause instanceof Error ? cause.message : "Profile could not be saved."); }
     finally { setSaving(false); }
   }
@@ -226,8 +334,9 @@ export default function ParticipantDashboard({ expectedRole, previewView }: { ex
   }
 
   return <main className={styles.page}>{isPreview && <div className={styles.demoBar}><span><strong>Demo mode</strong> · Fictional data · Changes are not saved</span><span>Development preview</span></div>}<section className={styles.appShell}>
-    <aside className={styles.sidebar}><div className={styles.brandMark}><AlmaworksBrand tone="white" iconSize={32} /><small>{view.semester.name}</small></div>{isPreview && <AdminViewAsControl current={showViewLoading && pendingView ? pendingView : view.role} onChange={changeAdminView} disabled={showViewLoading} className="px-1 pt-0 pb-4" />}<nav aria-label={`${view.role} dashboard`}>{tabs.map((item) => { const Icon = item.icon; return <button key={item.id} onClick={() => open(item.id)} className={tab === item.id ? styles.activeNav : ""}><Icon size={18} /><span>{item.label}</span>{item.id === "notifications" && view.notifications.length > 0 && <b>{view.notifications.length}</b>}</button>; })}</nav><div className={styles.scopeCard}><ShieldCheck size={17} /><div><strong>{isPreview ? "Fictional by design" : "Private by design"}</strong><span>Only {isPreview ? "demo" : `your ${view.semester.name}`} activity is shown.</span></div></div><div className={styles.participantFooter}><div className={styles.userMini}><div className={styles.avatarSmall}>{initials(view.identity.fullName)}</div><div><strong>{view.identity.fullName}</strong><span>{isMentor ? "Mentor" : "Startup"}{isPreview ? " · Demo" : ""}</span></div></div><button type="button" className={styles.signOutButton} onClick={() => void signOut()} disabled={signingOut || showViewLoading}><LogOut size={16} /><span>{isPreview ? "Return to admin" : signingOut ? "Signing out..." : "Sign out"}</span></button>{signOutError && <p className={styles.signOutError} role="alert">{signOutError}</p>}</div></aside>
+    <aside className={styles.sidebar}><div className={styles.brandMark}><AlmaworksBrand tone="white" iconSize={32} /><small>{view.semester.name}</small></div>{isPreview && <AdminViewAsControl current={showViewLoading && pendingView ? pendingView : view.role} onChange={changeAdminView} disabled={showViewLoading} className="px-1 pt-0 pb-4" />}<nav aria-label={`${view.role} dashboard`}>{tabs.map((item) => { const Icon = item.icon; return <button key={item.id} onClick={() => open(item.id)} className={tab === item.id ? styles.activeNav : ""}><Icon size={18} /><span>{item.label}</span>{item.id === "notifications" && unreadNotifications > 0 && <b>{unreadNotifications}</b>}</button>; })}</nav><div className={styles.scopeCard}><ShieldCheck size={17} /><div><strong>{isPreview ? "Fictional by design" : "Private by design"}</strong><span>Only {isPreview ? "demo" : `your ${view.semester.name}`} activity is shown.</span></div></div><div className={styles.participantFooter}><div className={styles.userMini}><div className={styles.avatarSmall}>{initials(view.identity.fullName)}</div><div><strong>{view.identity.fullName}</strong><span>{isMentor ? "Mentor" : "Startup"}{isPreview ? " · Demo" : ""}</span></div></div><button type="button" className={styles.signOutButton} onClick={() => void signOut()} disabled={signingOut || showViewLoading}><LogOut size={16} /><span>{isPreview ? "Return to admin" : signingOut ? "Signing out..." : "Sign out"}</span></button>{signOutError && <p className={styles.signOutError} role="alert">{signOutError}</p>}</div></aside>
     <div className={styles.workspace}><header className={styles.mobileHeader}><div className={styles.brandMark}><AlmaworksBrand tone="white" iconSize={28} /></div><div className={styles.mobileActions}><button onClick={() => open("notifications")} className={styles.iconButton} aria-label="Open notifications"><Bell size={18} /></button><button type="button" onClick={() => void signOut()} disabled={signingOut || showViewLoading} className={styles.iconButton} aria-label={isPreview ? "Return to admin" : signingOut ? "Signing out" : "Sign out"}><LogOut size={18} /></button></div></header>{isPreview && <AdminViewAsControl current={showViewLoading && pendingView ? pendingView : view.role} onChange={changeAdminView} disabled={showViewLoading} className={styles.mobileViewAs} />}{signOutError && <p className={styles.mobileSignOutError} role="alert">{signOutError}</p>}
+      {notificationReadFailure && notificationReadFailure.scope.profileId === view.identity.profileId && notificationReadFailure.scope.semesterId === view.semester.id && <div className={styles.content}><p className={styles.rsvpMessage} role="alert">{notificationReadFailure.message} <button type="button" onClick={() => void saveNotificationRead(notificationReadFailure.notice, notificationReadFailure.scope)}>Retry</button></p></div>}
 
       {tab === "home" && <div className={styles.content}><div className={styles.pageHeading}><div><p className={styles.eyebrow}>{view.semester.name} · {isMentor ? "Mentor" : "Startup"}</p><h1>Welcome, {view.identity.fullName.split(" ")[0]}.</h1><p>{isMentor ? "Everything you need for this semester’s mentoring, in one place." : "Your matches, program progress, and network are ready when you are."}</p></div><button className={styles.secondaryButton} onClick={() => open("profile")}><UserRoundPen size={16} />Edit profile</button></div>
         {!isMentor && view.mentorNeeds && <MentorNeedsSummaryCard summary={view.mentorNeeds} onEdit={() => open("mentor-needs")} />}
@@ -238,11 +347,11 @@ export default function ParticipantDashboard({ expectedRole, previewView }: { ex
             {upcoming[0] ? <ParticipantSessionCard session={upcoming[0]} responding={respondingSessionId === upcoming[0].id} message={rsvpMessages[upcoming[0].id] || null} onRespond={(response) => void respondToSession(upcoming[0].id, response)} /> : <div className={styles.emptyState}><CalendarDays size={22} /><h2>No upcoming session yet</h2><p>Confirmed sessions will appear here.</p></div>}
             {upcoming.slice(1, 3).map((session) => <button type="button" key={session.id} className={styles.cardAction} onClick={() => open("sessions")}><span>{session.meetingDate} · {session.partnerName}</span><ChevronRight size={14} /></button>)}
           </section>
-          <aside className={styles.notificationCard}><div className={styles.sectionHeading}><div><p className={styles.eyebrow}>For you</p><h2>Notifications</h2></div><button onClick={() => open("notifications")}>View all</button></div><div className={styles.notificationList}>{view.notifications.slice(0, 3).map((notice) => <button key={notice.id} onClick={() => open("notifications")} className={styles.unread}><span className={styles.noticeIcon}><Bell size={15} /></span><span><strong>{notice.title}</strong><small>{notice.body}</small></span></button>)}</div></aside>
+          <aside className={styles.notificationCard}><div className={styles.sectionHeading}><div><p className={styles.eyebrow}>For you</p><h2>Notifications</h2></div><button onClick={() => open("notifications")}>View all</button></div><div className={styles.notificationList}>{view.notifications.slice(0, 3).map((notice) => <button key={notice.id} onClick={() => void openNotification(notice)} className={notice.read ? styles.readNotification : styles.unread}><span className={styles.noticeIcon}><Bell size={15} /></span><span><strong>{notice.title}</strong><small>{notice.body}</small></span></button>)}</div></aside>
         </div>
-        <section className={styles.discoveryStrip}><div className={styles.sectionHeading}><div><p className={styles.eyebrow}>Active semester network</p><h2>{isMentor ? "Startups you can support" : "Mentors you can learn from"}</h2></div><button onClick={() => open("network")}>Browse network <ChevronRight size={14} /></button></div><div className={styles.miniGrid}>{view.network.slice(0, 3).map((entry) => <button key={entry.id} onClick={() => open("network")}><div className={styles.avatar}>{initials(entry.name)}</div><div><strong>{entry.name}</strong><span>{entry.headline}</span></div></button>)}</div></section></div>}
+        <section className={styles.discoveryStrip}><div className={styles.sectionHeading}><div><p className={styles.eyebrow}>Active semester network</p><h2>{isMentor ? "Startup members you can support" : "Meet your cohort"}</h2></div><button onClick={() => open("network")}>Browse network <ChevronRight size={14} /></button></div><div className={styles.miniGrid}>{view.network.slice(0, 3).map((entry) => <button key={entry.id} onClick={() => open("network")}><div className={styles.avatar}>{initials(entry.name)}</div><div><strong>{entry.name}</strong><span>{entry.headline}</span></div></button>)}</div></section></div>}
 
-      {tab === "network" && <div className={styles.content}><div className={styles.pageHeading}><div><p className={styles.eyebrow}>{view.semester.name} network</p><h1>{isMentor ? "Browse startups" : "Browse mentors"}</h1><p>Only profiles available to your active-semester membership are shown.</p></div></div><div className={styles.searchBar}><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={isMentor ? "Search startups, industries, or stages" : "Search mentors, expertise, or companies"} /></div><div className={styles.filterRow}><button className={styles.selectedFilter} onClick={() => setQuery("")}>All</button><span>{directory.length} profiles</span></div><div className={styles.networkGrid}>{directory.map((entry) => <NetworkCard key={entry.id} entry={entry} preview={isPreview} />)}</div>{directory.length === 0 && <div className={styles.emptyState}><Search size={24} /><h2>No profiles match</h2><p>Try a broader search.</p><button onClick={() => setQuery("")}>Clear search</button></div>}</div>}
+      {tab === "network" && <div className={styles.content}><div className={styles.pageHeading}><div><p className={styles.eyebrow}>{view.semester.name} network</p><h1>{isMentor ? "Browse startup members" : "Browse your cohort"}</h1><p>Active mentors and startup members from your cohort.</p></div></div><div className={styles.searchBar}><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={isMentor ? "Search members, startups, or industries" : "Search people, expertise, or companies"} /></div><div className={styles.filterRow}><button className={styles.selectedFilter} onClick={() => setQuery("")}>All</button><span>{directory.length} profiles</span></div><div className={styles.networkGrid}>{directory.map((entry) => <NetworkCard key={entry.id} entry={entry} preview={isPreview} />)}</div>{directory.length === 0 && <div className={styles.emptyState}><Search size={24} /><h2>No profiles match</h2><p>Try a broader search.</p><button onClick={() => setQuery("")}>Clear search</button></div>}</div>}
 
       {tab === "sessions" && <div className={styles.content}>
         <div className={styles.pageHeading}><div><p className={styles.eyebrow}>Your activity only · {view.semester.name}</p><h1>Mentorship sessions</h1><p>Review every upcoming and earlier conversation, then update your own RSVP before a session begins.</p></div></div>
@@ -252,7 +361,7 @@ export default function ParticipantDashboard({ expectedRole, previewView }: { ex
 
       {tab === "availability" && isMentor && <div className={styles.content}>
         <div className={styles.pageHeading}><div><p className={styles.eyebrow}>{view.semester.name} schedule</p><h1>Availability</h1><p>Set each upcoming Friday slot and the format you can support. Changes affecting a confirmed session notify Almaworks.</p></div></div>
-        {availabilityDraft.length === 0 ? <div className={styles.emptyState}><CalendarDays size={24} /><h2>No upcoming program slots</h2><p>Future Friday meeting slots will appear here.</p></div> : <section className={styles.formCard}>{availabilityDraft.map((window) => <div className={styles.accountItem} key={`${window.meetingId}:${window.slot}`}><span><CalendarDays size={17} /></span><div><strong>{window.meetingDate} · {window.startsAt.slice(0, 5)}–{window.endsAt.slice(0, 5)} {window.timezone ?? ""}</strong><p>{window.confirmedSession ? `Confirmed: ${window.confirmedSession.startup}${window.confirmedSession.topic ? ` · ${window.confirmedSession.topic}` : ""} (${window.confirmedSession.format ?? "format pending"})` : "No confirmed session"}</p><label><input type="checkbox" checked={window.isAvailable} onChange={(event) => updateAvailability(window.meetingId, window.slot, { isAvailable: event.target.checked })} /> Available</label></div><select aria-label={`Format for ${window.meetingDate} slot ${window.slot}`} disabled={!window.isAvailable} value={window.format} onChange={(event) => updateAvailability(window.meetingId, window.slot, { format: event.target.value as "in_person" | "remote" | "hybrid" })}><option value="in_person">In person</option><option value="remote">Remote</option><option value="hybrid">Hybrid</option></select></div>)}</section>}
+        {availabilityDraft.length === 0 ? <div className={styles.emptyState}><CalendarDays size={24} /><h2>No upcoming program slots</h2><p>Future Friday meeting slots will appear here.</p></div> : <section className={styles.formCard}>{availabilityDraft.map((window) => <div className={styles.accountItem} key={`${window.meetingId}:${window.slot}`}><span><CalendarDays size={17} /></span><div><strong>{window.meetingDate} · {window.startsAt.slice(0, 5)}–{window.endsAt.slice(0, 5)} {window.timezone ?? ""}</strong><p>{window.confirmedSession ? `Confirmed: ${window.confirmedSession.startup}${window.confirmedSession.topic ? ` · ${window.confirmedSession.topic}` : ""} (${window.confirmedSession.format === "hybrid" ? "Either" : window.confirmedSession.format ?? "format pending"})` : "No confirmed session"}</p><label><input type="checkbox" checked={window.isAvailable} onChange={(event) => updateAvailability(window.meetingId, window.slot, { isAvailable: event.target.checked })} /> Available</label></div><select aria-label={`Format for ${window.meetingDate} slot ${window.slot}`} disabled={!window.isAvailable} value={window.format} onChange={(event) => updateAvailability(window.meetingId, window.slot, { format: event.target.value as "in_person" | "remote" | "hybrid" })}><option value="in_person">In person</option><option value="remote">Online</option><option value="hybrid">Either</option></select></div>)}</section>}
         {availabilityDraft.some((window) => window.confirmedSession && (!window.isAvailable || (window.format !== "hybrid" && window.confirmedSession.format !== "hybrid" && window.format !== window.confirmedSession.format))) && <p className={styles.signOutError} role="alert">A confirmed session no longer fits your availability. Almaworks will be notified when you save.</p>}
         <div className={styles.formActions}>{availabilityMessage && <span role="status"><Check size={15} />{availabilityMessage}</span>}<button className={styles.primaryButton} disabled={savingAvailability} onClick={() => void saveAvailability()}>{savingAvailability ? "Saving…" : "Review & save availability"}</button></div>
       </div>}
@@ -262,9 +371,9 @@ export default function ParticipantDashboard({ expectedRole, previewView }: { ex
         <MentorNeedsForm semesterId={view.semester.id} semesterName={view.semester.name} initialRecord={view.mentorNeeds} preview={isPreview} onSaved={(record) => isPreview ? savePreviewMentorNeeds(record) : void load()} />
       </div>}
 
-      {tab === "notifications" && <div className={styles.content}><div className={styles.pageHeading}><div><p className={styles.eyebrow}>Derived for you · {view.semester.name}</p><h1>Notifications</h1><p>Account readiness and owned-session updates relevant to your role.</p></div></div><section className={styles.fullNotificationList}>{view.notifications.map((notice) => <article key={notice.id} className={styles.unreadArticle}><span className={styles.noticeIcon}>{notice.kind === "session" ? <CalendarDays size={18} /> : <CircleUserRound size={18} />}</span><div><div><h2>{notice.title}</h2></div><p>{notice.body}</p></div></article>)}</section>{view.notifications.length === 0 && <div className={styles.emptyState}><Bell size={24} /><h2>You’re all caught up</h2></div>}<div className={styles.privacyNote}><Bell size={18} /><div><strong>No program-wide inbox.</strong><p>These notices are calculated from your account and active-semester sessions.</p></div></div></div>}
+      {tab === "notifications" && <div className={styles.content}><div className={styles.pageHeading}><div><p className={styles.eyebrow}>{view.semester.name}</p><h1>Notifications</h1><p>Your session updates and account reminders, all in one place.</p></div></div><section className={styles.fullNotificationList} aria-label="Your notifications">{view.notifications.map((notice) => <button type="button" key={notice.key} onClick={() => void openNotification(notice)} className={notice.read ? styles.readNotification : styles.unreadArticle}><span className={styles.noticeIcon}>{notice.kind === "session" ? <CalendarDays size={18} /> : <CircleUserRound size={18} />}</span><span className={styles.notificationCopy}><span className={styles.notificationTitle}>{notice.title}{!notice.read && <span className={styles.notificationBadge}>Unread</span>}</span><span className={styles.notificationBody}>{notice.body}</span><span className={styles.notificationAction}>{notice.kind === "session" ? "View sessions" : "Continue setup"}</span></span><ChevronRight size={18} aria-hidden="true" /></button>)}</section>{view.notifications.length === 0 && <div className={styles.emptyState}><Bell size={24} /><h2>You’re all caught up</h2></div>}<div className={styles.privacyNote}><Bell size={18} /><div><strong>Updates for you</strong><p>Find session changes and account reminders for {view.semester.name} here.</p></div></div></div>}
 
-      {tab === "profile" && <div className={styles.content}><div className={styles.pageHeading}><div><p className={styles.eyebrow}>Profile & account</p><h1>Manage your information</h1><p>Control your participant profile and keep sign-in details current.</p></div><span className={styles.visibilityBadge}><UsersRound size={15} />Visible to active participants</span></div><div className={styles.profileGrid}><section className={styles.formCard}><div className={styles.formHeading}><div className={styles.profileAvatar}>{initials(view.identity.fullName)}</div><div><h2>{isMentor ? "Mentor profile" : "Startup participant profile"}</h2><p>Fields supported by your current database permissions.</p></div></div><div className={styles.formGrid}><label><span>Full name</span><input value={form.fullName} onChange={(event) => setForm((current) => ({ ...current, fullName: event.target.value }))} /></label><label><span>{isMentor ? "Title" : "Mentor need context"}</span><input value={form.headline} onChange={(event) => setForm((current) => ({ ...current, headline: event.target.value }))} /></label><label className={styles.fullField}><span>{isMentor ? "Biography" : "Company snapshot"}</span><textarea rows={4} value={form.summary} onChange={(event) => setForm((current) => ({ ...current, summary: event.target.value }))} /></label>{isMentor && <><div className={styles.fullField}><span>Expertise</span><TagInput value={tagValues(form.tags)} onChange={(tags) => setForm((current) => ({ ...current, tags: tags.join(", ") }))} suggestions={expertiseSuggestions} placeholder="Search or create expertise tags…" /></div><label><span>Website</span><input value={form.websiteUrl} onChange={(event) => setForm((current) => ({ ...current, websiteUrl: event.target.value }))} /></label><label><span>LinkedIn</span><input value={form.linkedinUrl} onChange={(event) => setForm((current) => ({ ...current, linkedinUrl: event.target.value }))} /></label></>}</div><div className={styles.formActions}>{message && <span role="status"><Check size={15} />{message}</span>}<button className={styles.primaryButton} disabled={saving} onClick={() => void saveProfile()}>{saving ? "Saving…" : "Save profile"}</button></div></section><aside className={styles.accountCard}><p className={styles.eyebrow}>Account access</p><h2>Sign-in & security</h2><div className={styles.accountItem}><span><Mail size={17} /></span><div><strong>Sign-in email</strong><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></div><button onClick={() => void changeEmail()}>Change</button></div>{emailMessage && <p className={styles.summary} role="status">{emailMessage}</p>}<div className={styles.accountItem}><span><ShieldCheck size={17} /></span><div><strong>Email status</strong><p>{view.identity.emailVerified ? "Your current email is verified." : "Check your inbox to verify your email."}</p></div><i>{view.identity.emailVerified ? "Verified" : "Pending"}</i></div><div className={styles.scopeCard}><ShieldCheck size={17} /><div><strong>Protected account change</strong><span>Email changes may require confirmation at both your current and new addresses.</span></div></div></aside></div></div>}
+      {tab === "profile" && <div className={styles.content}><div className={styles.pageHeading}><div><p className={styles.eyebrow}>Profile & account</p><h1>Manage your information</h1><p>Control your participant profile and keep sign-in details current.</p></div><span className={styles.visibilityBadge}><UsersRound size={15} />Visible to active participants</span></div><div className={styles.profileGrid}><section className={styles.formCard}><div className={styles.formHeading}><div className={styles.profileAvatar}>{initials(view.identity.fullName)}</div><div><h2>{isMentor ? "Mentor profile" : "Startup participant profile"}</h2><p>Fields supported by your current database permissions.</p></div></div><div className={styles.formGrid}><label><span>Full name</span><input value={form.fullName} onChange={(event) => setForm((current) => ({ ...current, fullName: event.target.value }))} /></label><label><span>{isMentor ? "Title" : "Mentor need context"}</span><input value={form.headline} onChange={(event) => setForm((current) => ({ ...current, headline: event.target.value }))} /></label><label className={styles.fullField}><span>{isMentor ? "Biography" : "Company snapshot"}</span><textarea rows={4} value={form.summary} onChange={(event) => setForm((current) => ({ ...current, summary: event.target.value }))} /></label>{isMentor && <><div className={styles.fullField}><span>Expertise</span><ExpertiseTagPicker value={tagValues(form.tags)} onChange={(tags) => setForm((current) => ({ ...current, tags: tags.join(", ") }))} placeholder="Search or create expertise tags…" /></div><label><span>Website</span><input value={form.websiteUrl} onChange={(event) => setForm((current) => ({ ...current, websiteUrl: event.target.value }))} /></label><label><span>LinkedIn</span><input value={form.linkedinUrl} onChange={(event) => setForm((current) => ({ ...current, linkedinUrl: event.target.value }))} /></label></>}</div><div className={styles.formActions}>{message && <span role="status"><Check size={15} />{message}</span>}<button className={styles.primaryButton} disabled={saving} onClick={() => void saveProfile()}>{saving ? "Saving…" : "Save profile"}</button></div></section><aside className={styles.accountCard}><p className={styles.eyebrow}>Account access</p><h2>Sign-in & security</h2><div className={styles.accountItem}><span><Mail size={17} /></span><div><strong>Sign-in email</strong><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></div><button onClick={() => void changeEmail()}>Change</button></div>{emailMessage && <p className={styles.summary} role="status">{emailMessage}</p>}<div className={styles.accountItem}><span><ShieldCheck size={17} /></span><div><strong>Email status</strong><p>{view.identity.emailVerified ? "Your current email is verified." : "Check your inbox to verify your email."}</p></div><i>{view.identity.emailVerified ? "Verified" : "Pending"}</i></div><div className={styles.scopeCard}><ShieldCheck size={17} /><div><strong>Protected account change</strong><span>Email changes may require confirmation at both your current and new addresses.</span></div></div></aside></div></div>}
     </div>
     <nav className={styles.mobileTabs} aria-label="Mobile dashboard navigation">{tabs.map((item) => { const Icon = item.icon; return <button key={item.id} className={tab === item.id ? styles.activeMobileTab : ""} onClick={() => open(item.id)}><span><Icon size={19} /></span><small>{item.label}</small></button>; })}</nav>
   </section></main>;

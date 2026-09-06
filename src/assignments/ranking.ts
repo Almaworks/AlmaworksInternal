@@ -44,7 +44,7 @@ export function rankMentorCandidates(input: RankingInput): RankedMentor[] {
     const primary = mentor.expertise.some((tag) => same(input.primaryNeed, tag));
     const secondary = mentor.expertise.some((tag) => same(input.secondaryNeed, tag));
     const available = mentor.availability.includes(input.slot.id) || mentor.availability.includes(input.slot.date);
-    const formatFit = mentor.formats.includes(input.slot.format);
+    const formatFit = mentor.formats.includes("hybrid") || mentor.formats.includes(input.slot.format);
     const secondSlotExcluded = excluded.has(mentor.id);
     let score = primary ? 100 : secondary ? 60 : 0;
     score += available ? 25 : -50;

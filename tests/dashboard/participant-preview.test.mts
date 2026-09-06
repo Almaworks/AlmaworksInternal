@@ -91,7 +91,9 @@ test("startup preview is fictional and includes interactive dashboard content", 
   assert.equal(preview.semester.name, "Demo Semester");
   assert.equal(preview.sessions.some((session) => session.timing === "upcoming"), true);
   assert.equal(preview.sessions.some((session) => session.timing === "past"), true);
-  assert.equal(preview.network.every((entry) => entry.kind === "mentor"), true);
+  assert.equal(preview.network.some((entry) => entry.kind === "mentor"), true);
+  assert.equal(preview.network.some((entry) => entry.kind === "startup"), true);
+  assert.equal(preview.network.every((entry) => Boolean(entry.email)), true);
 });
 
 test("mentor preview switches identity and participant perspective", async () => {

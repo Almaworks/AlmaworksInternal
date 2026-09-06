@@ -72,3 +72,14 @@ test("ties are stable by mentor id", () => {
   const result = rankMentorCandidates({ primaryNeed: null, secondaryNeed: null, slot, mentors: [mentor("z"), mentor("a")] });
   assert.deepEqual(result.map((x) => x.mentor.id), ["a", "z"]);
 });
+
+test("Either earns the same format score as an exact match for both meeting types", () => {
+  for (const format of ["remote", "in_person"] as const) {
+    const result = rankMentorCandidates({ primaryNeed: null, secondaryNeed: null, slot: { ...slot, format }, mentors: [
+      mentor("either", { availability: [slot.id], formats: ["hybrid"] }),
+      mentor("exact", { availability: [slot.id], formats: [format] }),
+    ] });
+    assert.equal(result[0].score, result[1].score);
+    assert.ok(result.every(candidate => candidate.reasons.includes("format fit")));
+  }
+});

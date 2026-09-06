@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { normalizeAvailabilityFormat } from "../program/availability-windows.ts";
 import { AuthorizationError } from "../auth/server.ts";
 import type { Database, Json } from "../db/types.ts";
 import {
@@ -12,7 +13,7 @@ import {
 type Client = SupabaseClient<Database>;
 type AssignmentStatus = string;
 export type AssignmentTimeSlot = "3:30-4:15" | "4:15-5:00";
-export type AssignmentFormat = "online" | "in_person" | "hybrid";
+export type AssignmentFormat = "online" | "in_person";
 export type RequiredOverrideType = "availability" | "capacity" | "expertise" | "second_slot";
 
 export class AssignmentHttpError extends Error {
@@ -70,7 +71,7 @@ export interface CandidateSourceData {
     preferredFormat: string | null;
     capacity: number;
   }>;
-  availability: Array<{ profileId: string; sessionDateId: string; timeSlot?: AssignmentTimeSlot; isAvailable: boolean }>;
+  availability: Array<{ profileId: string; sessionDateId: string; timeSlot?: AssignmentTimeSlot; format?: string | null; isAvailable: boolean }>;
   sessions: Array<{
     mentorScheduleId: string;
     startupScheduleId: string | null;
@@ -146,7 +147,6 @@ function canonicalFormat(value: unknown, field: string, optional = false): Assig
   const normalized = value.trim().toLocaleLowerCase().replace(/[ _-]/gu, "");
   if (["online", "remote", "virtual", "video"].includes(normalized)) return "online";
   if (["inperson", "onsite", "office"].includes(normalized)) return "in_person";
-  if (normalized === "hybrid") return "hybrid";
   throw new AssignmentHttpError(400, "validation_error", `${field} is unsupported.`, field);
 }
 
@@ -306,7 +306,11 @@ export function buildCandidateContext(input: CandidateQuery, data: CandidateSour
         && historicalDate < sessionDate.date;
     }).length,
     assignmentLoad: activeSessions.filter((session) => mentor.scheduleMentorIds.includes(session.mentorScheduleId)).length,
-    formats: [normalizedFormat(mentor.preferredFormat)],
+    formats: [normalizeAvailabilityFormat(data.availability.find((availability) => (
+      availability.profileId === mentor.profileId
+      && availability.sessionDateId === input.meetingId
+      && availability.timeSlot === selectedTimeSlot
+    ))?.format ?? mentor.preferredFormat)],
   }));
   const neededExpertise = startup.mentorshipNeeds;
   const startupSlotConflict = activeSessions.some((session) => (
@@ -323,7 +327,7 @@ export function buildCandidateContext(input: CandidateQuery, data: CandidateSour
   return {
     startup,
     slot,
-    candidates: ranked.map((candidate): AssignmentCandidate => {
+    candidates: ranked.filter((candidate) => candidate.mentor.formats.includes("hybrid") || candidate.mentor.formats.includes(slot.format)).map((candidate): AssignmentCandidate => {
       const mentor = data.mentors.find((item) => item.profileId === candidate.mentor.id);
       if (mentor === undefined) throw new Error("Candidate mentor mapping is incomplete.");
       const availabilityBlocked = data.availability.some((availability) => (
@@ -468,13 +472,15 @@ export function createSupabaseAssignmentDataSource(client: Client): AssignmentDa
         mentorSemestersResult,
         availabilityResult,
         sessionsResult,
+        startupNeedsResult,
       ] = await Promise.all([
         client.from("meetings").select("id, meeting_date, semester_id").eq("semester_id", input.semesterId),
         client.from("startup_semesters").select("id, semester_id, company_snapshot, goals, mentor_need_context, mentor_need_no_preference, mentorship_needs, stage").eq("id", input.startupSemesterId).eq("semester_id", input.semesterId).maybeSingle(),
         client.from("semester_memberships").select("id, profile_id, semester_id, role, status").eq("semester_id", input.semesterId),
         client.from("mentor_semesters").select("id, semester_membership_id, semester_id, capacity, preferred_format, readiness_status").eq("semester_id", input.semesterId).eq("readiness_status", "ready"),
-        client.from("meeting_availability").select("semester_membership_id, meeting_id, slot, is_available").eq("meeting_id", input.meetingId),
+        client.from("meeting_availability").select("*").eq("meeting_id", input.meetingId),
         client.from("sessions").select("mentor_semester_id, startup_semester_id, meeting_id, slot, status").eq("semester_id", input.semesterId),
+        client.from("startup_mentor_need_tags").select("expertise_tag_id, priority").eq("startup_semester_id", input.startupSemesterId).eq("semester_id", input.semesterId).order("priority"),
       ]);
       [
         meetingsResult,
@@ -483,6 +489,7 @@ export function createSupabaseAssignmentDataSource(client: Client): AssignmentDa
         mentorSemestersResult,
         availabilityResult,
         sessionsResult,
+        startupNeedsResult,
       ].forEach(checkResult);
 
       const activeMentorMemberships = (membershipsResult.data ?? []).filter((membership) => (
@@ -491,14 +498,18 @@ export function createSupabaseAssignmentDataSource(client: Client): AssignmentDa
         && membership.status === "active"
       ));
       const mentorProfileIds = activeMentorMemberships.map((membership) => membership.profile_id);
-      const [profilesResult, mentorProfilesResult] = mentorProfileIds.length === 0
-        ? [{ data: [], error: null }, { data: [], error: null }]
+      const [profilesResult, mentorProfilesResult, mentorTagAssignmentsResult, tagsResult] = mentorProfileIds.length === 0
+        ? [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }, await client.from("expertise_tags").select("id, name")]
         : await Promise.all([
           client.from("profiles").select("id, full_name, email").in("id", mentorProfileIds),
           client.from("mentor_profiles").select("profile_id, expertise_tags").in("profile_id", mentorProfileIds),
+          client.from("mentor_expertise_tags").select("mentor_profile_id, expertise_tag_id").in("mentor_profile_id", mentorProfileIds),
+          client.from("expertise_tags").select("id, name"),
         ]);
       checkResult(profilesResult);
       checkResult(mentorProfilesResult);
+      checkResult(mentorTagAssignmentsResult);
+      checkResult(tagsResult);
 
       const sessionDates = (meetingsResult.data ?? []).map((meeting) => ({
         id: meeting.id,
@@ -510,6 +521,13 @@ export function createSupabaseAssignmentDataSource(client: Client): AssignmentDa
       const profileById = new Map((profilesResult.data ?? []).map((profile) => [profile.id, profile]));
       const mentorProfileById = new Map((mentorProfilesResult.data ?? []).map((profile) => [profile.profile_id, profile]));
       const mentorSemesterByMembership = new Map((mentorSemestersResult.data ?? []).map((term) => [term.semester_membership_id, term]));
+      const tagNameById = new Map((tagsResult.data ?? []).map((tag) => [tag.id, tag.name]));
+      const canonicalStartupNeeds = (startupNeedsResult.data ?? []).flatMap((need) => tagNameById.get(need.expertise_tag_id) ?? []);
+      const canonicalMentorTagsByProfile = new Map<string, string[]>();
+      for (const assignment of mentorTagAssignmentsResult.data ?? []) {
+        const name = tagNameById.get(assignment.expertise_tag_id);
+        if (name !== undefined) canonicalMentorTagsByProfile.set(assignment.mentor_profile_id, [...(canonicalMentorTagsByProfile.get(assignment.mentor_profile_id) ?? []), name]);
+      }
       return {
         sessionDate,
         sessionDates,
@@ -521,7 +539,7 @@ export function createSupabaseAssignmentDataSource(client: Client): AssignmentDa
           goals: startupResult.data.goals,
           mentorNeedContext: startupResult.data.mentor_need_context,
           mentorNeedNoPreference: startupResult.data.mentor_need_no_preference,
-          mentorshipNeeds: startupResult.data.mentorship_needs,
+          mentorshipNeeds: canonicalStartupNeeds.length > 0 ? canonicalStartupNeeds : startupResult.data.mentorship_needs,
           stage: startupResult.data.stage,
         },
         mentors: activeMentorMemberships.flatMap((membership) => {
@@ -534,7 +552,7 @@ export function createSupabaseAssignmentDataSource(client: Client): AssignmentDa
             scheduleMentorIds: [term.id],
             profileId: membership.profile_id,
             name: profile.full_name ?? profile.email,
-            expertise: mentorProfile.expertise_tags,
+            expertise: canonicalMentorTagsByProfile.get(membership.profile_id) ?? mentorProfile.expertise_tags,
             preferredFormat: term.preferred_format,
             capacity: term.capacity,
           }];
@@ -547,6 +565,7 @@ export function createSupabaseAssignmentDataSource(client: Client): AssignmentDa
             sessionDateId: availability.meeting_id,
             timeSlot: availability.slot === 1 ? "3:30-4:15" as const : "4:15-5:00" as const,
             isAvailable: availability.is_available,
+            format: "format" in availability && typeof availability.format === "string" ? availability.format : null,
           }];
         }).filter((availability) => availability.timeSlot === timeSlotFor(input.slot)),
         sessions: (sessionsResult.data ?? []).flatMap((session) => {

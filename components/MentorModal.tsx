@@ -30,6 +30,7 @@ const SLOT_LABELS: Record<string, string> = {
 }
 
 const FORMAT_LABELS: Record<string, string> = {
+  hybrid: 'Either',
   online: 'Online',
   'in-person': 'In-person',
   in_person: 'In-person',

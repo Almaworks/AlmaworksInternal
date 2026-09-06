@@ -15,6 +15,38 @@ export interface SessionAttendanceView {
   counts: { attending: number; notAttending: number; noResponse: number; total: number };
 }
 
+export type MentorRsvpState = "attending" | "cannot_attend" | "pending";
+export type StartupRsvpState = "covered" | "unavailable" | "pending";
+export type SessionRsvpIssue = "replace_mentor" | "startup_coverage_needed" | "rsvp_pending";
+
+export interface SessionRsvpCoverageState {
+  mentor: MentorRsvpState;
+  startup: StartupRsvpState;
+  issues: SessionRsvpIssue[];
+}
+
+export function deriveSessionRsvpState(
+  attendees: Array<Pick<SessionAttendanceAttendee, "role" | "response">>,
+): SessionRsvpCoverageState {
+  const mentor = attendees.find((attendee) => attendee.role === "mentor");
+  const startupAttendees = attendees.filter((attendee) => attendee.role === "startup");
+  const mentorState: MentorRsvpState = mentor?.response === "attending"
+    ? "attending"
+    : mentor?.response === "not_attending"
+      ? "cannot_attend"
+      : "pending";
+  const startupState: StartupRsvpState = startupAttendees.some((attendee) => attendee.response === "attending")
+    ? "covered"
+    : startupAttendees.length > 0 && startupAttendees.every((attendee) => attendee.response === "not_attending")
+      ? "unavailable"
+      : "pending";
+  const issues: SessionRsvpIssue[] = [];
+  if (mentorState === "cannot_attend" && startupState === "covered") issues.push("replace_mentor");
+  if (mentorState === "attending" && startupState === "unavailable") issues.push("startup_coverage_needed");
+  if (mentorState === "pending" || startupState === "pending") issues.push("rsvp_pending");
+  return { mentor: mentorState, startup: startupState, issues };
+}
+
 export function buildSessionAttendance(input: {
   participants: SessionParticipantIdentity[];
   responses: Array<{ semesterMembershipId: string; response: SessionRsvpResponse }>;

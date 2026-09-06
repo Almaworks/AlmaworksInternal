@@ -30,7 +30,7 @@ export async function PUT(request: Request) {
     const { profileId, userClient } = await requireAuthenticatedUserWithRls(request);
     const record = await loadStartupMentorNeeds(userClient, profileId, body.semesterId);
     if (record === null) return NextResponse.json({ error: "No active startup membership exists for this semester." }, { status: 404 });
-    await saveStartupMentorNeeds(userClient, record.startupSemesterId, selection);
+    await saveStartupMentorNeeds(userClient, profileId, record.startupSemesterId, record.semesterId, selection);
     return NextResponse.json({ selection });
   } catch (error) {
     return errorResponse(error);

@@ -21,6 +21,7 @@ export interface ParticipantDashboardSnapshot {
   profile?: ParticipantDashboardView["profile"];
   mentorNeeds?: ParticipantDashboardView["mentorNeeds"];
   availability?: ParticipantDashboardView["availability"];
+  readNotificationKeys?: string[];
 }
 
 export type ParticipantDashboardResponse =

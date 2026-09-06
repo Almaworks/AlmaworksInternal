@@ -39,12 +39,12 @@ test("mentor dashboard exposes only the mentor's current-semester records and ac
   assert.deepEqual(dashboard.network.map((item) => item.id), ["startup-current"]);
 });
 
-test("startup dashboard exposes team notifications, its own current-semester sessions, and active mentors", () => {
+test("startup dashboard exposes team notifications, its own current-semester sessions, and cohort people", () => {
   const dashboard = scopeParticipantDashboard({ role: "startup", profileId: "founder-me", startupSemesterId: "startup-me", activeSemesterId: "current", source });
 
   assert.deepEqual(dashboard.notifications.map((item) => item.id), ["team"]);
   assert.deepEqual(dashboard.sessions.map((item) => item.id), ["startup-own"]);
-  assert.deepEqual(dashboard.network.map((item) => item.id), ["mentor-current"]);
+  assert.deepEqual(dashboard.network.map((item) => item.id), ["mentor-current", "startup-current"]);
 });
 
 test("activation checklist derives role-specific readiness after account creation", () => {

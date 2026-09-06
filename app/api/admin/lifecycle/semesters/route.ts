@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 
-import { AuthorizationError, requireSemesterAdmin } from "@/src/auth/server";
+import { AuthorizationError, requireSuperAdminWithRls } from "@/src/auth/server";
 import {
   createSemesterDraftCommand,
   parseCreateSemesterDraftRequest,
   SemesterTransitionError,
 } from "@/src/lifecycle/semester-transition";
 
-const createDraft = createSemesterDraftCommand(async (request, semesterId) => {
-  const { userClient } = await requireSemesterAdmin(request, semesterId);
+const createDraft = createSemesterDraftCommand(async (request) => {
+  const { userClient } = await requireSuperAdminWithRls(request);
   return {
     createSemesterDraft: async (args) => await userClient.rpc("create_semester_draft", args),
   };
@@ -34,7 +34,7 @@ export async function GET(request: Request) {
     if (!sourceSemesterId) {
       return NextResponse.json({ error: "sourceSemesterId is required." }, { status: 400 });
     }
-    const { userClient } = await requireSemesterAdmin(request, sourceSemesterId);
+    const { userClient } = await requireSuperAdminWithRls(request);
     const { data: semesters, error: semesterError } = await userClient
       .from("semesters")
       .select("id,name,start_date,end_date,is_active,lifecycle_status,configuration")

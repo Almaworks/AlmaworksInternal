@@ -78,7 +78,7 @@ export function scopeParticipantDashboard(input: {
     )),
     network: source.network.filter((entry) => (
       entry.semesterId === activeSemesterId
-      && entry.kind === (role === "mentor" ? "startup" : "mentor")
+      && (role === "startup" || entry.kind === "startup")
     )),
   };
 }
@@ -174,6 +174,8 @@ export interface ParticipantSessionView extends ParticipantSessionInput {
 export interface ParticipantDirectoryEntry extends ParticipantNetworkEntry {
   websiteUrl: string | null;
   photoUrl: string | null;
+  email?: string | null;
+  linkedinUrl?: string | null;
 }
 
 export interface ParticipantAvailabilityWindow {
@@ -222,6 +224,18 @@ export function unreadNotificationCount(view: Pick<ParticipantDashboardView, "no
   return view.notifications.filter((notification) => !notification.read).length;
 }
 
+export function markParticipantNotificationRead(
+  view: ParticipantDashboardView,
+  notificationKey: string,
+): ParticipantDashboardView {
+  return {
+    ...view,
+    notifications: view.notifications.map((notification) => (
+      notification.key === notificationKey ? { ...notification, read: true } : notification
+    )),
+  };
+}
+
 export function buildParticipantDashboard(input: {
   now: string;
   context: Extract<ParticipantContext, { kind: "participant" }>;
@@ -266,7 +280,7 @@ export function buildParticipantDashboard(input: {
     .sort((left, right) => left.meetingDate.localeCompare(right.meetingDate));
   const network = input.network.filter((entry) => (
     entry.semesterId === input.context.semesterId
-    && entry.kind === (input.context.role === "mentor" ? "startup" : "mentor")
+    && (input.context.role === "startup" || entry.kind === "startup")
   ));
   const notifications: ParticipantDashboardView["notifications"] = [];
   const readNotificationKeys = new Set(input.readNotificationKeys ?? []);

@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 
-import { AuthorizationError, requireSemesterAdmin } from "@/src/auth/server";
+import { AuthorizationError, requireSuperAdminWithRls } from "@/src/auth/server";
 import {
   createReplaceMeetingsCommand,
   parseReplaceMeetingsRequest,
   SemesterTransitionError,
 } from "@/src/lifecycle/semester-transition";
 
-const replaceMeetings = createReplaceMeetingsCommand(async (request, semesterId) => {
-  const { userClient } = await requireSemesterAdmin(request, semesterId);
+const replaceMeetings = createReplaceMeetingsCommand(async (request) => {
+  const { userClient } = await requireSuperAdminWithRls(request);
   type ReplaceMeetingsRpc = (
     name: "replace_draft_meetings",
     args: { p_semester_id: string; p_meetings: import("@/src/db/types").Json },

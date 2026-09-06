@@ -1,4 +1,5 @@
-export type PickerFormat = "online" | "in_person" | "hybrid";
+/** A persisted assignment must name one concrete meeting format. */
+export type PickerFormat = "online" | "in_person";
 export type PickerTimeSlot = "3:30-4:15" | "4:15-5:00";
 export type PickerOverrideType = "availability" | "capacity" | "expertise" | "second_slot";
 
@@ -114,7 +115,7 @@ export function sessionFormatPresentation(format: string | null): {
     return { tone: "in_person", label: "In-Person" };
   }
   if (format === "online") return { tone: "online", label: "Online" };
-  if (format === "hybrid") return { tone: "neutral", label: "Hybrid" };
+  if (format === "hybrid") return { tone: "neutral", label: "Either" };
   return { tone: "neutral", label: format ?? "" };
 }
 

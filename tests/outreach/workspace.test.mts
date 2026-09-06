@@ -195,7 +195,7 @@ test("complete workspace loading fails loudly instead of returning a bounded par
   );
 });
 
-test("People always resolves to the active outreach semester without a literal semester id", () => {
+test("People respects the selected semester and defaults to the active semester", () => {
   const moduleWithResolver = workspace as typeof workspace & {
     resolveOutreachSemesterId?: (
       view: "mine" | "team" | "people",
@@ -211,7 +211,9 @@ test("People always resolves to the active outreach semester without a literal s
     { id: "spring-2026", isActive: false },
     { id: "fall-2026", isActive: true },
   ];
-  assert.equal(moduleWithResolver.resolveOutreachSemesterId("people", "spring-2026", semesters), "fall-2026");
+  assert.equal(moduleWithResolver.resolveOutreachSemesterId("people", "spring-2026", semesters), "spring-2026");
+  assert.equal(moduleWithResolver.resolveOutreachSemesterId("people", null, semesters), "fall-2026");
+  assert.equal(moduleWithResolver.resolveOutreachSemesterId("people", "unknown", semesters), "fall-2026");
   assert.equal(moduleWithResolver.resolveOutreachSemesterId("people", "all", semesters), "fall-2026");
   assert.equal(moduleWithResolver.resolveOutreachSemesterId("team", "spring-2026", semesters), "spring-2026");
 });

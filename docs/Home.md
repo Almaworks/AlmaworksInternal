@@ -1,7 +1,7 @@
 ---
 title: Almaworks Internal Knowledge Base
 status: active
-updated: 2026-08-17
+updated: 2026-09-06
 ---
 
 # Almaworks Internal
@@ -10,6 +10,7 @@ This `docs/` directory is the canonical Obsidian vault for product, engineering,
 
 ## Start here
 
+- [[memory/README]] — project memory workflow and session handoffs
 - [[architecture]] — current architecture
 - [[architecture/identity-membership]] — approved v2 identity and semester model
 - [[product/onboarding-lifecycle]] — user journeys and product rules

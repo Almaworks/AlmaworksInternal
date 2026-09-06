@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { AuthorizationError, requireSemesterAdmin } from "@/src/auth/server";
-import { buildSessionAttendance, type SessionParticipantIdentity } from "@/src/sessions/attendance";
+import { buildSessionAttendance, deriveSessionRsvpState, type SessionParticipantIdentity } from "@/src/sessions/attendance";
 import type { SessionRsvpResponse } from "@/src/sessions/rsvp";
 
 function fail(cause: unknown) {
@@ -42,7 +42,10 @@ export async function GET(request: Request) {
       ...(mentorResult.data?.semester_membership_id ? [mentorResult.data.semester_membership_id] : []),
       ...(teamResult.data ?? []).map((item) => item.semester_membership_id),
     ]));
-    if (membershipIds.length === 0) return NextResponse.json({ data: buildSessionAttendance({ participants: [], responses: [] }) });
+    if (membershipIds.length === 0) {
+      const attendance = buildSessionAttendance({ participants: [], responses: [] });
+      return NextResponse.json({ data: { ...attendance, rsvpState: deriveSessionRsvpState(attendance.attendees) } });
+    }
 
     const membershipResult = await userClient.from("semester_memberships")
       .select("id,profile_id,role")
@@ -64,8 +67,7 @@ export async function GET(request: Request) {
         };
       });
 
-    return NextResponse.json({
-      data: buildSessionAttendance({
+    const attendance = buildSessionAttendance({
         participants,
         responses: (responseResult.data ?? [])
           .filter((response): response is typeof response & { response: SessionRsvpResponse } => response.response === "attending" || response.response === "not_attending")
@@ -73,8 +75,8 @@ export async function GET(request: Request) {
           semesterMembershipId: response.semester_membership_id,
           response: response.response,
           })),
-      }),
-    });
+      });
+    return NextResponse.json({ data: { ...attendance, rsvpState: deriveSessionRsvpState(attendance.attendees) } });
   } catch (cause) {
     return fail(cause);
   }

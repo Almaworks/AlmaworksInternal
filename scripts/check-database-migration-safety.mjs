@@ -24,6 +24,13 @@ const reviewedPostCutoverMigrations = [
   "20260905221051_onboarding_meeting_visibility.sql",
   "20260906160236_remove_preferred_expertise.sql",
   "20260906160526_restore_startup_rpc_compatibility.sql",
+  "20260906221757_participant_notification_reads.sql",
+  // Reviewed RLS replacement: drops and recreates four SELECT policies and
+  // private.can_read_mentor_profile before installing the cohort-safe forms.
+  "20260906223843_active_cohort_participant_network.sql",
+  // Reviewed lifecycle hardening: limits draft creation, draft meeting
+  // replacement, and semester activation to durable platform super admins.
+  "20260906224257_restrict_semester_lifecycle_to_super_admin.sql",
 ];
 const requiredOutreachArchiveMigrations = [
   "20260901215752_archive_outreach_contacts.sql",

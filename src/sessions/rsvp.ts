@@ -1,6 +1,12 @@
 export type SessionRsvpResponse = "attending" | "not_attending";
 export type SessionRsvpState = SessionRsvpResponse | "no_response";
 
+export function sessionRsvpLabel(response: SessionRsvpState): string {
+  if (response === "attending") return "Can attend";
+  if (response === "not_attending") return "Can’t attend";
+  return "No response";
+}
+
 export interface SessionAttendeeRsvp {
   semesterMembershipId: string;
   profileId: string;

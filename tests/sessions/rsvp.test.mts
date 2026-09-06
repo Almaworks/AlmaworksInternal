@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   canChangeSessionRsvp,
+  sessionRsvpLabel,
   sessionStartIso,
   summarizeSessionRsvps,
   type SessionAttendeeRsvp,
@@ -44,6 +45,12 @@ test("summarizes explicit responses and counts a missing RSVP projection as no r
     notAttending: 1,
     noResponse: 1,
   });
+});
+
+test("presents not-attending RSVP values as cannot attend", () => {
+  assert.equal(sessionRsvpLabel("attending"), "Can attend");
+  assert.equal(sessionRsvpLabel("not_attending"), "Can’t attend");
+  assert.equal(sessionRsvpLabel("no_response"), "No response");
 });
 
 test("allows RSVP changes only before a confirmed session begins", () => {

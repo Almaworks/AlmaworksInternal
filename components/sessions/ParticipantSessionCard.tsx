@@ -3,7 +3,7 @@
 import { Check, Clock3, UsersRound, X } from "lucide-react";
 
 import type { ParticipantSessionView } from "@/src/dashboard/participant-dashboard";
-import type { SessionRsvpResponse } from "@/src/sessions/rsvp";
+import { sessionRsvpLabel, type SessionRsvpResponse } from "@/src/sessions/rsvp";
 import styles from "@/app/design-preview/participant-dashboard/participant-dashboard.module.css";
 
 function dateParts(value: string) {
@@ -12,12 +12,6 @@ function dateParts(value: string) {
     month: date.toLocaleDateString(undefined, { month: "short" }),
     day: date.toLocaleDateString(undefined, { day: "numeric" }),
   };
-}
-
-function responseLabel(response: ParticipantSessionView["ownRsvp"]): string {
-  if (response === "attending") return "Attending";
-  if (response === "not_attending") return "Not attending";
-  return "No response";
 }
 
 export function ParticipantSessionCard({
@@ -46,7 +40,7 @@ export function ParticipantSessionCard({
           </div>
           <div className={styles.sessionWhen}>
             <strong><Clock3 size={14} />{session.startsAt.slice(0, 5)}–{session.endsAt.slice(0, 5)}</strong>
-            <span>{session.format || "Details pending"}</span>
+            <span>{session.format === "in_person" ? "In-Person" : session.format === "remote" ? "Remote" : session.format === "hybrid" ? "Either" : session.format || "Details pending"}</span>
           </div>
         </div>
         <div className={styles.rsvpArea}>
@@ -54,10 +48,10 @@ export function ParticipantSessionCard({
             <span className={styles.rsvpLabel}>Your RSVP</span>
             {session.rsvpOpen ? (
               <div className={styles.rsvpButtons}>
-                <button type="button" aria-pressed={session.ownRsvp === "attending"} disabled={responding} onClick={() => onRespond("attending")}><Check size={15} />Attending</button>
-                <button type="button" aria-pressed={session.ownRsvp === "not_attending"} disabled={responding} onClick={() => onRespond("not_attending")}><X size={15} />Not attending</button>
+                <button type="button" aria-pressed={session.ownRsvp === "attending"} disabled={responding} onClick={() => onRespond("attending")}><Check size={15} />Can attend</button>
+                <button type="button" aria-pressed={session.ownRsvp === "not_attending"} disabled={responding} onClick={() => onRespond("not_attending")}><X size={15} />Can’t attend</button>
               </div>
-            ) : <strong className={styles.readOnlyRsvp}>{responseLabel(session.ownRsvp)} · RSVP closed</strong>}
+            ) : <strong className={styles.readOnlyRsvp}>{sessionRsvpLabel(session.ownRsvp)} · RSVP closed</strong>}
             {responding && <small role="status">Saving response…</small>}
             {message && <small role="status" className={styles.rsvpMessage}>{message}</small>}
           </div>
@@ -66,7 +60,7 @@ export function ParticipantSessionCard({
             {session.attendees.map((attendee) => (
               <div key={attendee.semesterMembershipId}>
                 <span><strong>{attendee.fullName}</strong><small>{attendee.role}</small></span>
-                <em data-response={attendee.response}>{responseLabel(attendee.response)}</em>
+                <em data-response={attendee.response}>{sessionRsvpLabel(attendee.response)}</em>
               </div>
             ))}
           </div>
