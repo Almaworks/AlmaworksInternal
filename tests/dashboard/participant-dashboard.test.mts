@@ -7,6 +7,7 @@ import {
   buildProfileUpdate,
   selectParticipantContext,
   scopeParticipantDashboard,
+  unreadNotificationCount,
   type ParticipantDashboardSource,
 } from "../../src/dashboard/participant-dashboard.ts";
 
@@ -169,6 +170,26 @@ test("locks a session at its exact start and does not expose Mentor Needs to men
   assert.equal(dashboard.mentorNeeds, null);
   assert.equal(dashboard.sessions[0]?.timing, "past");
   assert.equal(dashboard.sessions[0]?.rsvpOpen, false);
+});
+
+test("notification receipts use lifecycle keys", () => {
+  const dashboard = buildParticipantDashboard({
+    now: "2026-09-05T12:00:00Z",
+    context: { kind: "participant", semesterId: "fall", semesterName: "Fall 2026", membershipId: "member", role: "startup", status: "active" },
+    identity: { profileId: "founder", fullName: "Nadia Rahman", email: "nadia@example.com", emailVerified: true },
+    startupSemesterId: "startup-me",
+    mentorSemesterId: null,
+    profileComplete: true,
+    roleSetupComplete: true,
+    readNotificationKeys: ["session-session-1-confirmed"],
+    sessions: [{ id: "session-1", semesterId: "fall", mentorSemesterId: "mentor-a", startupSemesterId: "startup-me", partnerName: "Maya Chen", meetingDate: "2026-09-11", startsAt: "15:30", endsAt: "16:15", topic: "Pricing", format: "Online", status: "confirmed" }],
+    network: [],
+  });
+
+  assert.deepEqual(dashboard.notifications.map((notice) => [notice.key, notice.read]), [
+    ["session-session-1-confirmed", true],
+  ]);
+  assert.equal(unreadNotificationCount(dashboard), 0);
 });
 
 test("safe profile payloads never include role, membership, or sign-in email", () => {

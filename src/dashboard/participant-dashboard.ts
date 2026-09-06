@@ -199,10 +199,13 @@ export interface ParticipantDashboardView {
   network: ParticipantDirectoryEntry[];
   notifications: Array<{
     id: string;
+    key: string;
     kind: "activation" | "session";
     title: string;
     body: string;
     createdAt: string;
+    read: boolean;
+    destination: "sessions" | "availability" | "mentor-needs" | "profile";
   }>;
   profile: {
     headline: string;
@@ -213,6 +216,10 @@ export interface ParticipantDashboardView {
   };
   mentorNeeds: ParticipantMentorNeedsSummary | null;
   availability: ParticipantAvailabilityWindow[];
+}
+
+export function unreadNotificationCount(view: Pick<ParticipantDashboardView, "notifications">): number {
+  return view.notifications.filter((notification) => !notification.read).length;
 }
 
 export function buildParticipantDashboard(input: {
@@ -228,6 +235,7 @@ export function buildParticipantDashboard(input: {
   profile?: ParticipantDashboardView["profile"];
   mentorNeeds?: ParticipantMentorNeedsSummary | null;
   availability?: ParticipantAvailabilityWindow[];
+  readNotificationKeys?: string[];
 }): ParticipantDashboardView {
   const activation = buildActivationSteps(input.context.role, {
     emailVerified: input.identity.emailVerified,
@@ -261,25 +269,34 @@ export function buildParticipantDashboard(input: {
     && entry.kind === (input.context.role === "mentor" ? "startup" : "mentor")
   ));
   const notifications: ParticipantDashboardView["notifications"] = [];
+  const readNotificationKeys = new Set(input.readNotificationKeys ?? []);
   const currentStep = activation.find((step) => step.status === "current");
   if (currentStep) {
+    const key = `activation-${currentStep.id}`;
     notifications.push({
       id: `activation-${currentStep.id}`,
+      key,
       kind: "activation",
       title: currentStep.id === "semester" ? "Activation is pending" : "Continue account setup",
       body: currentStep.id === "semester"
         ? "Your setup is ready for an Almaworks administrator to activate."
         : "Complete the next activation step to get ready for scheduling.",
       createdAt: input.now,
+      read: readNotificationKeys.has(key),
+      destination: currentStep.id === "availability" ? "availability" : currentStep.id === "mentor-needs" ? "mentor-needs" : "profile",
     });
   }
   for (const session of sessions.filter((candidate) => candidate.status === "confirmed")) {
+    const key = `session-${session.id}-${session.status}`;
     notifications.push({
       id: `session-${session.id}`,
+      key,
       kind: "session",
       title: session.timing === "upcoming" ? "Session confirmed" : "Session completed",
       body: `${session.partnerName} · ${session.meetingDate}`,
       createdAt: `${session.meetingDate}T00:00:00Z`,
+      read: readNotificationKeys.has(key),
+      destination: "sessions",
     });
   }
   notifications.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
