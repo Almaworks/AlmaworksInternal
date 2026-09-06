@@ -20,17 +20,38 @@ const tables = [
   "profiles", "platform_roles", "semesters", "semester_memberships", "invitations",
   "mentor_profiles", "mentor_semesters", "startup_organizations", "startup_semesters",
   "startup_team_memberships", "meetings", "meeting_availability", "sessions",
+  "session_rsvps",
+  "schedule_attention_alerts",
   "program_audit_events", "outreach_contacts", "outreach_companies",
   "outreach_contact_companies", "outreach_opportunities", "outreach_activities",
   "outreach_imports",
 ] as const;
 
-test("canonical schema contains exactly the twenty Almaworks tables", () => {
+test("canonical schema contains exactly the twenty-two Almaworks tables", () => {
   const declared = [...source.matchAll(/create table(?: if not exists)? public\.([a-z_]+)/gu)].map((match) => match[1]);
   assert.deepEqual(declared.sort(), [...tables].sort());
   for (const legacy of ["mentors", "startups", "session_dates", "availability"]) {
     assert.doesNotMatch(source, new RegExp(`create (?:or replace )?view public\\.${legacy}\\b`, "u"));
   }
+});
+
+test("session RSVPs are semester-scoped, constrained, indexed, and protected", () => {
+  const tableStart = source.indexOf("create table if not exists public.session_rsvps");
+  assert.notEqual(tableStart, -1);
+  const table = source.slice(tableStart, source.indexOf(";", tableStart));
+  assert.match(table, /semester_id uuid not null/u);
+  assert.match(table, /session_id uuid not null/u);
+  assert.match(table, /semester_membership_id uuid not null/u);
+  assert.match(table, /response text not null/u);
+  assert.match(source, /session_rsvps_response_check[\s\S]*?attending[\s\S]*?not_attending/u);
+  assert.match(source, /session_rsvps_session_membership_key[\s\S]*?unique \(session_id, semester_membership_id\)/u);
+  assert.match(source, /session_rsvps_semester_id_fkey[\s\S]*?semesters\(id\)/u);
+  assert.match(source, /session_rsvps_semester_session_fkey[\s\S]*?sessions\(semester_id, id\)/u);
+  assert.match(source, /session_rsvps_semester_membership_fkey[\s\S]*?semester_memberships\(semester_id, id\)/u);
+  assert.match(source, /create index session_rsvps_semester_session_idx/u);
+  assert.match(source, /alter table public\.session_rsvps enable row level security/u);
+  assert.match(source, /grant insert \(semester_id, session_id, semester_membership_id, response\) on table public\.session_rsvps to authenticated/u);
+  assert.match(source, /grant update \(response\) on table public\.session_rsvps to authenticated/u);
 });
 
 test("identity, semester vocabulary, and canonical scheduling are enforced", () => {
@@ -77,7 +98,8 @@ test("least-privilege grants and relationship indexes are present", () => {
   assert.match(source, /revoke all on function public\.commit_mentor_assignment[\s\S]*? from public/u);
   assert.match(source, /alter default privileges for role postgres\s+revoke all on functions from public/u);
   assert.match(source, /revoke all on function public\.commit_mentor_assignment[\s\S]*? from anon/u);
-  assert.match(source, /grant insert \(semester_id, meeting_id, semester_membership_id, slot, is_available, source\) on table public\.meeting_availability to authenticated/u);
+  assert.match(source, /grant insert \(semester_id, meeting_id, semester_membership_id, slot, is_available, format, source\) on table public\.meeting_availability to authenticated/u);
+  assert.match(source, /grant update \(goals, mentorship_needs, mentor_need_context, mentor_need_no_preference, company_snapshot\) on table public\.startup_semesters to authenticated/u);
   assert.match(source, /grant insert \(semester_id, meeting_id, mentor_semester_id, startup_semester_id, slot, status, topic, format\) on table public\.sessions to authenticated/u);
   assert.match(source, /grant update \(status\) on table public\.profiles to service_role/u);
   for (const index of [

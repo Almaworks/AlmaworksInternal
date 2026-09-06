@@ -3,6 +3,7 @@
 import { createClient } from '@/utils/supabase/client'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo } from 'react'
+import { resolvePostLoginDestination } from '@/src/auth/profile-access'
 import { loadCanonicalAccess } from '@/src/program/canonical-access'
 
 export default function DashboardRoot() {
@@ -12,11 +13,12 @@ export default function DashboardRoot() {
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) { router.push('/'); return }
-      const access = await loadCanonicalAccess(supabase, user.id)
-      if (!access || access.status !== 'approved' || !access.role) { router.push('/pending'); return }
-      if (access.role === 'admin') router.push('/dashboard/admin')
-      else if (access.role === 'mentor') router.push('/dashboard/mentor')
-      else router.push('/dashboard/startup')
+      try {
+        const access = await loadCanonicalAccess(supabase, user.id)
+        router.replace(resolvePostLoginDestination(access))
+      } catch {
+        router.replace('/?error=identity_lookup_failed')
+      }
     })
   }, [supabase, router])
 

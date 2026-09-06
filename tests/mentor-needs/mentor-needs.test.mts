@@ -8,6 +8,7 @@ import {
   type MentorNeedsSource,
 } from "../../src/mentor-needs/domain.ts";
 import { buildMentorNeedsBoardPayload } from "../../src/mentor-needs/http.ts";
+import { getMentorNeedsDisplayState } from "../../src/mentor-needs/ui-state.ts";
 
 test("normalizes one primary and optional secondary need while preserving custom labels", () => {
   assert.deepEqual(normalizeMentorNeedSelection({
@@ -96,12 +97,25 @@ test("does not count mentor or outreach tags that have no active startup demand"
   assert.deepEqual(board, []);
 });
 
-test("admin payload exposes the flat cohort list consumed by the board", () => {
+test("admin payload separates headline totals from category-matched rows", () => {
   const current = { id: "fall", name: "Fall 2026", startsOn: "2026-09-01", isActive: true };
   const previous = { id: "spring", name: "Spring 2026", startsOn: "2026-01-01", isActive: false };
-  assert.deepEqual(buildMentorNeedsBoardPayload({ current, previous, all: [current, previous] }, [], "semester"), {
+  assert.deepEqual(buildMentorNeedsBoardPayload({ current, previous, all: [current, previous] }, [], {
+    activeMentorCount: 102,
+    activeOutreachContactCount: 87,
+  }, "semester"), {
     cohorts: [current, previous],
     rows: [],
+    summary: {
+      activeMentorCount: 102,
+      activeOutreachContactCount: 87,
+    },
     scope: "semester",
   });
+});
+
+test("shows a loading screen before mentor needs have loaded", () => {
+  assert.equal(getMentorNeedsDisplayState({ isLoading: true, hasLoaded: false, hasError: false, rowCount: 0 }), "initial-loading");
+  assert.equal(getMentorNeedsDisplayState({ isLoading: true, hasLoaded: true, hasError: false, rowCount: 4 }), "updating");
+  assert.equal(getMentorNeedsDisplayState({ isLoading: false, hasLoaded: true, hasError: false, rowCount: 0 }), "empty");
 });

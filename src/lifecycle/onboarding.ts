@@ -154,11 +154,11 @@ export function buildOnboardingWrites(input: {
   name: string;
   organization: string;
   description: string;
-  expertise: string;
+  expertise: string[];
   teamContact: string;
   finalize: boolean;
 }) {
-  const tags = input.expertise.split(",").map((item) => item.trim()).filter(Boolean);
+  const tags = input.expertise.map((item) => item.trim()).filter(Boolean);
   const profile = { full_name: input.name.trim() };
   if (input.role === "mentor") {
     return {
@@ -176,8 +176,37 @@ export function buildOnboardingWrites(input: {
     startupSemester: {
       company_snapshot: input.description.trim(),
       mentor_need_context: input.teamContact.trim(),
-      preferred_expertise_tags: tags,
       readiness_status: input.finalize ? "ready" : "in_progress",
     },
   };
+}
+
+export function isRoleSetupSaveConfirmed(
+  row: { readiness_status: string | null } | null,
+  finalize: boolean,
+): boolean {
+  return row?.readiness_status === (finalize ? "ready" : "in_progress");
+}
+
+export interface OnboardingMembership {
+  id: string;
+  semesterId: string;
+  status: "invited" | "onboarding";
+  role: "mentor" | "startup";
+}
+
+export function selectActiveOnboardingMembership(
+  memberships: readonly OnboardingMembership[],
+  activeSemesterId: string,
+): OnboardingMembership | null {
+  return memberships.find((membership) => membership.semesterId === activeSemesterId) ?? null;
+}
+
+export function onboardingPreparationError(hasAuthenticatedUser: boolean): string {
+  if (!hasAuthenticatedUser) return "Your sign-in session has expired. Please sign in again.";
+  return "We couldn't connect your sign-in account to your current-cohort invitation. Please refresh. If this continues, ask an Almaworks admin to link your account to the cohort membership.";
+}
+
+export function startupAssignmentPreparationError(): string {
+  return "Your Almaworks invitation is ready, but you have not yet been assigned to a startup. Ask an Almaworks admin to assign you to the correct startup, then refresh this page.";
 }

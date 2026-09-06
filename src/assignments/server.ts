@@ -59,7 +59,6 @@ export interface CandidateSourceData {
     mentorNeedContext: string | null;
     mentorNeedNoPreference: boolean;
     mentorshipNeeds: string[];
-    preferredExpertiseTags: string[];
     stage: Database["public"]["Enums"]["startup_stage"] | null;
   } | null;
   mentors: Array<{
@@ -245,9 +244,6 @@ function needsForRanking(startup: NonNullable<CandidateSourceData["startup"]>) {
   return {
     primaryNeed: mentorshipNeeds[0] ?? null,
     secondaryNeed: mentorshipNeeds[1] ?? null,
-    supplementalNeeds: startup.preferredExpertiseTags.filter((need) => (
-      need.trim().length > 0 && !mentorshipNeeds.includes(need)
-    )),
   };
 }
 
@@ -312,7 +308,7 @@ export function buildCandidateContext(input: CandidateQuery, data: CandidateSour
     assignmentLoad: activeSessions.filter((session) => mentor.scheduleMentorIds.includes(session.mentorScheduleId)).length,
     formats: [normalizedFormat(mentor.preferredFormat)],
   }));
-  const neededExpertise = [...startup.mentorshipNeeds, ...startup.preferredExpertiseTags];
+  const neededExpertise = startup.mentorshipNeeds;
   const startupSlotConflict = activeSessions.some((session) => (
     session.sessionDateId === input.meetingId
     && session.timeSlot === selectedTimeSlot
@@ -474,7 +470,7 @@ export function createSupabaseAssignmentDataSource(client: Client): AssignmentDa
         sessionsResult,
       ] = await Promise.all([
         client.from("meetings").select("id, meeting_date, semester_id").eq("semester_id", input.semesterId),
-        client.from("startup_semesters").select("id, semester_id, company_snapshot, goals, mentor_need_context, mentor_need_no_preference, mentorship_needs, preferred_expertise_tags, stage").eq("id", input.startupSemesterId).eq("semester_id", input.semesterId).maybeSingle(),
+        client.from("startup_semesters").select("id, semester_id, company_snapshot, goals, mentor_need_context, mentor_need_no_preference, mentorship_needs, stage").eq("id", input.startupSemesterId).eq("semester_id", input.semesterId).maybeSingle(),
         client.from("semester_memberships").select("id, profile_id, semester_id, role, status").eq("semester_id", input.semesterId),
         client.from("mentor_semesters").select("id, semester_membership_id, semester_id, capacity, preferred_format, readiness_status").eq("semester_id", input.semesterId).eq("readiness_status", "ready"),
         client.from("meeting_availability").select("semester_membership_id, meeting_id, slot, is_available").eq("meeting_id", input.meetingId),
@@ -526,7 +522,6 @@ export function createSupabaseAssignmentDataSource(client: Client): AssignmentDa
           mentorNeedContext: startupResult.data.mentor_need_context,
           mentorNeedNoPreference: startupResult.data.mentor_need_no_preference,
           mentorshipNeeds: startupResult.data.mentorship_needs,
-          preferredExpertiseTags: startupResult.data.preferred_expertise_tags,
           stage: startupResult.data.stage,
         },
         mentors: activeMentorMemberships.flatMap((membership) => {

@@ -1,6 +1,6 @@
 # Almaworks canonical database map
 
-Generated from the converged local Supabase catalog on 2026-09-01. This documents the 20 application-owned `public` tables. A **semester** is one cohort, a **meeting** is one Friday program date, and a **session** is one mentor-startup conversation in slot 1 or 2. Profiles are durable program identities; only profiles with an `auth_user_id` have managed logins. Outreach contacts never have managed logins.
+Generated from the converged local Supabase catalog on 2026-09-01. This documents the 21 application-owned `public` tables. A **semester** is one cohort, a **meeting** is one Friday program date, and a **session** is one mentor-startup conversation in slot 1 or 2. Profiles are durable program identities; only profiles with an `auth_user_id` have managed logins. Outreach contacts never have managed logins.
 
 Program management and outreach share one project but little data. Program management owns profiles, memberships, mentors, startups, meetings, and sessions. Outreach owns a durable contact/company directory and a fresh opportunity pipeline each semester. The intentional connective tissue is `semesters` plus internal `profiles` used for ownership and auditing.
 
@@ -232,6 +232,21 @@ One mentorship conversation between a startup and mentor in slot 1 or 2 of a Fri
 - `startup_semester_id` (`uuid`) — startup in this cohort; -> `startup_semesters.id`.
 - `slot` (`smallint`) — slot 1 or 2.
 - `idempotency_key` (`text`) — duplicate-assignment guard.
+
+### `session_rsvps`
+
+One participant's current attendance response for one assigned session. The row is semester-scoped and unique per session membership. A missing row means the participant has not responded. This is a pre-session planning signal and is intentionally separate from the administrator-maintained `sessions.startup_absent` post-session fact.
+
+- `id` (`uuid`, PK) — RSVP identifier.
+- `semester_id` (`uuid`) — cohort; -> `semesters.id` and constrained to match both the session and membership.
+- `session_id` (`uuid`) — assigned conversation; -> `sessions.id`.
+- `semester_membership_id` (`uuid`) — responding participant; -> `semester_memberships.id`.
+- `response` (`text`) — `attending` or `not_attending`; no row represents no response.
+- `responded_at` (`timestamptz`) — latest explicit response time.
+- `created_at` (`timestamptz`) — first response creation time.
+- `updated_at` (`timestamptz`) — latest response change time.
+
+RLS permits assigned startup teammates and the assigned mentor to read the existing response rows for their shared session, and permits semester administrators to read all responses in semesters they manage. Participants may insert or update only their own response while the confirmed session is still in the future. Unrelated participants receive no rows, and participant deletes are not granted.
 
 ## Outreach: durable directory
 

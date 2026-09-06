@@ -557,8 +557,8 @@ begin
   where source.semester_id=p_source_semester_id and (p_membership_ids is null or source.id=any(p_membership_ids))
   on conflict(semester_id,semester_membership_id) do nothing;
 
-  insert into public.startup_semesters(semester_id,startup_organization_id,stage,goals,mentorship_needs,preferred_expertise_tags,mentor_need_context,mentor_need_no_preference,readiness_status)
-  select distinct p_target_semester_id,source_term.startup_organization_id,source_term.stage,source_term.goals,source_term.mentorship_needs,source_term.preferred_expertise_tags,source_term.mentor_need_context,source_term.mentor_need_no_preference,'not_started'
+  insert into public.startup_semesters(semester_id,startup_organization_id,stage,goals,mentorship_needs,mentor_need_context,mentor_need_no_preference,readiness_status)
+  select distinct p_target_semester_id,source_term.startup_organization_id,source_term.stage,source_term.goals,source_term.mentorship_needs,source_term.mentor_need_context,source_term.mentor_need_no_preference,'not_started'
   from public.semester_memberships source join public.startup_team_memberships source_team on source_team.semester_membership_id=source.id
   join public.startup_semesters source_term on source_term.id=source_team.startup_semester_id
   where source.semester_id=p_source_semester_id and (p_membership_ids is null or source.id=any(p_membership_ids))
@@ -1114,19 +1114,77 @@ CREATE OR REPLACE FUNCTION "public"."set_platform_super_admin"("p_profile_id" "u
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
+declare
+  v_actor_profile_id uuid;
+  v_audit_semester_id uuid;
+  v_super_admin_count integer;
 begin
   if auth.uid() is null or not private.is_super_admin(auth.uid()) then
     raise exception 'Platform super-administrator access required' using errcode = '42501';
   end if;
+
+  v_actor_profile_id := private.current_profile_id();
+  if p_profile_id is null then
+    raise exception 'Profile is required' using errcode = '22023';
+  end if;
+  if p_profile_id = v_actor_profile_id then
+    raise exception 'You cannot change your own platform super-administrator access' using errcode = '42501';
+  end if;
+
+  select semester.id into v_audit_semester_id
+  from public.semesters semester
+  where semester.is_active = true
+  limit 1;
+  if v_audit_semester_id is null then
+    raise exception 'An active semester is required to change platform access' using errcode = '22023';
+  end if;
+
   if p_enabled then
+    if not exists (
+      select 1
+      from public.semester_memberships membership
+      join public.semesters semester on semester.id = membership.semester_id
+      where membership.profile_id = p_profile_id
+        and membership.role = 'admin'
+        and membership.status = 'active'
+        and semester.is_active = true
+    ) then
+      raise exception 'Only an active Admin member can be granted platform super-administrator access' using errcode = '42501';
+    end if;
+
     insert into public.platform_roles (profile_id, role, granted_by)
-    values (p_profile_id, 'super_admin', private.current_profile_id())
+    values (p_profile_id, 'super_admin', v_actor_profile_id)
     on conflict (profile_id, role) do update
-    set granted_by = private.current_profile_id(), granted_at = now();
+    set granted_by = v_actor_profile_id, granted_at = now();
   else
+    if not exists (
+      select 1 from public.platform_roles
+      where profile_id = p_profile_id and role = 'super_admin'
+    ) then
+      return;
+    end if;
+
+    select count(*) into v_super_admin_count
+    from public.platform_roles
+    where role = 'super_admin';
+    if v_super_admin_count <= 1 then
+      raise exception 'You cannot revoke the final platform super-administrator' using errcode = '42501';
+    end if;
+
     delete from public.platform_roles
     where profile_id = p_profile_id and role = 'super_admin';
   end if;
+
+  insert into public.program_audit_events (
+    semester_id, actor_profile_id, action, subject_type, subject_id, details
+  ) values (
+    v_audit_semester_id,
+    v_actor_profile_id,
+    case when p_enabled then 'platform.super_admin_granted' else 'platform.super_admin_revoked' end,
+    'profile',
+    p_profile_id,
+    jsonb_build_object('role', 'super_admin')
+  );
 end;
 $$;
 
@@ -1635,7 +1693,6 @@ begin
   where id = v_organization_id;
   update public.startup_semesters
   set stage = p_stage::public.startup_stage,
-      preferred_expertise_tags = coalesce(p_preferred_expertise_tags, '{}'),
       mentorship_needs = coalesce(p_mentorship_needs, '{}'),
       updated_at = now()
   where id = p_startup_semester_id;
@@ -1645,6 +1702,47 @@ $$;
 
 
 ALTER FUNCTION "public"."update_startup_records"("p_startup_semester_id" "uuid", "p_name" "text", "p_slug" "text", "p_industry" "text", "p_description" "text", "p_stage" "text", "p_preferred_expertise_tags" "text"[], "p_mentorship_needs" "text"[]) OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."delete_startup_permanently"("p_startup_organization_id" "uuid", "p_confirmation_name" "text") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_name text;
+  v_deleted_sessions integer;
+begin
+  if auth.uid() is null or not private.is_super_admin(auth.uid()) then
+    raise exception 'Platform super-administrator access required' using errcode = '42501';
+  end if;
+
+  select organization.name
+  into v_name
+  from public.startup_organizations organization
+  where organization.id = p_startup_organization_id;
+
+  if v_name is null then
+    raise exception 'Startup not found' using errcode = 'P0002';
+  end if;
+  if btrim(p_confirmation_name) <> v_name then
+    raise exception 'Startup name confirmation does not match' using errcode = '22023';
+  end if;
+
+  delete from public.sessions session
+  using public.startup_semesters term
+  where session.startup_semester_id = term.id
+    and term.startup_organization_id = p_startup_organization_id;
+  get diagnostics v_deleted_sessions = row_count;
+
+  delete from public.startup_organizations
+  where id = p_startup_organization_id;
+
+  return jsonb_build_object('startupName', v_name, 'deletedSessions', v_deleted_sessions);
+end;
+$$;
+
+
+ALTER FUNCTION "public"."delete_startup_permanently"("p_startup_organization_id" "uuid", "p_confirmation_name" "text") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."update_updated_at"() RETURNS "trigger"
@@ -1886,14 +1984,31 @@ CREATE TABLE IF NOT EXISTS "public"."meeting_availability" (
     "semester_membership_id" "uuid" NOT NULL,
     "slot" smallint NOT NULL,
     "is_available" boolean DEFAULT true NOT NULL,
+    "format" text,
     "source" "text" DEFAULT 'user'::"text" NOT NULL,
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
-    CONSTRAINT "meeting_availability_slot_check" CHECK (("slot" = ANY (ARRAY[1, 2])))
+    CONSTRAINT "meeting_availability_slot_check" CHECK (("slot" = ANY (ARRAY[1, 2]))),
+    CONSTRAINT "meeting_availability_format_check" CHECK (("format" IS NULL OR "format" = ANY (ARRAY['in_person'::text, 'remote'::text, 'hybrid'::text])))
 );
 
 
 ALTER TABLE "public"."meeting_availability" OWNER TO "postgres";
+
+CREATE TABLE IF NOT EXISTS "public"."schedule_attention_alerts" (
+    "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+    "semester_id" uuid NOT NULL,
+    "session_id" uuid NOT NULL,
+    "mentor_semester_id" uuid NOT NULL,
+    "reason" text NOT NULL,
+    "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT "schedule_attention_alerts_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "schedule_attention_alerts_session_key" UNIQUE ("session_id"),
+    CONSTRAINT "schedule_attention_alerts_reason_check" CHECK (("reason" = ANY (ARRAY['unavailable'::text, 'format_conflict'::text])))
+);
+
+ALTER TABLE "public"."schedule_attention_alerts" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."meetings" (
@@ -2148,7 +2263,6 @@ CREATE TABLE IF NOT EXISTS "public"."startup_semesters" (
     "stage" "public"."startup_stage",
     "goals" "text"[] DEFAULT '{}'::"text"[] NOT NULL,
     "mentorship_needs" "text"[] DEFAULT '{}'::"text"[] NOT NULL,
-    "preferred_expertise_tags" "text"[] DEFAULT '{}'::"text"[] NOT NULL,
     "readiness_status" "text" DEFAULT 'not_started'::"text" NOT NULL,
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
@@ -2186,6 +2300,13 @@ ALTER TABLE ONLY "public"."meeting_availability"
 
 ALTER TABLE ONLY "public"."meeting_availability"
     ADD CONSTRAINT "meeting_availability_pkey" PRIMARY KEY ("id");
+
+ALTER TABLE ONLY "public"."schedule_attention_alerts"
+    ADD CONSTRAINT "schedule_attention_alerts_semester_id_fkey" FOREIGN KEY ("semester_id") REFERENCES "public"."semesters"("id") ON DELETE CASCADE;
+ALTER TABLE ONLY "public"."schedule_attention_alerts"
+    ADD CONSTRAINT "schedule_attention_alerts_session_id_fkey" FOREIGN KEY ("session_id") REFERENCES "public"."sessions"("id") ON DELETE CASCADE;
+ALTER TABLE ONLY "public"."schedule_attention_alerts"
+    ADD CONSTRAINT "schedule_attention_alerts_semester_mentor_fkey" FOREIGN KEY ("semester_id", "mentor_semester_id") REFERENCES "public"."mentor_semesters"("semester_id", "id") ON DELETE CASCADE;
 
 
 
@@ -2791,7 +2912,9 @@ CREATE POLICY "authenticated users read semesters" ON "public"."semesters" FOR S
 
 
 
-CREATE POLICY "cohort members read meetings" ON "public"."meetings" FOR SELECT TO "authenticated" USING ("private"."has_semester_role"("semester_id", ARRAY['admin'::"public"."user_role", 'mentor'::"public"."user_role", 'startup'::"public"."user_role"], ( SELECT "auth"."uid"() AS "uid")));
+CREATE POLICY "cohort members read meetings" ON "public"."meetings" FOR SELECT TO "authenticated" USING (("private"."has_semester_role"("semester_id", ARRAY['admin'::"public"."user_role", 'mentor'::"public"."user_role", 'startup'::"public"."user_role"], ( SELECT "auth"."uid"() AS "uid")) OR (EXISTS ( SELECT 1
+   FROM "public"."semester_memberships" "membership"
+  WHERE (("membership"."semester_id" = "meetings"."semester_id") AND ("membership"."profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) AND ("membership"."role" = ANY (ARRAY['mentor'::"public"."user_role", 'startup'::"public"."user_role"])) AND ("membership"."status" = ANY (ARRAY['invited'::"public"."membership_lifecycle_status", 'onboarding'::"public"."membership_lifecycle_status"])))))));
 
 
 
@@ -2809,6 +2932,7 @@ ALTER TABLE "public"."invitations" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."meeting_availability" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."schedule_attention_alerts" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."meetings" ENABLE ROW LEVEL SECURITY;
@@ -2883,6 +3007,8 @@ ALTER TABLE "public"."outreach_opportunities" ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "owners or admins read meeting availability" ON "public"."meeting_availability" FOR SELECT TO "authenticated" USING (("private"."can_manage_semester"("semester_id", ( SELECT "auth"."uid"() AS "uid")) OR (EXISTS ( SELECT 1
    FROM "public"."semester_memberships" "membership"
   WHERE (("membership"."id" = "meeting_availability"."semester_membership_id") AND ("membership"."semester_id" = "meeting_availability"."semester_id") AND ("membership"."profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")))))));
+
+CREATE POLICY "admins manage schedule attention alerts" ON "public"."schedule_attention_alerts" TO "authenticated" USING ("private"."can_manage_semester"("semester_id", ( SELECT "auth"."uid"() AS "uid"))) WITH CHECK ("private"."can_manage_semester"("semester_id", ( SELECT "auth"."uid"() AS "uid")));
 
 
 
@@ -3318,6 +3444,322 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON FUN
 
 
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "postgres";
+
+CREATE OR REPLACE FUNCTION public.save_mentor_meeting_availability(p_semester_id uuid, p_windows jsonb)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO ''
+AS $$
+declare
+  v_membership_id uuid;
+  v_mentor_semester_id uuid;
+begin
+  if auth.uid() is null or jsonb_typeof(p_windows) is distinct from 'array' then
+    raise exception 'A signed-in mentor and availability windows are required' using errcode = '22023';
+  end if;
+
+  select membership.id, term.id into v_membership_id, v_mentor_semester_id
+  from public.semester_memberships membership
+  join public.mentor_semesters term on term.semester_membership_id = membership.id and term.semester_id = membership.semester_id
+  where membership.semester_id = p_semester_id
+    and membership.profile_id = private.current_profile_id(auth.uid())
+    and membership.role = 'mentor'
+    and membership.status in ('onboarding', 'active');
+  if v_membership_id is null then raise exception 'Mentor membership is required' using errcode = '42501'; end if;
+
+  if exists (
+    select 1 from jsonb_to_recordset(p_windows) as window(meeting_id uuid, slot smallint, is_available boolean, format text)
+    left join public.meetings meeting on meeting.id = window.meeting_id and meeting.semester_id = p_semester_id
+    where meeting.id is null or window.slot not in (1,2) or window.is_available is null or window.format not in ('in_person','remote','hybrid')
+  ) then raise exception 'Availability contains an invalid meeting slot or format' using errcode = '22023'; end if;
+
+  insert into public.meeting_availability (semester_id, meeting_id, semester_membership_id, slot, is_available, format, source)
+  select p_semester_id, window.meeting_id, v_membership_id, window.slot, window.is_available, window.format, 'user'
+  from jsonb_to_recordset(p_windows) as window(meeting_id uuid, slot smallint, is_available boolean, format text)
+  on conflict (meeting_id, semester_membership_id, slot) do update
+    set is_available = excluded.is_available, format = excluded.format, source = excluded.source, updated_at = now();
+
+  insert into public.schedule_attention_alerts (semester_id, session_id, mentor_semester_id, reason)
+  select session.semester_id, session.id, session.mentor_semester_id,
+    case when not window.is_available then 'unavailable' else 'format_conflict' end
+  from jsonb_to_recordset(p_windows) as window(meeting_id uuid, slot smallint, is_available boolean, format text)
+  join public.sessions session on session.semester_id = p_semester_id and session.meeting_id = window.meeting_id and session.slot = window.slot
+  where session.mentor_semester_id = v_mentor_semester_id and session.status = 'confirmed'
+    and (not window.is_available or (window.format <> 'hybrid' and session.format <> 'hybrid' and window.format <> session.format))
+  on conflict (session_id) do update set reason = excluded.reason, updated_at = now();
+end;
+$$;
+
+REVOKE ALL ON FUNCTION public.save_mentor_meeting_availability(uuid, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.save_mentor_meeting_availability(uuid, jsonb) TO authenticated;
+
+
+CREATE OR REPLACE FUNCTION "public"."set_mentor_account_access"("p_mentor_semester_id" "uuid", "p_enabled" boolean)
+RETURNS TABLE("profile_id" "uuid", "auth_user_id" "uuid", "profile_is_active" boolean, "suspended_membership_ids" "uuid"[])
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_actor_profile_id uuid := private.current_profile_id();
+  v_auth_user_id uuid;
+  v_profile_id uuid;
+  v_semester_id uuid;
+  v_suspended_membership_ids uuid[] := '{}';
+begin
+  if auth.uid() is null or not private.is_super_admin(auth.uid()) then
+    raise exception 'Platform super-administrator access required' using errcode = '42501';
+  end if;
+
+  select membership.profile_id, term.semester_id, profile.auth_user_id
+  into v_profile_id, v_semester_id, v_auth_user_id
+  from public.mentor_semesters term
+  join public.semester_memberships membership
+    on membership.id = term.semester_membership_id
+   and membership.semester_id = term.semester_id
+   and membership.role = 'mentor'
+  join public.profiles profile on profile.id = membership.profile_id
+  where term.id = p_mentor_semester_id;
+
+  if v_profile_id is null then
+    raise exception 'Mentor semester not found' using errcode = 'P0002';
+  end if;
+  if v_profile_id = v_actor_profile_id then
+    raise exception 'You cannot disable your own account from the mentor directory' using errcode = '42501';
+  end if;
+  if exists (select 1 from public.platform_roles where profile_id = v_profile_id) then
+    raise exception 'Platform administrators cannot be disabled from the mentor directory' using errcode = '42501';
+  end if;
+
+  update public.profiles
+  set is_active = p_enabled,
+      updated_at = now()
+  where id = v_profile_id;
+
+  if not p_enabled then
+    with suspended as (
+      update public.semester_memberships
+      set status = 'suspended',
+          suspended_at = now(),
+          updated_at = now()
+      where profile_id = v_profile_id
+        and status in ('invited', 'onboarding', 'active')
+      returning id
+    )
+    select coalesce(array_agg(id), '{}')
+    into v_suspended_membership_ids
+    from suspended;
+  end if;
+
+  insert into public.program_audit_events (
+    semester_id, actor_profile_id, action, subject_type, subject_id, details
+  ) values (
+    v_semester_id,
+    v_actor_profile_id,
+    case when p_enabled then 'mentor.account_reinstated' else 'mentor.account_disabled' end,
+    'profile',
+    v_profile_id,
+    jsonb_build_object(
+      'mentor_semester_id', p_mentor_semester_id,
+      'profile_is_active', p_enabled,
+      'suspended_membership_ids', v_suspended_membership_ids
+    )
+  );
+
+  return query select v_profile_id, v_auth_user_id, p_enabled, v_suspended_membership_ids;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."set_mentor_account_access"("p_mentor_semester_id" "uuid", "p_enabled" boolean) OWNER TO "postgres";
+
+
+REVOKE ALL ON FUNCTION "public"."set_mentor_account_access"("p_mentor_semester_id" "uuid", "p_enabled" boolean) FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."set_mentor_account_access"("p_mentor_semester_id" "uuid", "p_enabled" boolean) TO "authenticated";
+
+
+CREATE TABLE IF NOT EXISTS "public"."session_rsvps" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "semester_id" "uuid" NOT NULL,
+    "session_id" "uuid" NOT NULL,
+    "semester_membership_id" "uuid" NOT NULL,
+    "response" "text" NOT NULL,
+    "responded_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    CONSTRAINT "session_rsvps_response_check" CHECK (("response" = ANY (ARRAY['attending'::"text", 'not_attending'::"text"])))
+);
+
+
+ALTER TABLE "public"."session_rsvps" OWNER TO "postgres";
+
+
+ALTER TABLE ONLY "public"."session_rsvps"
+    ADD CONSTRAINT "session_rsvps_pkey" PRIMARY KEY ("id");
+
+
+ALTER TABLE ONLY "public"."session_rsvps"
+    ADD CONSTRAINT "session_rsvps_session_membership_key" UNIQUE ("session_id", "semester_membership_id");
+
+
+ALTER TABLE ONLY "public"."sessions"
+    ADD CONSTRAINT "sessions_semester_id_id_key" UNIQUE ("semester_id", "id");
+
+
+CREATE INDEX "session_rsvps_membership_idx" ON "public"."session_rsvps" USING "btree" ("semester_membership_id", "session_id");
+
+
+CREATE INDEX "session_rsvps_semester_session_idx" ON "public"."session_rsvps" USING "btree" ("semester_id", "session_id");
+
+
+ALTER TABLE ONLY "public"."session_rsvps"
+    ADD CONSTRAINT "session_rsvps_semester_id_fkey" FOREIGN KEY ("semester_id") REFERENCES "public"."semesters"("id") ON DELETE CASCADE;
+
+
+ALTER TABLE ONLY "public"."session_rsvps"
+    ADD CONSTRAINT "session_rsvps_semester_membership_fkey" FOREIGN KEY ("semester_id", "semester_membership_id") REFERENCES "public"."semester_memberships"("semester_id", "id") ON DELETE CASCADE;
+
+
+ALTER TABLE ONLY "public"."session_rsvps"
+    ADD CONSTRAINT "session_rsvps_semester_session_fkey" FOREIGN KEY ("semester_id", "session_id") REFERENCES "public"."sessions"("semester_id", "id") ON DELETE CASCADE;
+
+
+CREATE OR REPLACE FUNCTION "private"."can_read_session_rsvp"("target_session_id" "uuid", "target_semester_id" "uuid", "candidate_id" "uuid" DEFAULT "auth"."uid"()) RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select candidate_id is not null
+    and candidate_id is not distinct from auth.uid()
+    and (
+      private.can_manage_semester(target_semester_id, candidate_id)
+      or exists (
+        select 1
+        from public.sessions session
+        join public.mentor_semesters mentor_term
+          on mentor_term.id = session.mentor_semester_id
+         and mentor_term.semester_id = session.semester_id
+        join public.semester_memberships membership
+          on membership.id = mentor_term.semester_membership_id
+         and membership.semester_id = mentor_term.semester_id
+        where session.id = target_session_id
+          and session.semester_id = target_semester_id
+          and membership.profile_id = private.current_profile_id(candidate_id)
+          and membership.role = 'mentor'
+          and membership.status in ('onboarding', 'active')
+      )
+      or exists (
+        select 1
+        from public.sessions session
+        join public.startup_team_memberships team
+          on team.startup_semester_id = session.startup_semester_id
+         and team.semester_id = session.semester_id
+        join public.semester_memberships membership
+          on membership.id = team.semester_membership_id
+         and membership.semester_id = team.semester_id
+        where session.id = target_session_id
+          and session.semester_id = target_semester_id
+          and membership.profile_id = private.current_profile_id(candidate_id)
+          and membership.role = 'startup'
+          and membership.status in ('onboarding', 'active')
+      )
+    )
+$$;
+
+
+ALTER FUNCTION "private"."can_read_session_rsvp"("target_session_id" "uuid", "target_semester_id" "uuid", "candidate_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "private"."can_write_session_rsvp"("target_session_id" "uuid", "target_semester_id" "uuid", "target_membership_id" "uuid", "candidate_id" "uuid" DEFAULT "auth"."uid"()) RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select candidate_id is not null
+    and candidate_id is not distinct from auth.uid()
+    and exists (
+      select 1
+      from public.sessions session
+      join public.meetings meeting
+        on meeting.id = session.meeting_id
+       and meeting.semester_id = session.semester_id
+      join public.semesters semester on semester.id = session.semester_id
+      join public.semester_memberships membership
+        on membership.id = target_membership_id
+       and membership.semester_id = session.semester_id
+      where session.id = target_session_id
+        and session.semester_id = target_semester_id
+        and session.status = 'confirmed'
+        and membership.profile_id = private.current_profile_id(candidate_id)
+        and membership.status in ('onboarding', 'active')
+        and now() < (
+          meeting.meeting_date
+          + case session.slot when 2 then meeting.slot_2_starts_at else meeting.slot_1_starts_at end
+        ) at time zone coalesce(nullif(semester.configuration ->> 'timezone', ''), 'America/New_York')
+        and (
+          (
+            membership.role = 'mentor'
+            and exists (
+              select 1
+              from public.mentor_semesters mentor_term
+              where mentor_term.id = session.mentor_semester_id
+                and mentor_term.semester_id = session.semester_id
+                and mentor_term.semester_membership_id = membership.id
+            )
+          )
+          or (
+            membership.role = 'startup'
+            and exists (
+              select 1
+              from public.startup_team_memberships team
+              where team.startup_semester_id = session.startup_semester_id
+                and team.semester_id = session.semester_id
+                and team.semester_membership_id = membership.id
+            )
+          )
+        )
+    )
+$$;
+
+
+ALTER FUNCTION "private"."can_write_session_rsvp"("target_session_id" "uuid", "target_semester_id" "uuid", "target_membership_id" "uuid", "candidate_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."touch_session_rsvp_response"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+begin
+  new.responded_at = now();
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."touch_session_rsvp_response"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE TRIGGER "session_rsvps_response_updated_at" BEFORE UPDATE OF "response" ON "public"."session_rsvps" FOR EACH ROW EXECUTE FUNCTION "public"."touch_session_rsvp_response"();
+
+
+ALTER TABLE "public"."session_rsvps" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "participants read assigned session rsvps" ON "public"."session_rsvps" FOR SELECT TO "authenticated" USING ("private"."can_read_session_rsvp"("session_id", "semester_id", ( SELECT "auth"."uid"() AS "uid")));
+
+
+CREATE POLICY "participants insert own session rsvps" ON "public"."session_rsvps" FOR INSERT TO "authenticated" WITH CHECK ("private"."can_write_session_rsvp"("session_id", "semester_id", "semester_membership_id", ( SELECT "auth"."uid"() AS "uid")));
+
+
+CREATE POLICY "participants update own session rsvps" ON "public"."session_rsvps" FOR UPDATE TO "authenticated" USING ("private"."can_write_session_rsvp"("session_id", "semester_id", "semester_membership_id", ( SELECT "auth"."uid"() AS "uid"))) WITH CHECK ("private"."can_write_session_rsvp"("session_id", "semester_id", "semester_membership_id", ( SELECT "auth"."uid"() AS "uid")));
+
+
+REVOKE ALL ON FUNCTION "private"."can_read_session_rsvp"("target_session_id" "uuid", "target_semester_id" "uuid", "candidate_id" "uuid") FROM PUBLIC;
+
+
+REVOKE ALL ON FUNCTION "private"."can_write_session_rsvp"("target_session_id" "uuid", "target_semester_id" "uuid", "target_membership_id" "uuid", "candidate_id" "uuid") FROM PUBLIC;
+
+
+REVOKE ALL ON FUNCTION "public"."touch_session_rsvp_response"() FROM PUBLIC;
 
 
 CREATE OR REPLACE FUNCTION public.preview_member_login_removal(p_profile_id uuid)
@@ -3937,6 +4379,7 @@ begin
 end;
 $$;
 
+
 revoke all on function public.preview_member_login_removal(uuid) from public, anon;
 revoke all on function public.prepare_member_login_removal(uuid, text) from public, anon;
 revoke all on function public.attach_replacement_auth_identity(uuid, uuid) from public, anon;
@@ -3945,3 +4388,80 @@ grant execute on function public.preview_member_login_removal(uuid) to authentic
 grant execute on function public.prepare_member_login_removal(uuid, text) to authenticated, postgres;
 grant execute on function public.attach_replacement_auth_identity(uuid, uuid) to authenticated, postgres;
 grant execute on function public.discard_replacement_auth_placeholder(uuid, uuid) to authenticated, postgres;
+
+
+CREATE OR REPLACE FUNCTION "private"."can_read_session_participant"("target_membership_id" "uuid", "target_semester_id" "uuid", "candidate_id" "uuid" DEFAULT "auth"."uid"()) RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select candidate_id is not null
+    and candidate_id is not distinct from auth.uid()
+    and (
+      private.can_manage_semester(target_semester_id, candidate_id)
+      or exists (
+        select 1
+        from public.semester_memberships own_membership
+        where own_membership.id = target_membership_id
+          and own_membership.semester_id = target_semester_id
+          and own_membership.profile_id = private.current_profile_id(candidate_id)
+      )
+      or exists (
+        select 1
+        from public.sessions session
+        join public.semester_memberships target_membership
+          on target_membership.id = target_membership_id
+         and target_membership.semester_id = session.semester_id
+         and target_membership.status in ('onboarding', 'active')
+        where session.semester_id = target_semester_id
+          and (
+            exists (
+              select 1 from public.mentor_semesters target_mentor
+              where target_mentor.id = session.mentor_semester_id
+                and target_mentor.semester_membership_id = target_membership.id
+            )
+            or exists (
+              select 1 from public.startup_team_memberships target_team
+              where target_team.startup_semester_id = session.startup_semester_id
+                and target_team.semester_membership_id = target_membership.id
+            )
+          )
+          and (
+            exists (
+              select 1
+              from public.mentor_semesters viewer_mentor
+              join public.semester_memberships viewer_membership
+                on viewer_membership.id = viewer_mentor.semester_membership_id
+               and viewer_membership.semester_id = viewer_mentor.semester_id
+              where viewer_mentor.id = session.mentor_semester_id
+                and viewer_membership.profile_id = private.current_profile_id(candidate_id)
+                and viewer_membership.status in ('onboarding', 'active')
+            )
+            or exists (
+              select 1
+              from public.startup_team_memberships viewer_team
+              join public.semester_memberships viewer_membership
+                on viewer_membership.id = viewer_team.semester_membership_id
+               and viewer_membership.semester_id = viewer_team.semester_id
+              where viewer_team.startup_semester_id = session.startup_semester_id
+                and viewer_membership.profile_id = private.current_profile_id(candidate_id)
+                and viewer_membership.status in ('onboarding', 'active')
+            )
+          )
+      )
+    )
+$$;
+
+
+ALTER FUNCTION "private"."can_read_session_participant"("target_membership_id" "uuid", "target_semester_id" "uuid", "candidate_id" "uuid") OWNER TO "postgres";
+
+
+ALTER POLICY "members read authorized semester memberships" ON "public"."semester_memberships" USING (("profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) OR "private"."can_manage_semester"("semester_id", ( SELECT "auth"."uid"() AS "uid")) OR (("role" = 'mentor'::"public"."user_role") AND ("status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status", 'alumni'::"public"."membership_lifecycle_status"])) AND (EXISTS ( SELECT 1 FROM "public"."semesters" "viewer_semester" WHERE "private"."has_semester_role"("viewer_semester"."id", ARRAY['admin'::"public"."user_role", 'mentor'::"public"."user_role", 'startup'::"public"."user_role"], ( SELECT "auth"."uid"() AS "uid"))))) OR "private"."can_read_session_participant"("id", "semester_id", ( SELECT "auth"."uid"() AS "uid")));
+
+
+ALTER POLICY "owners or admins read startup team memberships" ON "public"."startup_team_memberships" USING ("private"."can_manage_semester"("semester_id", ( SELECT "auth"."uid"() AS "uid")) OR (EXISTS ( SELECT 1 FROM "public"."semester_memberships" "membership" WHERE (("membership"."id" = "startup_team_memberships"."semester_membership_id") AND ("membership"."semester_id" = "startup_team_memberships"."semester_id") AND ("membership"."profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id"))))) OR "private"."can_read_session_participant"("semester_membership_id", "semester_id", ( SELECT "auth"."uid"() AS "uid")));
+
+
+ALTER POLICY "program members read profiles" ON "public"."profiles" USING (("id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) OR "private"."is_super_admin"(( SELECT "auth"."uid"() AS "uid")) OR (EXISTS ( SELECT 1 FROM "public"."semester_memberships" "administrator" WHERE (("administrator"."profile_id" = ( SELECT "private"."current_profile_id"(( SELECT "auth"."uid"() AS "uid")) AS "current_profile_id")) AND ("administrator"."role" = 'admin'::"public"."user_role") AND ("administrator"."status" = ANY (ARRAY['onboarding'::"public"."membership_lifecycle_status", 'active'::"public"."membership_lifecycle_status"]))))) OR "private"."can_read_mentor_profile"("id", ( SELECT "auth"."uid"() AS "uid")) OR (EXISTS ( SELECT 1 FROM "public"."semester_memberships" "session_participant" WHERE (("session_participant"."profile_id" = "profiles"."id") AND "private"."can_read_session_participant"("session_participant"."id", "session_participant"."semester_id", ( SELECT "auth"."uid"() AS "uid"))))));
+
+
+REVOKE ALL ON FUNCTION "private"."can_read_session_participant"("target_membership_id" "uuid", "target_semester_id" "uuid", "candidate_id" "uuid") FROM PUBLIC;

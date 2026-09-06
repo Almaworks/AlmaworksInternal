@@ -11,6 +11,7 @@ import { loadMentorDirectory } from '@/src/program/canonical-repository'
 import { adminMemberHref } from '@/src/assignments/schedule-navigation'
 import { membershipPresentation, type MembershipReadinessStatus } from '@/src/lifecycle/membership-presentation'
 import type { MembershipStatus } from '@/src/lifecycle/types'
+import { mentorAccessPresentation, type MentorAccessScope } from '@/src/mentors/access'
 
 type SortDir = 'asc' | 'desc'
 
@@ -23,6 +24,8 @@ type MentorRow = {
   expertise_tags: string[]
   bio: string | null
   is_active: boolean
+  profile_active: boolean
+  membership_id: string
   membership_status: MembershipStatus
   readiness_status: MembershipReadinessStatus
   slug: string | null
@@ -70,6 +73,12 @@ export default function AdminMentorsPage() {
   const [savingId, setSavingId] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
 
+  // Access management
+  const [managingAccessId, setManagingAccessId] = useState<string | null>(null)
+  const [accessWorkingId, setAccessWorkingId] = useState<string | null>(null)
+  const [accessError, setAccessError] = useState<string | null>(null)
+  const [isGlobalAdmin, setIsGlobalAdmin] = useState(false)
+
   const [selectedMentorId, setSelectedMentorId] = useState<string | null>(null)
 
   // Clipboard copy feedback
@@ -86,7 +95,21 @@ export default function AdminMentorsPage() {
     const { data: sem } = await supabase.from('semesters').select('id, name').eq('is_active', true).maybeSingle()
     setActiveSemesterId((sem as { id: string; name: string } | null)?.id ?? null)
     setActiveSemesterName((sem as { id: string; name: string } | null)?.name ?? null)
-    setRows(await loadMentorDirectory(supabase))
+    const [{ data: authData }, mentorRows] = await Promise.all([
+      supabase.auth.getUser(),
+      loadMentorDirectory(supabase),
+    ])
+    setRows(mentorRows)
+    const authUserId = authData.user?.id
+    if (!authUserId) {
+      setIsGlobalAdmin(false)
+    } else {
+      const { data: profile } = await supabase.from('profiles').select('id').eq('auth_user_id', authUserId).maybeSingle()
+      const { data: platformRole } = profile
+        ? await supabase.from('platform_roles').select('role').eq('profile_id', profile.id).eq('role', 'super_admin').maybeSingle()
+        : { data: null }
+      setIsGlobalAdmin(Boolean(platformRole))
+    }
     setLoading(false)
   }
 
@@ -203,6 +226,48 @@ export default function AdminMentorsPage() {
     setSavingId(null)
   }
 
+  async function changeMentorAccess(mentor: MentorRow, scope: MentorAccessScope, enabled: boolean) {
+    if (!mentor.semester_id || !mentor.membership_id) {
+      setAccessError('This mentor is missing the semester membership needed to change access.')
+      return
+    }
+
+    const semesterLabel = mentor.semester_name ?? 'this semester'
+    const confirmation = scope === 'semester'
+      ? enabled
+        ? `Restore ${mentor.full_name} to ${semesterLabel}? Their semester access will become active again.`
+        : `Remove ${mentor.full_name} from ${semesterLabel}? Their profile, login account, and history will stay intact, but they will no longer have access to this semester.`
+      : enabled
+        ? `Reinstate ${mentor.full_name}'s Almaworks account? This restores sign-in, but does not enroll them in a semester.`
+        : `Disable ${mentor.full_name}'s Almaworks account globally? This blocks sign-in across all semesters and suspends current access. Their profile and history will be preserved.`
+    if (!window.confirm(confirmation)) return
+
+    setAccessWorkingId(mentor.id)
+    setAccessError(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error('Not authenticated.')
+      const response = await fetch(`/api/admin/mentors/${mentor.id}/access`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          enabled,
+          membershipId: mentor.membership_id,
+          scope,
+          semesterId: mentor.semester_id,
+        }),
+      })
+      const result = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(result.error ?? 'The mentor access change failed.')
+      await Promise.all([load(), cohort.reload()])
+      setManagingAccessId(null)
+    } catch (error) {
+      setAccessError(error instanceof Error ? error.message : 'The mentor access change failed.')
+    } finally {
+      setAccessWorkingId(null)
+    }
+  }
+
   const lifecycleToneClasses = {
     neutral: 'bg-gray-100 text-gray-700',
     progress: 'bg-blue-50 text-blue-700',
@@ -210,7 +275,10 @@ export default function AdminMentorsPage() {
     success: 'bg-green-50 text-green-700',
     historical: 'bg-slate-100 text-slate-600',
     danger: 'bg-red-50 text-red-700',
+    muted: 'bg-slate-100 text-slate-600',
   } as const
+
+  const canMutateAccess = cohort.semesterId !== null && cohort.semesterId === cohort.cohorts.current?.id
 
   return (
     <div className="max-w-5xl">
@@ -236,15 +304,20 @@ export default function AdminMentorsPage() {
 
       {/* Magic links */}
       {magicLinks.length > 0 && (
-        <div className="bg-green-50 border border-green-100 rounded-xl p-4 mb-4 space-y-2">
-          <p className="text-xs font-semibold text-green-800 uppercase tracking-wide">Recent magic links</p>
+        <div className="mb-4 space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4" role="status">
+          <div>
+            <p className="text-sm font-semibold text-amber-950">Action required: send the sign-in link</p>
+            <p className="mt-1 text-xs leading-5 text-amber-900">
+              The mentor account was created, but Almaworks did not email the invitation. Copy the private link below and send it to the new mentor so they can activate their account and sign in.
+            </p>
+          </div>
           {magicLinks.map((m, i) => (
-            <div key={i} className="flex gap-2 items-center">
-              <span className="text-xs text-green-800 w-28 shrink-0 truncate">{m.label}</span>
-              <input readOnly value={m.link} className="flex-1 text-[11px] text-gray-700 border border-green-200 rounded-lg px-2.5 py-1.5 bg-white" />
-              <button onClick={() => navigator.clipboard.writeText(m.link)}
-                className="px-2.5 py-1.5 text-xs font-medium border border-green-200 rounded-lg bg-white hover:bg-green-100 transition-colors shrink-0">
-                Copy
+            <div key={`${m.link}-${i}`} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <span className="w-28 shrink-0 truncate text-xs font-medium text-amber-950">{m.label}</span>
+              <input readOnly value={m.link} aria-label={`Sign-in link for ${m.label}`} className="min-w-0 flex-1 rounded-lg border border-amber-200 bg-white px-2.5 py-2 text-[11px] text-gray-700" />
+              <button type="button" onClick={() => copyToClipboard(m.link, `invite-${i}`)}
+                className="shrink-0 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-950 transition-colors hover:bg-amber-100">
+                {copiedId === `invite-${i}` ? 'Copied!' : 'Copy sign-in link'}
               </button>
             </div>
           ))}
@@ -354,14 +427,14 @@ export default function AdminMentorsPage() {
         <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
           <table className="w-full text-sm table-fixed border-collapse">
             <colgroup>
-              <col style={{ width: '21%' }} />
+              <col style={{ width: '19%' }} />
               <col style={{ width: '16%' }} />
               <col style={{ width: '9%' }} />
               <col style={{ width: '9%' }} />
               <col style={{ width: '9%' }} />
               <col style={{ width: '16%' }} />
-              <col style={{ width: '16%' }} />
-              <col style={{ width: '4%' }} />
+              <col style={{ width: '14%' }} />
+              <col style={{ width: '8%' }} />
             </colgroup>
             <thead className="border-b border-gray-100 bg-gray-50">
               <tr>
@@ -384,7 +457,11 @@ export default function AdminMentorsPage() {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {filtered.map(m => {
-                const presentation = membershipPresentation({ status: m.membership_status, readinessStatus: m.readiness_status })
+                const lifecyclePresentation = membershipPresentation({ status: m.membership_status, readinessStatus: m.readiness_status })
+                const accessPresentation = mentorAccessPresentation({ membershipStatus: m.membership_status, profileActive: m.profile_active })
+                const presentation = m.profile_active
+                  ? lifecyclePresentation
+                  : { label: accessPresentation.label, tone: accessPresentation.tone }
                 return (
                 <Fragment key={m.id}>
                   <tr className="hover:bg-gray-50/50 transition-colors">
@@ -453,12 +530,17 @@ export default function AdminMentorsPage() {
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={() => editingId === m.id ? setEditingId(null) : openEdit(m)}
-                        title={editingId === m.id ? 'Cancel' : 'Edit'}
-                        className="inline-flex items-center justify-center w-7 h-7 rounded-md text-gray-400 hover:text-[#002147] hover:bg-gray-100 transition-colors"
-                      >
+                    <td className="px-2 py-3 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          onClick={() => {
+                            setManagingAccessId(null)
+                            if (editingId === m.id) setEditingId(null)
+                            else openEdit(m)
+                          }}
+                          title={editingId === m.id ? 'Cancel' : 'Edit'}
+                          className="inline-flex items-center justify-center w-7 h-7 rounded-md text-gray-400 hover:text-[#002147] hover:bg-gray-100 transition-colors"
+                        >
                         {editingId === m.id ? (
                           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -468,9 +550,80 @@ export default function AdminMentorsPage() {
                             <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 012.828 2.828L11.828 15.828a2 2 0 01-1.414.586H8v-2.414a2 2 0 01.586-1.414z" />
                           </svg>
                         )}
-                      </button>
+                        </button>
+                        <button
+                        onClick={() => {
+                          setEditingId(null)
+                          setAccessError(null)
+                          setManagingAccessId(current => current === m.id ? null : m.id)
+                        }}
+                        title={managingAccessId === m.id ? 'Close access controls' : 'Manage access'}
+                        aria-label={`Manage access for ${m.full_name}`}
+                        className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${managingAccessId === m.id ? 'bg-[#002147]/10 text-[#002147]' : 'text-gray-400 hover:bg-gray-100 hover:text-[#002147]'}`}
+                      >
+                        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 11c1.657 0 3-1.343 3-3V5a3 3 0 10-6 0v3c0 1.657 1.343 3 3 3zm0 0v4m-4 0h8a2 2 0 012 2v2H6v-2a2 2 0 012-2z" />
+                        </svg>
+                        </button>
+                      </div>
                     </td>
                   </tr>
+                  {managingAccessId === m.id && (
+                    <tr>
+                      <td colSpan={8} className="p-0">
+                        <div className="border-t border-gray-100 bg-slate-50 px-5 py-5">
+                          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                            <div className="max-w-xl">
+                              <p className="text-sm font-semibold text-[#002147]">Access for {m.full_name}</p>
+                              <p className="mt-1 text-xs leading-5 text-gray-600">
+                                Semester removal is reversible and keeps the mentor&apos;s profile, login account, scheduled session records, and history intact.
+                              </p>
+                              {!canMutateAccess && (
+                                <p className="mt-2 text-xs font-medium text-amber-700">Access changes are available only while viewing the active semester.</p>
+                              )}
+                            </div>
+                            <div className="flex min-w-0 flex-col gap-3 sm:flex-row lg:justify-end">
+                              <div className="rounded-xl border border-gray-200 bg-white p-3 sm:w-56">
+                                <p className="text-xs font-semibold text-gray-800">Semester access</p>
+                                <p className="mt-1 min-h-10 text-[11px] leading-4 text-gray-500">
+                                  Controls participation in {m.semester_name ?? 'this semester'} only.
+                                </p>
+                                {accessPresentation.semesterAction ? (
+                                  <button
+                                    type="button"
+                                    disabled={!canMutateAccess || accessWorkingId === m.id}
+                                    onClick={() => void changeMentorAccess(m, 'semester', accessPresentation.semesterAction === 'restore')}
+                                    className={`mt-3 w-full rounded-lg border px-3 py-2 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${accessPresentation.semesterAction === 'remove' ? 'border-red-200 text-red-700 hover:bg-red-50' : 'border-[#75AADB] text-[#002147] hover:bg-[#75AADB]/10'}`}
+                                  >
+                                    {accessWorkingId === m.id ? 'Updating…' : accessPresentation.semesterAction === 'remove' ? `Remove from ${m.semester_name ?? 'semester'}` : `Restore to ${m.semester_name ?? 'semester'}`}
+                                  </button>
+                                ) : (
+                                  <p className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-center text-xs font-medium text-gray-500">No semester action available</p>
+                                )}
+                              </div>
+                              {isGlobalAdmin && (
+                                <div className="rounded-xl border border-red-100 bg-white p-3 sm:w-56">
+                                  <p className="text-xs font-semibold text-gray-800">Almaworks account</p>
+                                  <p className="mt-1 min-h-10 text-[11px] leading-4 text-gray-500">
+                                    {m.profile_active ? 'Blocks sign-in and suspends access across all semesters.' : 'Restores sign-in without adding semester access.'}
+                                  </p>
+                                  <button
+                                    type="button"
+                                    disabled={!canMutateAccess || accessWorkingId === m.id}
+                                    onClick={() => void changeMentorAccess(m, 'global', !m.profile_active)}
+                                    className={`mt-3 w-full rounded-lg px-3 py-2 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${m.profile_active ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-[#002147] text-white hover:bg-[#002147]/90'}`}
+                                  >
+                                    {accessWorkingId === m.id ? 'Updating…' : m.profile_active ? 'Disable account globally' : 'Reinstate account'}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          {accessError && <p role="alert" className="mt-3 text-xs font-medium text-red-600">{accessError}</p>}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
                   {editingId === m.id && (
                     <tr>
                       <td colSpan={8} className="p-0">

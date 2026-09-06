@@ -16,7 +16,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { AlmaworksBrand } from "@/components/AlmaworksBrand";
-import { calculateOnboardingProgress, getOnboardingChecklist } from "@/src/lifecycle/onboarding";
+import { ExpertiseTagPicker } from "@/components/ExpertiseTagPicker";
+import { buildOnboardingWrites, calculateOnboardingProgress, getOnboardingChecklist, isRoleSetupSaveConfirmed, onboardingPreparationError, selectActiveOnboardingMembership, startupAssignmentPreparationError } from "@/src/lifecycle/onboarding";
 import type { ProgramRole } from "@/src/lifecycle/types";
 import { createClient } from "@/utils/supabase/client";
 
@@ -34,11 +35,12 @@ export default function OnboardingFlow() {
   const [email, setEmail] = useState("");
   const [organization, setOrganization] = useState("");
   const [description, setDescription] = useState("");
-  const [expertise, setExpertise] = useState("Product strategy, Go-to-market");
+  const [expertise, setExpertise] = useState<string[]>(["Product strategy", "Go-to-market"]);
   const [teamContact, setTeamContact] = useState("");
   const [meetingWindows, setMeetingWindows] = useState<MeetingWindow[]>([]);
   const [selectedWindows, setSelectedWindows] = useState<Set<string>>(new Set());
   const [semesterName, setSemesterName] = useState("your semester");
+  const [profileId, setProfileId] = useState<string | null>(null);
   const [membershipId, setMembershipId] = useState<string | null>(null);
   const [semesterId, setSemesterId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -50,29 +52,53 @@ export default function OnboardingFlow() {
     void supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) return;
       setEmail(user.email ?? "");
-      const { data } = await supabase
+      const [profileResult, semesterResult] = await Promise.all([
+        supabase
         .from("profiles")
-        .select("full_name")
-        .eq("id", user.id)
-        .maybeSingle();
-      if (data?.full_name) setName(data.full_name);
-      const { data: membership } = await supabase
+        .select("id, full_name")
+        .eq("auth_user_id", user.id)
+        .maybeSingle(),
+        supabase
+          .from("semesters")
+          .select("id, name")
+          .eq("is_active", true)
+          .maybeSingle(),
+      ]);
+      const profile = profileResult.data;
+      const activeSemester = semesterResult.data;
+      if (profileResult.error || semesterResult.error || !profile || !activeSemester) {
+        setSaveError(onboardingPreparationError(true));
+        return;
+      }
+      setProfileId(profile.id);
+      if (profile.full_name) setName(profile.full_name);
+      setSemesterName(activeSemester.name);
+      const { data: memberships, error: membershipError } = await supabase
         .from("semester_memberships")
         .select("id, semester_id, status, role")
-        .eq("profile_id", user.id)
+        .eq("profile_id", profile.id)
         .in("status", ["invited", "onboarding"])
-        .order("created_at", { ascending: false })
-        .maybeSingle();
+      if (membershipError) {
+        setSaveError(onboardingPreparationError(true));
+        return;
+      }
+      const membership = selectActiveOnboardingMembership(
+        (memberships ?? []).flatMap((candidate) => (
+          (candidate.role === "mentor" || candidate.role === "startup")
+            && (candidate.status === "invited" || candidate.status === "onboarding")
+            ? [{ id: candidate.id, semesterId: candidate.semester_id, status: candidate.status, role: candidate.role }]
+            : []
+        )),
+        activeSemester.id,
+      );
       if (membership) {
         setMembershipId(membership.id);
-        setSemesterId(membership.semester_id);
-        if (membership.role === "mentor" || membership.role === "startup") setRole(membership.role);
-        const [{ data: semester }, { data: meetings }, { data: availability }] = await Promise.all([
-          supabase.from("semesters").select("name").eq("id", membership.semester_id).maybeSingle(),
-          supabase.from("meetings").select("id, meeting_date, slot_1_starts_at, slot_1_ends_at, slot_2_starts_at, slot_2_ends_at").eq("semester_id", membership.semester_id).order("meeting_date"),
+        setSemesterId(membership.semesterId);
+        setRole(membership.role);
+        const [{ data: meetings }, { data: availability }] = await Promise.all([
+          supabase.from("meetings").select("id, meeting_date, slot_1_starts_at, slot_1_ends_at, slot_2_starts_at, slot_2_ends_at").eq("semester_id", membership.semesterId).order("meeting_date"),
           supabase.from("meeting_availability").select("meeting_id, slot, is_available").eq("semester_membership_id", membership.id),
         ]);
-        if (semester?.name) setSemesterName(semester.name);
         const windows = (meetings ?? []).flatMap((meeting) => ([1, 2] as const).map((slot) => {
           const date = new Date(`${meeting.meeting_date}T12:00:00`);
           const start = slot === 1 ? meeting.slot_1_starts_at : meeting.slot_2_starts_at;
@@ -89,22 +115,58 @@ export default function OnboardingFlow() {
   async function persistProgress(finalize = false) {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user || !membershipId || !semesterId) {
-      setSaveError("Your invitation is still being prepared. Please refresh and try again.");
+    if (!user || !profileId || !membershipId || !semesterId) {
+      setSaveError(onboardingPreparationError(user !== null));
       return false;
     }
     setSaving(true);
     setSaveError(null);
-    const profileUpdate = await supabase.from("profiles").update({ full_name: name.trim() }).eq("id", user.id);
+    const writes = buildOnboardingWrites({ role, name, organization, description, expertise, teamContact, finalize });
+    const profileUpdate = await supabase.from("profiles").update(writes.profile).eq("id", profileId);
     if (profileUpdate.error) {
       setSaveError(profileUpdate.error.message);
       setSaving(false);
       return false;
     }
+    if (role === "mentor" && "mentorProfile" in writes && writes.mentorProfile && "mentorSemester" in writes && writes.mentorSemester) {
+      const [profileResult, semesterResult] = await Promise.all([
+        supabase.from("mentor_profiles").update(writes.mentorProfile).eq("profile_id", profileId),
+        supabase.from("mentor_semesters").update(writes.mentorSemester).eq("semester_id", semesterId).eq("semester_membership_id", membershipId).select("id, readiness_status").maybeSingle(),
+      ]);
+      if (profileResult.error || semesterResult.error) {
+        setSaveError(profileResult.error?.message ?? semesterResult.error?.message ?? "Mentor setup could not be saved.");
+        setSaving(false);
+        return false;
+      }
+      if (!isRoleSetupSaveConfirmed(semesterResult.data, finalize)) {
+        setSaveError("Your mentor setup could not be confirmed. Please refresh and try again.");
+        setSaving(false);
+        return false;
+      }
+    }
+    if (role === "startup" && "startupSemester" in writes && writes.startupSemester) {
+      const teamResult = await supabase.from("startup_team_memberships").select("startup_semester_id").eq("semester_id", semesterId).eq("semester_membership_id", membershipId).maybeSingle();
+      if (teamResult.error || !teamResult.data) {
+        setSaveError(teamResult.error?.message ?? startupAssignmentPreparationError());
+        setSaving(false);
+        return false;
+      }
+      const startupResult = await supabase.from("startup_semesters").update(writes.startupSemester).eq("semester_id", semesterId).eq("id", teamResult.data.startup_semester_id).select("id, readiness_status").maybeSingle();
+      if (startupResult.error) {
+        setSaveError(startupResult.error.message);
+        setSaving(false);
+        return false;
+      }
+      if (!isRoleSetupSaveConfirmed(startupResult.data, finalize)) {
+        setSaveError("Your startup setup could not be confirmed. Please refresh and try again.");
+        setSaving(false);
+        return false;
+      }
+    }
     const rows = [
       { item_key: "identity", is_required: true, completed_at: name.trim() && email.trim() ? new Date().toISOString() : null, payload: { name: name.trim(), email: email.trim(), role } },
       { item_key: role === "startup" ? "company_snapshot" : "mentor_profile", is_required: true, completed_at: organization.trim() && description.trim() ? new Date().toISOString() : null, payload: { organization: organization.trim(), description: description.trim() } },
-      { item_key: role === "startup" ? "team_contacts" : "expertise", is_required: true, completed_at: (role === "startup" ? teamContact.trim() : expertise.trim()) ? new Date().toISOString() : null, payload: role === "startup" ? { teamContact: teamContact.trim() } : { expertise: expertise.split(",").map((item) => item.trim()).filter(Boolean) } },
+      { item_key: role === "startup" ? "team_contacts" : "expertise", is_required: true, completed_at: (role === "startup" ? teamContact.trim() : expertise.length > 0) ? new Date().toISOString() : null, payload: role === "startup" ? { teamContact: teamContact.trim() } : { expertise } },
       { item_key: "availability", is_required: true, completed_at: selectedWindows.size > 0 ? new Date().toISOString() : null, payload: { windows: Array.from(selectedWindows) } },
     ];
     const progressResult = await supabase.rpc("update_own_onboarding_progress", {
@@ -134,12 +196,16 @@ export default function OnboardingFlow() {
     if (ok) setStep((current) => Math.min(4, current + 1) as WizardStep);
   }
 
+  function goToDashboard() {
+    router.push(role === "mentor" ? "/dashboard/mentor" : "/dashboard/startup");
+  }
+
   const completedKeys = useMemo(() => {
     const completed = new Set<string>();
     if (step > 1 || (name.trim() && email.trim())) completed.add("identity");
     const roleDetailsComplete = role === "startup"
       ? organization.trim() && description.trim() && teamContact.trim()
-      : organization.trim() && description.trim() && expertise.trim();
+      : organization.trim() && description.trim() && expertise.length > 0;
     if (step > 2 || roleDetailsComplete) {
       completed.add(role === "startup" ? "company_snapshot" : "mentor_profile");
       completed.add(role === "startup" ? "team_contacts" : "expertise");
@@ -164,7 +230,7 @@ export default function OnboardingFlow() {
       <aside className={styles.contextPanel}>
         <div className={styles.contextBrand}><AlmaworksBrand tone="white" iconSize={34} /></div>
         <div className={styles.contextCopy}>
-          <p className={styles.eyebrow}>Spring 2027</p>
+          <p className={styles.eyebrow}>{semesterName}</p>
           <h1>Let’s make your first session useful.</h1>
           <p>Three short steps give the program enough context to make thoughtful introductions. You can refine everything later.</p>
         </div>
@@ -208,7 +274,7 @@ export default function OnboardingFlow() {
               <p className={styles.eyebrow}>Share where you help best</p><h2>Shape your mentor profile</h2><p className={styles.lede}>Founders use this snapshot to understand your perspective before requesting time.</p>
               <label>Company or affiliation<input value={organization} onChange={(event) => setOrganization(event.target.value)} placeholder="Company, fund, or independent" /></label>
               <label>Short biography<textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="A concise introduction to your experience and mentoring style" rows={4} /><span className={styles.fieldMeta}>{description.length}/400</span></label>
-              <label>Expertise<input value={expertise} onChange={(event) => setExpertise(event.target.value)} /><span className={styles.hint}>Separate topics with commas. You can tune these after onboarding.</span></label>
+                  <label>Expertise<ExpertiseTagPicker value={expertise} onChange={setExpertise} placeholder="Search or create an expertise tag…" /><span className={styles.hint}>Choose a topic or create a specific expertise tag. You can tune these after onboarding.</span></label>
             </section>
           )}
 
@@ -230,7 +296,7 @@ export default function OnboardingFlow() {
               <span><Check size={28} /></span><p className={styles.eyebrow}>Essentials complete</p><h2>You’re ready for {semesterName}.</h2><p>We’ll take you to your dashboard. Optional details stay in a short checklist, so your profile can get stronger over time without blocking you today.</p>
               <div className={styles.summaryCard}><div><strong>{progress.required.completed}/{progress.required.total}</strong><small>Required tasks</small></div><div><strong>{selectedWindows.size}</strong><small>Available windows</small></div><div><strong>{role === "startup" ? "Shared" : "Personal"}</strong><small>Profile access</small></div></div>
               <div className={styles.nextChecklist}><strong>Keep improving when you have a minute</strong>{checklist.filter((item) => !item.required).map((item) => <span key={item.key}><i />{item.label}</span>)}</div>
-              <button className={styles.primaryButton} onClick={() => router.push(role === "mentor" ? "/dashboard/mentor" : "/dashboard/startup")}>Go to my dashboard <ArrowRight size={16} /></button>
+              <button className={styles.primaryButton} disabled={saving} onClick={() => void goToDashboard()}>{saving ? "Finishing…" : "Go to my dashboard"} <ArrowRight size={16} /></button>
             </section>
           )}
         </div>
@@ -239,7 +305,7 @@ export default function OnboardingFlow() {
           <footer className={styles.footer}>
             <button type="button" onClick={() => setStep((current) => Math.max(1, current - 1) as WizardStep)} disabled={step === 1}><ArrowLeft size={15} /> Back</button>
             <span>{step === 3 ? `${selectedWindows.size} windows selected` : "About 2 minutes remaining"}</span>
-            <button type="button" className={styles.primaryButton} onClick={() => void advance()} disabled={saving || (step === 1 && (!name.trim() || !email.trim())) || (step === 2 && (!organization.trim() || !description.trim() || (role === "startup" ? !teamContact.trim() : !expertise.trim()))) || (step === 3 && selectedWindows.size === 0)}>{saving ? "Saving…" : step === 3 ? "Finish setup" : "Continue"}<ArrowRight size={15} /></button>
+                <button type="button" className={styles.primaryButton} onClick={() => void advance()} disabled={saving || (step === 1 && (!name.trim() || !email.trim())) || (step === 2 && (!organization.trim() || !description.trim() || (role === "startup" ? !teamContact.trim() : expertise.length === 0))) || (step === 3 && selectedWindows.size === 0)}>{saving ? "Saving…" : step === 3 ? "Finish setup" : "Continue"}<ArrowRight size={15} /></button>
           </footer>
         )}
         {saveError && <p role="alert" className={styles.hint}>{saveError}</p>}

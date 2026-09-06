@@ -16,6 +16,8 @@ These records intentionally do not carry `semester_id` because they are durable 
 - `platform_roles`: super-admin authorization only
 - `startups`: durable company identity and description
 - `mentor_profiles`: durable mentor biography and expertise
+- `expertise_tags` and `expertise_tag_aliases`: the global, user-extensible shared expertise vocabulary and its search aliases
+- `mentor_expertise_tags`: durable connections between a mentor and that global vocabulary
 - configuration templates: versioned defaults used when a semester is created
 - delivery outbox: system email attempts keyed to an invitation or notification
 - `outreach_contacts`, `outreach_companies`, and `outreach_contact_companies`: durable CRM identity and organization records
@@ -29,6 +31,7 @@ Every program-scoped table has a non-null foreign key to `semesters`:
 
 - `semester_memberships`: a person's role and lifecycle state for a cohort
 - `startup_semesters`: a startup's cohort-specific goals, preferences, and state
+- `startup_mentor_need_tags`: a startup's ordered mentor needs for one cohort
 - `startup_team_memberships`: people authorized to manage a startup in a cohort
 - `mentor_semesters`: a mentor's cohort-specific participation and preferences
 - invitations, access requests, onboarding progress, availability, notifications, and audit events

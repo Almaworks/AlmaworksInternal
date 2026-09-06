@@ -10,7 +10,6 @@ export async function PATCH(request: Request) {
       industry: string | null
       mentorshipNeeds: string[]
       name: string
-      preferredTags: string[]
       slug: string
       stage: string | null
       startupSemesterId: string

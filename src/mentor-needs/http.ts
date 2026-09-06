@@ -10,7 +10,8 @@ interface CohortOptions {
 export function buildMentorNeedsBoardPayload(
   options: CohortOptions,
   rows: readonly MentorNeedsBoardRow[],
+  summary: { activeMentorCount: number; activeOutreachContactCount: number },
   scope: "semester" | "all",
 ) {
-  return { cohorts: options.all, rows, scope };
+  return { cohorts: options.all, rows, summary, scope };
 }

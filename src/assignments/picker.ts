@@ -75,12 +75,10 @@ export function selectVisibleCandidate(visibleCandidates: readonly PickerCandida
 
 export function deriveStartupNeeds(startup: {
   mentorshipNeeds: readonly string[];
-  preferredExpertiseTags: readonly string[];
-}): { primary: string | null; secondary: string | null; preferredExpertise: string[] } {
+}): { primary: string | null; secondary: string | null } {
   return {
     primary: startup.mentorshipNeeds[0] ?? null,
     secondary: startup.mentorshipNeeds[1] ?? null,
-    preferredExpertise: [...startup.preferredExpertiseTags],
   };
 }
 

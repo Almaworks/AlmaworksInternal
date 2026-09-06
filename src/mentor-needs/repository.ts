@@ -69,19 +69,31 @@ export async function saveStartupMentorNeeds(
 
 const ACTIVE_OUTREACH_STAGES = ["prospect", "researching", "ready", "contacted", "responded", "meeting", "nurture"] as const;
 
+export interface MentorNeedsBoardData {
+  rows: MentorNeedsBoardRow[];
+  summary: {
+    activeMentorCount: number;
+    activeOutreachContactCount: number;
+  };
+}
+
 export async function loadMentorNeedsBoard(
   client: SupabaseClient<Database>,
   semesterIds: readonly string[],
-): Promise<MentorNeedsBoardRow[]> {
-  if (semesterIds.length === 0) return [];
-  const [startupMemberships, mentorMemberships, outreachOpportunities] = await Promise.all([
+): Promise<MentorNeedsBoardData> {
+  if (semesterIds.length === 0) {
+    return { rows: [], summary: { activeMentorCount: 0, activeOutreachContactCount: 0 } };
+  }
+  const [startupMemberships, mentorMemberships, outreachOpportunities, activeOutreachContacts] = await Promise.all([
     client.from("semester_memberships").select("id").in("semester_id", [...semesterIds]).eq("role", "startup").eq("status", "active"),
     client.from("semester_memberships").select("profile_id").in("semester_id", [...semesterIds]).eq("role", "mentor").eq("status", "active"),
     client.from("outreach_opportunities").select("contact_id, stage").in("semester_id", [...semesterIds]).in("stage", [...ACTIVE_OUTREACH_STAGES]).eq("is_silenced", false),
+    client.from("outreach_opportunities").select("contact_id").in("semester_id", [...semesterIds]).eq("is_silenced", false),
   ]);
   if (startupMemberships.error !== null) fail("load active startups", startupMemberships.error.message);
   if (mentorMemberships.error !== null) fail("load active mentors", mentorMemberships.error.message);
   if (outreachOpportunities.error !== null) fail("load outreach pipeline", outreachOpportunities.error.message);
+  if (activeOutreachContacts.error !== null) fail("load active Outreach contacts", activeOutreachContacts.error.message);
 
   const startupMembershipIds = (startupMemberships.data ?? []).map((row) => row.id);
   const teamRows = startupMembershipIds.length === 0
@@ -109,9 +121,15 @@ export async function loadMentorNeedsBoard(
   const organizationById = new Map((organizations.data ?? []).map((row) => [row.id, row.name]));
   const profileById = new Map((profiles.data ?? []).map((row) => [row.id, row.full_name?.trim() || row.email]));
   const stageByContact = new Map((outreachOpportunities.data ?? []).map((row) => [row.contact_id, row.stage]));
-  return buildMentorNeedsBoard({
-    startups: (startupRows.data ?? []).map((row) => ({ id: row.id, name: organizationById.get(row.startup_organization_id) ?? "Unnamed startup", needs: row.mentorship_needs, context: row.mentor_need_context })),
-    mentors: (mentorProfiles.data ?? []).map((row) => ({ id: row.profile_id, name: profileById.get(row.profile_id) ?? "Unnamed mentor", tags: row.expertise_tags })),
-    outreach: (contacts.data ?? []).map((row) => ({ id: row.id, name: row.full_name, tags: row.expertise_tags, stage: stageByContact.get(row.id) ?? "prospect" })),
-  });
+  return {
+    rows: buildMentorNeedsBoard({
+      startups: (startupRows.data ?? []).map((row) => ({ id: row.id, name: organizationById.get(row.startup_organization_id) ?? "Unnamed startup", needs: row.mentorship_needs, context: row.mentor_need_context })),
+      mentors: (mentorProfiles.data ?? []).map((row) => ({ id: row.profile_id, name: profileById.get(row.profile_id) ?? "Unnamed mentor", tags: row.expertise_tags })),
+      outreach: (contacts.data ?? []).map((row) => ({ id: row.id, name: row.full_name, tags: row.expertise_tags, stage: stageByContact.get(row.id) ?? "prospect" })),
+    }),
+    summary: {
+      activeMentorCount: (mentorMemberships.data ?? []).length,
+      activeOutreachContactCount: new Set((activeOutreachContacts.data ?? []).map((row) => row.contact_id)).size,
+    },
+  };
 }

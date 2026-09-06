@@ -34,7 +34,7 @@ test("capability endpoint authorizes a restored super-admin by durable profile I
 
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), {
-      data: { canManageAdmin: true, canRemoveMemberLogin: true },
+      data: { canManageAdmin: true, canRemoveMemberLogin: true, isSuperAdmin: true },
     });
     assert.deepEqual(profileIds, ["eq.profile-restored-admin"]);
   } finally {

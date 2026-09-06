@@ -51,7 +51,6 @@ test("profile updates are sanitized before reaching the RLS repository", async (
     profile: { full_name: "Founder Name" },
     startupSemester: {
       company_snapshot: "Building tools.",
-      preferred_expertise_tags: ["Pricing", "B2B"],
       mentor_need_context: "Pricing help",
     },
   });

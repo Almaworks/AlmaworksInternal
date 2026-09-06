@@ -27,19 +27,21 @@ grant select on table
   public.semesters, public.profiles, public.platform_roles,
   public.semester_memberships, public.invitations, public.mentor_profiles,
   public.mentor_semesters, public.startup_organizations, public.startup_semesters,
-  public.startup_team_memberships, public.meetings, public.meeting_availability,
-  public.sessions, public.outreach_contacts, public.outreach_companies,
+  public.startup_team_memberships, public.meetings, public.meeting_availability, public.schedule_attention_alerts,
+  public.sessions, public.session_rsvps, public.outreach_contacts, public.outreach_companies,
   public.outreach_contact_companies, public.outreach_opportunities,
   public.outreach_activities, public.outreach_imports
 to authenticated;
 
-grant insert (semester_id, meeting_id, semester_membership_id, slot, is_available, source) on table public.meeting_availability to authenticated;
+grant insert (semester_id, meeting_id, semester_membership_id, slot, is_available, format, source) on table public.meeting_availability to authenticated;
 grant insert (semester_id, meeting_id, mentor_semester_id, startup_semester_id, slot, status, topic, format) on table public.sessions to authenticated;
+grant insert (semester_id, session_id, semester_membership_id, response) on table public.session_rsvps to authenticated;
 grant insert (semester_id, source_name, status, idempotency_key, rows, result, created_by) on table public.outreach_imports to authenticated;
 grant update (full_name) on table public.profiles to authenticated;
-grant update (goals, mentorship_needs, mentor_need_context, mentor_need_no_preference, preferred_expertise_tags) on table public.startup_semesters to authenticated;
-grant update (semester_id, meeting_id, semester_membership_id, slot, is_available, source) on table public.meeting_availability to authenticated;
+grant update (goals, mentorship_needs, mentor_need_context, mentor_need_no_preference, company_snapshot) on table public.startup_semesters to authenticated;
+grant update (semester_id, meeting_id, semester_membership_id, slot, is_available, format, source) on table public.meeting_availability to authenticated;
 grant update (status) on table public.sessions to authenticated;
+grant update (response) on table public.session_rsvps to authenticated;
 grant update (full_name, email, linkedin_url, phone, biography, expertise_tags, notes) on table public.outreach_contacts to authenticated;
 grant update (contact_id, company_id, is_primary) on table public.outreach_contact_companies to authenticated;
 grant update (semester_id, contact_id, owner_profile_id, stage, relationship_types, source_context, created_by) on table public.outreach_opportunities to authenticated;
@@ -53,7 +55,7 @@ grant select on table public.profiles, public.semester_memberships,
 grant insert (semester_id, profile_id, role, status) on table public.semester_memberships to service_role;
 grant insert (semester_id, meeting_date, label) on table public.meetings to service_role;
 grant insert (name, slug, description, industry) on table public.startup_organizations to service_role;
-grant insert (semester_id, startup_organization_id, stage, preferred_expertise_tags, readiness_status) on table public.startup_semesters to service_role;
+grant insert (semester_id, startup_organization_id, stage, readiness_status) on table public.startup_semesters to service_role;
 grant insert (semester_id, startup_semester_id, semester_membership_id) on table public.startup_team_memberships to service_role;
 grant insert (semester_id, meeting_id, mentor_semester_id, startup_semester_id, slot, status, topic, format, startup_absent, substitute_name) on table public.sessions to service_role;
 grant update (status) on table public.semester_memberships to service_role;
@@ -65,10 +67,14 @@ grant execute on function private.is_super_admin(uuid) to authenticated;
 grant execute on function private.current_profile_id(uuid) to authenticated;
 grant execute on function private.has_semester_role(uuid,public.user_role[],uuid) to authenticated;
 grant execute on function private.can_manage_semester(uuid,uuid) to authenticated;
+grant execute on function public.delete_startup_permanently(uuid,text) to authenticated;
 grant execute on function private.can_read_outreach_relationship_labels(uuid) to authenticated;
 grant execute on function private.has_outreach_contact_access(uuid,uuid) to authenticated;
 grant execute on function private.has_outreach_company_access(uuid,uuid) to authenticated;
 grant execute on function private.can_read_mentor_profile(uuid,uuid) to authenticated;
+grant execute on function private.can_read_session_rsvp(uuid,uuid,uuid) to authenticated;
+grant execute on function private.can_read_session_participant(uuid,uuid,uuid) to authenticated;
+grant execute on function private.can_write_session_rsvp(uuid,uuid,uuid,uuid) to authenticated;
 
 grant execute on function public.activate_semester_transition(uuid,uuid) to authenticated;
 grant execute on function public.authorize_semester_member_identity_update(uuid,uuid) to authenticated;
@@ -87,6 +93,9 @@ grant execute on function public.replace_draft_meetings(uuid,jsonb) to authentic
 grant execute on function public.reset_outreach_opportunities(uuid,uuid[]) to authenticated;
 grant execute on function public.set_outreach_silence(uuid,boolean,text,timestamptz,timestamptz) to authenticated;
 grant execute on function public.set_outreach_snooze(uuid,timestamptz,text,timestamptz) to authenticated;
+grant execute on function public.set_platform_super_admin(uuid,boolean) to authenticated;
+grant execute on function public.set_mentor_account_access(uuid,boolean) to authenticated;
+grant execute on function public.save_mentor_meeting_availability(uuid,jsonb) to authenticated;
 grant execute on function public.suspend_outreach_membership(uuid,uuid,text,timestamptz) to authenticated;
 grant execute on function public.transfer_outreach_owner(uuid,uuid,text,timestamptz) to authenticated;
 grant execute on function public.update_own_onboarding_progress(uuid,uuid,jsonb,boolean) to authenticated;

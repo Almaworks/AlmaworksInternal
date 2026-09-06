@@ -14,6 +14,15 @@ export interface CohortRecordScope {
   role: ProgramRole | "all";
 }
 
+export function filterSemesterRecords<T extends { semester_id: string | null }>(
+  records: readonly T[],
+  semesterId: string | null,
+): T[] {
+  return semesterId === null
+    ? [...records]
+    : records.filter((record) => record.semester_id === semesterId);
+}
+
 function normalizedEmail(value: string | null | undefined): string | null {
   const email = value?.trim().toLowerCase();
   return email ? email : null;

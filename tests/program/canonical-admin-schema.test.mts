@@ -57,7 +57,7 @@ test("platform super-admin changes require an existing platform super-admin", ()
   assert.doesNotMatch(body, /can_manage_semester/u);
   assert.match(body, /insert into public\.platform_roles/u);
   assert.match(body, /delete from public\.platform_roles/u);
-  assert.doesNotMatch(security, /grant all on function public\.set_platform_super_admin/u);
+  assert.match(security, /revoke all on function public\.set_platform_super_admin/u);
 });
 
 test("member identity preflight requires target membership and protects super-admin identities", () => {
@@ -116,4 +116,18 @@ test("mentor creation cannot claim an arbitrary profile through the direct RPC",
   assert.match(body, /lower\(v_existing_email\) is distinct from lower\(trim\(p_email\)\)[\s\S]*profile email does not match/u);
   assert.match(body, /update public\.profiles[\s\S]*set status = 'approved'/u);
   assert.doesNotMatch(body, /set email =/u);
+});
+
+test("global mentor account access is reversible, super-admin-only, and preserves history", () => {
+  const body = functionBody("set_mentor_account_access");
+  assert.match(body, /private\.is_super_admin\(auth\.uid\(\)\)/u);
+  assert.match(body, /update public\.profiles[\s\S]*is_active = p_enabled/u);
+  assert.match(body, /update public\.semester_memberships[\s\S]*status = 'suspended'/u);
+  assert.match(body, /status in \('invited', 'onboarding', 'active'\)/u);
+  assert.match(body, /if not p_enabled then[\s\S]*update public\.semester_memberships/u);
+  assert.doesNotMatch(body, /delete from/u);
+  assert.doesNotMatch(body, /status = 'active'/u);
+  assert.match(body, /insert into public\.program_audit_events/u);
+  assert.match(security, /revoke all on function public\.set_mentor_account_access\([^;]+ from public/u);
+  assert.match(security, /grant all on function public\.set_mentor_account_access\([^;]+ to authenticated/u);
 });

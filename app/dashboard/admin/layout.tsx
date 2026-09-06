@@ -2,16 +2,13 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
+import { loadAdminRouteAuthority } from '@/src/auth/admin-capability'
 import { resolveAdminRouteAccess } from '@/src/auth/admin-route'
 import type { Database } from '@/src/db/types'
 
 type AdminProfileRow = Pick<
   Database['public']['Tables']['profiles']['Row'],
-  'role' | 'status'
->
-type AdminMembershipRow = Pick<
-  Database['public']['Tables']['semester_memberships']['Row'],
-  'id'
+  'id' | 'role' | 'status'
 >
 
 const NO_ADMIN_AUTHORITY = {
@@ -50,8 +47,8 @@ export default async function AdminRouteLayout({ children }: { children: React.R
 
   const profileResult = await supabase
     .from('profiles')
-    .select('role, status')
-    .eq('id', user.id)
+    .select('id, role, status')
+    .eq('auth_user_id', user.id)
     .limit(1)
   // The generated database schema predates the installed client's table generic.
   // Keep the compatibility cast at the selected response boundary, never at the client.
@@ -74,30 +71,7 @@ export default async function AdminRouteLayout({ children }: { children: React.R
     }) ?? '/pending')
   }
 
-  // is_super_admin defaults candidate_id to auth.uid(), the verified user above.
-  const superAdminResult = await supabase.rpc('is_super_admin')
-  let authority = {
-    ...NO_ADMIN_AUTHORITY,
-    isSuperAdmin: superAdminResult.data === true,
-    lookupFailed: superAdminResult.error !== null,
-  }
-
-  if (!authority.lookupFailed && !authority.isSuperAdmin) {
-    const membershipResult = await supabase
-      .from('semester_memberships')
-      .select('id')
-      .eq('profile_id', user.id)
-      .eq('role', 'admin')
-      .eq('status', 'active')
-      .limit(1)
-      .maybeSingle()
-    const membership = membershipResult.data as AdminMembershipRow | null
-    authority = {
-      ...authority,
-      hasActiveSemesterAdminMembership: membership !== null,
-      lookupFailed: membershipResult.error !== null,
-    }
-  }
+  const authority = await loadAdminRouteAuthority(supabase, profile.id)
 
   const destination = resolveAdminRouteAccess({
     authenticated: true,

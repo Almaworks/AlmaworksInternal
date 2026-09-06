@@ -19,6 +19,8 @@ export interface ParticipantDashboardSnapshot {
   sessions: ParticipantSessionInput[];
   network: ParticipantDirectoryEntry[];
   profile?: ParticipantDashboardView["profile"];
+  mentorNeeds?: ParticipantDashboardView["mentorNeeds"];
+  availability?: ParticipantDashboardView["availability"];
 }
 
 export type ParticipantDashboardResponse =

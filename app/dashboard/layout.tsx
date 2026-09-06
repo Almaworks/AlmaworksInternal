@@ -2,22 +2,23 @@
 
 import { createClient } from '@/utils/supabase/client'
 import { AlmaworksBrand } from '@/components/AlmaworksBrand'
+import { AdminViewAsControl } from '@/components/AdminViewAsControl'
+import { AdminViewTransitionShell } from '@/components/AdminViewTransitionShell'
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
-import { useEffect, useMemo, useState } from 'react'
-import { CalendarDays, ChevronLeft, ChevronRight, Inbox, LayoutDashboard, LogOut, Menu, Megaphone, Network, Search, Settings, Target, Users, X } from 'lucide-react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
+import { Bell, BookOpen, CalendarClock, CalendarDays, CalendarRange, ChevronLeft, ChevronRight, House, Inbox, LayoutDashboard, LogOut, Menu, Megaphone, Network, Settings, Target, Users, X } from 'lucide-react'
 import { isDashboardNavigationActive } from '@/src/assignments/schedule-navigation'
 import { resolveDashboardPersona } from '@/src/auth/admin-capability'
 import { authenticatedFetch } from '@/src/auth/authenticated-fetch'
 import { loadCanonicalAccess } from '@/src/program/canonical-access'
+import { adminViewDestination, resolveAdminViewTransition, shouldShowAdminViewLoading, type AdminView } from '@/src/dashboard/participant-preview'
 
 type Profile = {
   full_name: string | null
   email: string
   role: 'mentor' | 'startup' | 'admin' | null
 }
-
-type ViewAs = 'admin' | 'mentor' | 'startup'
 
 const SIDEBAR_STORAGE_KEY = 'almaworks-dashboard-sidebar-collapsed'
 
@@ -27,7 +28,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname()
   const [profile, setProfile] = useState<Profile | null>(null)
   const [canManageAdmin, setCanManageAdmin] = useState(false)
-  const [viewAs, setViewAs] = useState<ViewAs>('admin')
+  const [pendingView, setPendingView] = useState<AdminView | null>(null)
+  const [isViewTransitionPending, startViewTransition] = useTransition()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [sidebarPreferenceLoaded, setSidebarPreferenceLoaded] = useState(false)
@@ -52,8 +54,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         router.replace('/')
         return
       }
-      const access = await loadCanonicalAccess(supabase, user.id)
-      if (access?.is_active === false) {
+      let access
+      try {
+        access = await loadCanonicalAccess(supabase, user.id)
+      } catch {
+        router.replace('/?error=identity_lookup_failed')
+        return
+      }
+      if (!access) {
+        router.replace('/?error=identity_link_missing')
+        return
+      }
+      if (access.is_active === false) {
         await supabase.auth.signOut()
         window.location.href = '/?error=account_inactive'
         return
@@ -82,9 +94,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     router.push('/')
   }
 
-  const effectiveRole = resolveDashboardPersona(profile?.role ?? null, canManageAdmin, viewAs)
+  const viewTransition = resolveAdminViewTransition(pathname, pendingView, isViewTransitionPending)
+  const effectiveRole = resolveDashboardPersona(profile?.role ?? null, canManageAdmin, viewTransition.sidebarView)
   const isOnboarding = pathname === '/dashboard/onboarding'
   const isParticipantWorkspace = pathname === '/dashboard/mentor' || pathname === '/dashboard/startup'
+  const isParticipantPreview = pathname.startsWith('/dashboard/admin/preview/')
 
   const navItems =
     effectiveRole === 'admin'
@@ -113,17 +127,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const navIcons = {
     Overview: LayoutDashboard,
-    Schedule: CalendarDays,
-    Semesters: CalendarDays,
+    Schedule: CalendarClock,
+    Semesters: CalendarRange,
     Outreach: Megaphone,
     'Mentor Needs': Target,
     Mentors: Users,
-    Notify: Megaphone,
-    Resources: Search,
+    Notify: Bell,
+    Resources: BookOpen,
     'My Schedule': CalendarDays,
-    Inbox,
+    Inbox: Inbox,
     'Mentor Directory': Network,
-    Dashboard: LayoutDashboard,
+    Dashboard: House,
   } as const
 
   const roleLabel =
@@ -131,16 +145,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     effectiveRole === 'mentor' ? 'Mentor' :
     effectiveRole === 'startup' ? 'Startup' : ''
 
-  function handleViewChange(next: ViewAs) {
-    setViewAs(next)
-    const dest =
-      next === 'admin' ? '/dashboard/admin' :
-      next === 'mentor' ? '/dashboard/mentor' :
-      '/dashboard/startup'
-    router.push(dest)
+  function handleViewChange(next: AdminView) {
+    if (!shouldShowAdminViewLoading(pathname, next)) return
+    setPendingView(next)
+    startViewTransition(() => {
+      router.push(adminViewDestination(next))
+    })
   }
 
-  if (isOnboarding || isParticipantWorkspace) return <>{children}</>
+  const showViewLoading = viewTransition.loading
+
+  if (isOnboarding || isParticipantWorkspace || isParticipantPreview) return <>{children}</>
+  if (showViewLoading && pendingView) {
+    return <AdminViewTransitionShell destination={pendingView} adminName={profile?.full_name ?? profile?.email} />
+  }
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -170,24 +188,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         {/* Admin view switcher */}
         {canManageAdmin && (
-          <div className={`${sidebarCollapsed ? 'sr-only' : ''} px-3 pt-3 pb-1`}>
-            <p className="px-1 text-[9px] font-semibold tracking-widest uppercase text-white/30 mb-1.5">View as</p>
-            <div className="flex rounded-lg overflow-hidden border border-white/10">
-              {(['admin', 'startup', 'mentor'] as ViewAs[]).map(v => (
-                <button
-                  key={v}
-                  onClick={() => handleViewChange(v)}
-                  className={`flex-1 py-1.5 text-[10px] font-semibold capitalize transition-colors ${
-                    viewAs === v
-                      ? 'bg-white/20 text-white'
-                      : 'text-white/40 hover:text-white/70 hover:bg-white/10'
-                  }`}
-                >
-                  {v === 'admin' ? 'Admin' : v === 'startup' ? 'Startup' : 'Mentor'}
-                </button>
-              ))}
-            </div>
-          </div>
+          <AdminViewAsControl
+            current={viewTransition.selectedView}
+            onChange={handleViewChange}
+            disabled={showViewLoading}
+            className={`${sidebarCollapsed ? 'sr-only' : ''} px-3 pt-3 pb-1`}
+          />
         )}
 
         <nav className={`flex-1 py-4 space-y-0.5 ${sidebarCollapsed ? 'px-2' : 'px-3'}`} aria-label="Dashboard navigation">

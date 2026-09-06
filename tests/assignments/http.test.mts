@@ -34,7 +34,6 @@ const candidateData: CandidateSourceData = {
     mentorNeedContext: "Need help building an enterprise sales motion.",
     mentorNeedNoPreference: false,
     mentorshipNeeds: ["Enterprise sales"],
-    preferredExpertiseTags: ["Fundraising strategy"],
     stage: "mvp",
   },
   mentors: [
@@ -208,7 +207,7 @@ test("candidate route returns semester-scoped startup context, selected slot, an
   assert.equal(excluded?.mentor.id, ids.firstSlotMentor);
   assert.equal(excluded?.eligible, false);
   assert.equal(excluded?.exclusionReason, "Mentor already assigned to the first slot; excluded from second slot.");
-  assert.deepEqual(excluded?.reasons, ["preferred expertise match", "available", "format fit", "workload tie-break", "excluded from second slot"]);
+  assert.deepEqual(excluded?.reasons, ["available", "format fit", "workload tie-break", "excluded from second slot"]);
 });
 
 test("candidate route rejects a stale slot or startup mapping", async () => {
@@ -311,8 +310,8 @@ test("second-slot exclusion applies only to the selected startup", async () => {
   const same = await sameResponse.json() as { data: { candidates: Array<{ mentor: { id: string }; requiredOverrideTypes?: string[] }> } };
   const different = await differentResponse.json() as { data: { candidates: Array<{ mentor: { id: string }; requiredOverrideTypes?: string[] }> } };
 
-  assert.deepEqual(same.data.candidates.find((candidate) => candidate.mentor.id === ids.firstSlotMentor)?.requiredOverrideTypes, ["second_slot"]);
-  assert.deepEqual(different.data.candidates.find((candidate) => candidate.mentor.id === ids.firstSlotMentor)?.requiredOverrideTypes, []);
+  assert.deepEqual(same.data.candidates.find((candidate) => candidate.mentor.id === ids.firstSlotMentor)?.requiredOverrideTypes, ["expertise", "second_slot"]);
+  assert.deepEqual(different.data.candidates.find((candidate) => candidate.mentor.id === ids.firstSlotMentor)?.requiredOverrideTypes, ["expertise"]);
 });
 
 test("candidate metadata identifies every RPC override needed before commit", async () => {
@@ -390,7 +389,6 @@ test("candidate format aliases are canonicalized and two startup needs remain pr
   const data = enrichedData([]);
   data.startup = {
     ...data.startup!,
-    preferredExpertiseTags: [],
     mentorshipNeeds: ["Enterprise sales", "Fundraising strategy"],
   };
   data.mentors[0] = { ...data.mentors[0]!, expertise: ["Enterprise sales"], capacity: 4 } as unknown as (typeof data.mentors)[number];
@@ -403,12 +401,11 @@ test("candidate format aliases are canonicalized and two startup needs remain pr
   assert.ok(payload.data.candidates.find((candidate) => candidate.mentor.id === ids.firstSlotMentor)?.reasons.includes("secondary expertise match"));
 });
 
-test("Mentor Needs remain primary and secondary when preferred expertise is also present", async () => {
+test("only structured Mentor Needs contribute to assignment matches", async () => {
   const data = enrichedData([]);
   data.startup = {
     ...data.startup!,
     mentorshipNeeds: ["Enterprise sales", "Pricing"],
-    preferredExpertiseTags: ["Fundraising strategy"],
   };
   data.mentors[0] = { ...data.mentors[0]!, expertise: ["Enterprise sales"], capacity: 4 } as unknown as (typeof data.mentors)[number];
   data.mentors[1] = { ...data.mentors[1]!, expertise: ["Fundraising strategy"], capacity: 4 } as unknown as (typeof data.mentors)[number];
@@ -419,7 +416,7 @@ test("Mentor Needs remain primary and secondary when preferred expertise is also
   assert.ok(payload.data.candidates.find((candidate) => candidate.mentor.id === ids.mentor)?.reasons.includes("primary expertise match"));
   assert.equal(payload.data.candidates.find((candidate) => candidate.mentor.id === ids.firstSlotMentor)?.reasons.includes("primary expertise match"), false);
   assert.equal(payload.data.candidates.find((candidate) => candidate.mentor.id === ids.firstSlotMentor)?.reasons.includes("secondary expertise match"), false);
-  assert.equal(payload.data.candidates.find((candidate) => candidate.mentor.id === ids.firstSlotMentor)?.reasons.includes("preferred expertise match"), true);
+  assert.equal(payload.data.candidates.find((candidate) => candidate.mentor.id === ids.firstSlotMentor)?.reasons.includes("primary expertise match"), false);
 });
 
 test("candidate route rejects an unsupported optional format", async () => {
@@ -492,7 +489,7 @@ function fakeSupabase(
 test("Supabase candidate source maps lifecycle mentors and the selected schedule startup", async () => {
   const source = createSupabaseAssignmentDataSource(fakeSupabase({
     meetings: { rows: [{ id: ids.date, meeting_date: "2026-09-04", semester_id: ids.semester }] },
-    startup_semesters: { rows: [], single: { id: ids.startup, semester_id: ids.semester, company_snapshot: null, goals: [], mentor_need_context: "context", mentor_need_no_preference: false, mentorship_needs: ["Enterprise sales"], preferred_expertise_tags: [], stage: "mvp" } },
+    startup_semesters: { rows: [], single: { id: ids.startup, semester_id: ids.semester, company_snapshot: null, goals: [], mentor_need_context: "context", mentor_need_no_preference: false, mentorship_needs: ["Enterprise sales"], stage: "mvp" } },
     semester_memberships: { rows: [
       { id: "mentor-membership", profile_id: ids.mentor, semester_id: ids.semester, role: "mentor", status: "active" },
     ] },
@@ -515,7 +512,7 @@ test("canonical mentor-semester sessions count capacity and recency", async () =
       { id: ids.date, meeting_date: "2026-09-04", semester_id: ids.semester },
       { id: priorDateId, meeting_date: "2026-08-28", semester_id: ids.semester },
     ] },
-    startup_semesters: { rows: [], single: { id: ids.startup, semester_id: ids.semester, company_snapshot: null, goals: [], mentor_need_context: null, mentor_need_no_preference: false, mentorship_needs: ["Enterprise sales"], preferred_expertise_tags: [], stage: "mvp" } },
+    startup_semesters: { rows: [], single: { id: ids.startup, semester_id: ids.semester, company_snapshot: null, goals: [], mentor_need_context: null, mentor_need_no_preference: false, mentorship_needs: ["Enterprise sales"], stage: "mvp" } },
     semester_memberships: { rows: [
       { id: "mentor-membership", profile_id: ids.mentor, semester_id: ids.semester, role: "mentor", status: "active" },
     ] },

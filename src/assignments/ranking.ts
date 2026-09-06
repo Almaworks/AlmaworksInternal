@@ -23,7 +23,6 @@ export interface MentorCandidate {
 export interface RankingInput {
   primaryNeed: string | null;
   secondaryNeed: string | null;
-  supplementalNeeds?: readonly string[];
   slot: AssignmentSlot;
   mentors: readonly MentorCandidate[];
   excludeMentorIds?: readonly string[];
@@ -44,13 +43,10 @@ export function rankMentorCandidates(input: RankingInput): RankedMentor[] {
   return input.mentors.map((mentor): RankedMentor => {
     const primary = mentor.expertise.some((tag) => same(input.primaryNeed, tag));
     const secondary = mentor.expertise.some((tag) => same(input.secondaryNeed, tag));
-    const supplemental = mentor.expertise.some((tag) => (
-      (input.supplementalNeeds ?? []).some((need) => same(need, tag))
-    ));
     const available = mentor.availability.includes(input.slot.id) || mentor.availability.includes(input.slot.date);
     const formatFit = mentor.formats.includes(input.slot.format);
     const secondSlotExcluded = excluded.has(mentor.id);
-    let score = primary ? 100 : secondary ? 60 : supplemental ? 20 : 0;
+    let score = primary ? 100 : secondary ? 60 : 0;
     score += available ? 25 : -50;
     score += formatFit ? 10 : -10;
     score -= mentor.recentMeetingCount * 8;
@@ -58,7 +54,6 @@ export function rankMentorCandidates(input: RankingInput): RankedMentor[] {
     const reasons: string[] = [];
     if (primary) reasons.push("primary expertise match");
     else if (secondary) reasons.push("secondary expertise match");
-    else if (supplemental) reasons.push("preferred expertise match");
     if (available) reasons.push("available");
     else reasons.push("unavailable for selected slot");
     if (formatFit) reasons.push("format fit");

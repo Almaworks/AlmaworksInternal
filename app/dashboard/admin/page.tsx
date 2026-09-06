@@ -16,7 +16,7 @@ import MentorAssignmentPicker, {
 import { assignmentRefreshFeedback, buildScheduleRows, sessionFormatPresentation } from '@/src/assignments/picker'
 import { adminDashboardHref, adminMemberHref, resolveAdminDashboardTab } from '@/src/assignments/schedule-navigation'
 import { memberLoginPresentation } from '@/src/auth/member-login-account'
-import type { CohortRecordReference } from '@/src/lifecycle/cohort-screen'
+import { filterSemesterRecords, type CohortRecordReference } from '@/src/lifecycle/cohort-screen'
 import {
   ACTIVATION_TAB_LABEL,
 } from '@/src/lifecycle/admin-activation'
@@ -30,6 +30,8 @@ import {
 import type { MembershipStatus } from '@/src/lifecycle/types'
 import { persistAndRefreshMembership, refreshMembershipReadModels } from '@/src/lifecycle/membership-mutation'
 import { loadMentorDirectory, loadStartupDirectory } from '@/src/program/canonical-repository'
+import type { SessionAttendanceView } from '@/src/sessions/attendance'
+import { memberDirectorySelect } from '@/src/dashboard/admin-members-query'
 
 type PendingUser = {
   id: string
@@ -45,6 +47,7 @@ type Member = {
   role: string
   auth_user_id: string | null
   profile_is_active: boolean
+  is_super_admin: boolean
   membership_is_active: boolean
   latest_removal_audit_action: 'member.login_removal_prepared' | 'member.login_restored' | null
   membership_id: string | null
@@ -89,7 +92,6 @@ type Startup = {
   founders: Founder[]
   slug: string | null
   description: string | null
-  preferred_tags: string[]
   mentorship_needs: string[]
   semester_id: string | null
   semester_name: string | null
@@ -165,17 +167,20 @@ type Tab = 'users' | 'members' | 'schedule' | 'startups'
 
 const MEMBER_LOGIN_AUDIT_ACTIONS = ['member.login_removal_prepared', 'member.login_restored']
 
-async function loadMemberLoginCapability(accessToken: string | null): Promise<boolean> {
-  if (!accessToken) return false
+async function loadAdminCapabilities(accessToken: string | null): Promise<{ canRemoveMemberLogin: boolean; isSuperAdmin: boolean }> {
+  if (!accessToken) return { canRemoveMemberLogin: false, isSuperAdmin: false }
   try {
     const response = await fetch('/api/auth/capabilities', {
       headers: { Authorization: `Bearer ${accessToken}` },
     })
-    if (!response.ok) return false
-    const payload = await response.json() as { data?: { canRemoveMemberLogin?: boolean } }
-    return payload.data?.canRemoveMemberLogin === true
+    if (!response.ok) return { canRemoveMemberLogin: false, isSuperAdmin: false }
+    const payload = await response.json() as { data?: { canRemoveMemberLogin?: boolean; isSuperAdmin?: boolean } }
+    return {
+      canRemoveMemberLogin: payload.data?.canRemoveMemberLogin === true,
+      isSuperAdmin: payload.data?.isSuperAdmin === true,
+    }
   } catch {
-    return false
+    return { canRemoveMemberLogin: false, isSuperAdmin: false }
   }
 }
 
@@ -205,6 +210,9 @@ function AdminDashboardContent() {
   const [membershipRefreshRetryRequired, setMembershipRefreshRetryRequired] = useState(false)
   const [membershipRefreshRetrying, setMembershipRefreshRetrying] = useState(false)
   const [canRemoveMemberLogin, setCanRemoveMemberLogin] = useState(false)
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+  const [currentAuthUserId, setCurrentAuthUserId] = useState<string | null>(null)
+  const [platformAccessUpdatingProfileId, setPlatformAccessUpdatingProfileId] = useState<string | null>(null)
 
   // Add user form
   const [showAddUser, setShowAddUser] = useState(false)
@@ -238,10 +246,10 @@ function AdminDashboardContent() {
   const [csIndustry, setCsIndustry] = useState('')
   const [csStage, setCsStage] = useState('')
   const [csDescription, setCsDescription] = useState('')
-  const [csTagsArr, setCsTagsArr] = useState<string[]>([])
   const [csLoading, setCsLoading] = useState(false)
   const [csError, setCsError] = useState<string | null>(null)
   const [csSuccess, setCsSuccess] = useState<string | null>(null)
+  const [deletingStartupId, setDeletingStartupId] = useState<string | null>(null)
 
   // Edit startup lightbox
   const [editingStartup, setEditingStartup] = useState<Startup | null>(null)
@@ -250,7 +258,6 @@ function AdminDashboardContent() {
   const [esIndustry, setEsIndustry] = useState('')
   const [esStage, setEsStage] = useState('')
   const [esDescription, setEsDescription] = useState('')
-  const [esTagsArr, setEsTagsArr] = useState<string[]>([])
   const [esMentorshipNeeds, setEsMentorshipNeeds] = useState<string[]>([])
   const [esSaving, setEsSaving] = useState(false)
   const [esError, setEsError] = useState<string | null>(null)
@@ -262,7 +269,6 @@ function AdminDashboardContent() {
     setEsIndustry(s.industry ?? '')
     setEsStage(s.stage ?? '')
     setEsDescription(s.description ?? '')
-    setEsTagsArr(s.preferred_tags ?? [])
     setEsMentorshipNeeds(s.mentorship_needs ?? [])
     setEsError(null)
   }
@@ -281,7 +287,6 @@ function AdminDashboardContent() {
         industry: esIndustry.trim() || null,
         mentorshipNeeds: esMentorshipNeeds,
         name: esName.trim(),
-        preferredTags: esTagsArr,
         slug: esSlug.trim(),
         stage: esStage || null,
         startupSemesterId: editingStartup.id,
@@ -370,22 +375,47 @@ function AdminDashboardContent() {
   const [editStartupAbsent, setEditStartupAbsent] = useState<boolean>(false)
   const [editSubstituteName, setEditSubstituteName] = useState<string>('')
   const [editSaving, setEditSaving] = useState<boolean>(false)
+  const [editAttendance, setEditAttendance] = useState<SessionAttendanceView | null>(null)
+  const [editAttendanceError, setEditAttendanceError] = useState<string | null>(null)
+  const [editAttendanceLoading, setEditAttendanceLoading] = useState(false)
+
+  async function loadSessionAttendance(session: Session) {
+    if (!session.meeting?.semester_id) return
+    setEditAttendance(null)
+    setEditAttendanceError(null)
+    setEditAttendanceLoading(true)
+    try {
+      const { data: { session: authSession } } = await supabase.auth.getSession()
+      const response = await fetch(`/api/admin/session-attendance?semesterId=${encodeURIComponent(session.meeting.semester_id)}&sessionId=${encodeURIComponent(session.id)}`, {
+        headers: authSession?.access_token ? { Authorization: `Bearer ${authSession.access_token}` } : {},
+      })
+      const payload = await response.json() as { data?: SessionAttendanceView; error?: string }
+      if (!response.ok || !payload.data) throw new Error(payload.error ?? 'Attendance could not be loaded.')
+      setEditAttendance(payload.data)
+    } catch (cause) {
+      setEditAttendanceError(cause instanceof Error ? cause.message : 'Attendance could not be loaded.')
+    } finally {
+      setEditAttendanceLoading(false)
+    }
+  }
 
   async function loadAll() {
     const { data: { session: authSession } } = await supabase.auth.getSession()
-    const [usersRes, membersRes, mentorsRes, startupsRes, sessionsRes, semesterRes, removeLoginCapability] = await Promise.all([
+    const [usersRes, membersRes, mentorsRes, startupsRes, sessionsRes, semesterRes, adminCapabilities] = await Promise.all([
       supabase.from('profiles').select('id, email, full_name, created_at').eq('status', 'pending').order('created_at'),
-      supabase.from('profiles').select('id, email, full_name, auth_user_id, is_active, created_at, memberships:semester_memberships(id,role,status,semester_id,semester:semesters(is_active))').eq('status', 'approved').order('full_name'),
+      supabase.from('profiles').select(memberDirectorySelect).eq('status', 'approved').order('full_name'),
       loadMentorDirectory(supabase),
       loadStartupDirectory(supabase),
       supabase.from('sessions').select('id, mentor_semester_id, startup_semester_id, status, topic, slot, format, startup_absent, substitute_name, meeting:meetings(meeting_date, label, semester_id, semester:semesters(name)), mentor:mentor_semesters(membership:semester_memberships(profile:profiles(full_name))), startup:startup_semesters(organization:startup_organizations(name,slug))').order('slot'),
       supabase.from('semesters').select('id, name').eq('is_active', true).maybeSingle(),
-      loadMemberLoginCapability(authSession?.access_token ?? null),
+      loadAdminCapabilities(authSession?.access_token ?? null),
     ])
     const loadError = usersRes.error ?? membersRes.error ?? sessionsRes.error ?? semesterRes.error
     if (loadError) throw new Error(loadError.message)
     setPendingUsers((usersRes.data as PendingUser[]) ?? [])
-    setCanRemoveMemberLogin(removeLoginCapability)
+    setCanRemoveMemberLogin(adminCapabilities.canRemoveMemberLogin)
+    setIsSuperAdmin(adminCapabilities.isSuperAdmin)
+    setCurrentAuthUserId(authSession?.user.id ?? null)
     type MemberRow = {
       id: string
       email: string
@@ -394,6 +424,7 @@ function AdminDashboardContent() {
       is_active: boolean
       created_at: string
       memberships: { id: string; role: string; status: string; semester_id: string; semester: { is_active: boolean } | null }[] | null
+      platform_roles: { role: string }[] | null
     }
     type MemberLoginAuditRow = { subject_id: string | null; action: string; created_at: string }
     const memberRows = (membersRes.data ?? []) as unknown as MemberRow[]
@@ -425,6 +456,7 @@ function AdminDashboardContent() {
         full_name: member.full_name,
         auth_user_id: member.auth_user_id,
         profile_is_active: member.is_active,
+        is_super_admin: member.platform_roles?.some((role) => role.role === 'super_admin') === true,
         membership_is_active: membership?.status === 'active',
         latest_removal_audit_action: latestAccountActionByProfile.get(member.id) ?? null,
         membership_id: membership?.id ?? null,
@@ -627,6 +659,10 @@ function AdminDashboardContent() {
 
   async function createStartup(e: React.FormEvent) {
     e.preventDefault()
+    if (!cohort.semesterId || !lifecycleMutationEnabled) {
+      setCsError('Choose the current cohort before creating a startup.')
+      return
+    }
     setCsLoading(true)
     setCsError(null)
     setCsSuccess(null)
@@ -636,7 +672,6 @@ function AdminDashboardContent() {
     if (!token) { setCsError('Not authenticated.'); setCsLoading(false); return }
 
     const slug = csName.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
-    const tags = csTagsArr
 
     const res = await fetch('/api/admin/startups/create', {
       method: 'POST',
@@ -647,8 +682,7 @@ function AdminDashboardContent() {
         industry: csIndustry.trim(),
         stage: csStage,
         description: csDescription.trim(),
-        tags,
-        semesterId: activeSemesterId,
+        semesterId: cohort.semesterId,
       }),
     })
     const json = await res.json()
@@ -657,10 +691,31 @@ function AdminDashboardContent() {
       setCsError(json.error ?? 'Something went wrong.')
     } else {
       setCsSuccess(`Startup "${csName.trim()}" created.`)
-      setCsName(''); setCsSlug(''); setCsIndustry(''); setCsStage(''); setCsDescription(''); setCsTagsArr([])
+      setCsName(''); setCsSlug(''); setCsIndustry(''); setCsStage(''); setCsDescription('')
       await refreshStartups()
     }
     setCsLoading(false)
+  }
+
+  async function deleteStartup(startup: Startup) {
+    const confirmationName = window.prompt(`This permanently deletes ${startup.name} from every cohort, including its sessions. Type the startup name to confirm.`)
+    if (confirmationName === null) return
+    setDeletingStartupId(startup.id)
+    const { data: { session } } = await supabase.auth.getSession()
+    const token = session?.access_token
+    if (!token) { setDeletingStartupId(null); return }
+    const response = await fetch(`/api/admin/startups/${encodeURIComponent(startup.organization_id)}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ startupOrganizationId: startup.organization_id, confirmationName }),
+    })
+    if (!response.ok) {
+      const payload = await response.json() as { error?: string }
+      alert(payload.error ?? 'Unable to delete startup.')
+    } else {
+      await refreshStartups()
+    }
+    setDeletingStartupId(null)
   }
 
   async function assignFounder(userId: string) {
@@ -792,18 +847,8 @@ function AdminDashboardContent() {
 
   // ── Startups filter state ────────────────────────────────────────────────────
   const [startupSearch, setStartupSearch] = useState('')
-  const [startupSemesterFilter, setStartupSemesterFilter] = useState('')
 
   // ── Startup-role members not yet linked to any startup (email not in any founders array)
-  const allTags = [...new Set(startups.flatMap(s => s.preferred_tags ?? []))].sort()
-  const allStartupSemesters = [...new Set(startups.map(s => s.semester_name).filter((n): n is string => Boolean(n)))].sort()
-
-  const linkedFounderEmails = new Set(
-    startups.flatMap(s => (s.founders ?? []).map(f => f.email).filter((e): e is string => Boolean(e)))
-  )
-  const pendingStartupUsers = members.filter(
-    m => m.role === 'startup' && !linkedFounderEmails.has(m.email)
-  )
 
   function handleMemberSort(key: MemberSortKey) {
     if (memberSortKey === key) {
@@ -833,6 +878,16 @@ function AdminDashboardContent() {
     ? []
     : cohort.members.filter(member => member.semesterId === cohort.semesterId)
   const scopedCohortMembers = cohort.semesterId === null ? cohort.members : selectedCohortMembers
+  const cohortStartups = filterSemesterRecords(startups, cohort.semesterId)
+  const linkedFounderEmails = new Set(
+    cohortStartups.flatMap(startup => (startup.founders ?? []).map(founder => founder.email).filter((email): email is string => Boolean(email))),
+  )
+  const startupProfileIds = new Set(
+    scopedCohortMembers.filter(member => member.role === 'startup').map(member => member.profileId),
+  )
+  const pendingStartupUsers = members.filter(
+    member => startupProfileIds.has(member.id) && !linkedFounderEmails.has(member.email),
+  )
   const lifecycleMutationEnabled = cohort.semesterId !== null && cohort.semesterId === cohort.cohorts.current?.id
   const activationMutationEnabled = cohort.cohorts.current !== null
   const activationWorkspace = activationWorkspaceState(cohort.currentMembers, cohort.cohorts.current?.id ?? null, pendingUsers.length)
@@ -954,6 +1009,31 @@ function AdminDashboardContent() {
     )
   }
 
+  async function updatePlatformAccess(member: (typeof filteredMembers)[number], enabled: boolean) {
+    if (!isSuperAdmin || platformAccessUpdatingProfileId !== null) return
+    const name = member.full_name ?? member.email
+    const action = enabled ? 'grant Super Admin access to' : 'revoke Super Admin access from'
+    if (!window.confirm(`Are you sure you want to ${action} ${name}?`)) return
+
+    setPlatformAccessUpdatingProfileId(member.id)
+    setEditError(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch('/api/admin/platform-access', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+        body: JSON.stringify({ profileId: member.id, enabled }),
+      })
+      const payload = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(payload.error ?? 'Unable to change platform access.')
+      await loadAll()
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : 'Unable to change platform access.')
+    } finally {
+      setPlatformAccessUpdatingProfileId(null)
+    }
+  }
+
   // ── Schedule ───────────────────────────────────────────────────────────────
 
   async function assignForWeek() {
@@ -1013,6 +1093,7 @@ function AdminDashboardContent() {
     setEditIsConfirmed(s.is_confirmed)
     setEditStartupAbsent(s.startup_absent)
     setEditSubstituteName(s.substitute_name ?? '')
+    void loadSessionAttendance(s)
   }
 
   async function updateSession() {
@@ -1391,7 +1472,16 @@ function AdminDashboardContent() {
               <p className="text-sm text-gray-400 p-6">No users found.</p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full table-fixed text-sm">
+                  <colgroup>
+                    <col className="w-[10rem]" />
+                    <col className="w-[15rem]" />
+                    <col className="w-[6.5rem]" />
+                    <col className="w-[8.5rem]" />
+                    <col className="w-[8.5rem]" />
+                    <col className="w-[14rem]" />
+                    <col className="w-[11rem]" />
+                  </colgroup>
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50">
                       <th
@@ -1444,10 +1534,10 @@ function AdminDashboardContent() {
                         const isEditing = editingMember?.id === m.id
                         const rows = [
                           <tr key={m.membership.membershipId} className={`transition-colors ${isEditing ? 'bg-[#002147]/3' : 'hover:bg-gray-50/60 border-b border-gray-50'}`}>
-                            <td className="px-5 py-3.5 font-medium text-[#002147] whitespace-nowrap">
+                            <td className="px-5 py-3.5 font-medium text-[#002147] truncate" title={m.full_name ?? undefined}>
                               {m.full_name ?? <span className="text-gray-400 font-normal">—</span>}
                             </td>
-                            <td className="px-5 py-3.5 text-gray-500 whitespace-nowrap">{m.email}</td>
+                            <td className="px-5 py-3.5 text-gray-500 truncate" title={m.email}>{m.email}</td>
                             <td className="px-5 py-3.5 whitespace-nowrap">
                               <span className={`inline-block text-xs font-semibold px-2.5 py-1 rounded-full capitalize ${roleColors[m.role] ?? 'bg-gray-100 text-gray-600'}`}>
                                 {m.role}
@@ -1548,6 +1638,37 @@ function AdminDashboardContent() {
                                       </button>
                                     </div>
                                   </form>
+                                  {isSuperAdmin && (
+                                    <section className="rounded-lg border border-amber-200 bg-amber-50/60 p-4">
+                                      <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div>
+                                          <p className="text-xs font-semibold text-[#002147]">Platform access</p>
+                                          <p className="mt-1 text-xs text-gray-600">
+                                            {m.role === 'admin' && m.membership_is_active
+                                              ? m.is_super_admin
+                                                ? 'This active Admin has Super Admin access.'
+                                                : 'This active Admin can be granted Super Admin access.'
+                                              : 'Only active Admin members are eligible for Super Admin access.'}
+                                          </p>
+                                        </div>
+                                        {m.role === 'admin' && m.membership_is_active && m.auth_user_id !== currentAuthUserId && (
+                                          <button
+                                            type="button"
+                                            onClick={() => void updatePlatformAccess(m, !m.is_super_admin)}
+                                            disabled={platformAccessUpdatingProfileId !== null}
+                                            className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50 ${m.is_super_admin ? 'border-red-200 text-red-700 hover:bg-red-50' : 'border-[#002147] text-[#002147] hover:bg-[#002147]/5'}`}
+                                          >
+                                            {platformAccessUpdatingProfileId === m.id
+                                              ? 'Updating…'
+                                              : m.is_super_admin ? 'Revoke Super Admin' : 'Grant Super Admin'}
+                                          </button>
+                                        )}
+                                        {m.auth_user_id === currentAuthUserId && (
+                                          <p className="text-xs text-gray-500">You cannot change your own Super Admin access.</p>
+                                        )}
+                                      </div>
+                                    </section>
+                                  )}
                                 </div>
                               </td>
                             </tr>
@@ -1871,7 +1992,7 @@ function AdminDashboardContent() {
                               className="text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
                             >
                               <option value="">Select startup…</option>
-                              {startups.map(s => (
+                              {cohortStartups.map(s => (
                                 <option key={s.id} value={s.id}>{s.name}</option>
                               ))}
                             </select>
@@ -1897,7 +2018,7 @@ function AdminDashboardContent() {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="text-sm font-semibold text-[#002147]">Startups</h2>
-                <p className="text-xs text-gray-500 mt-0.5">{startups.length} startup{startups.length !== 1 ? 's' : ''} registered.</p>
+                <p className="text-xs text-gray-500 mt-0.5">{cohortStartups.length} startup{cohortStartups.length !== 1 ? 's' : ''} registered in the selected cohort.</p>
               </div>
               <button
                 onClick={() => { setShowCreateStartup(v => !v); setCsError(null); setCsSuccess(null) }}
@@ -1953,15 +2074,6 @@ function AdminDashboardContent() {
                     </select>
                   </div>
                   <div className="sm:col-span-2">
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Tags</label>
-                    <TagInput
-                      value={csTagsArr}
-                      onChange={setCsTagsArr}
-                      suggestions={allTags}
-                      placeholder="Search or create tags…"
-                    />
-                  </div>
-                  <div className="sm:col-span-2">
                     <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
                     <textarea
                       rows={3} placeholder="What does this startup do?" value={csDescription}
@@ -1973,7 +2085,7 @@ function AdminDashboardContent() {
                 {csError && <p className="text-xs text-red-500">{csError}</p>}
                 {csSuccess && <p className="text-xs text-green-600">{csSuccess}</p>}
                 <div className="flex items-center gap-2 pt-1">
-                  <button type="submit" disabled={csLoading}
+                  <button type="submit" disabled={csLoading || !lifecycleMutationEnabled}
                     className="px-4 py-2 bg-[#002147] text-white text-sm font-medium rounded-lg hover:bg-[#002147]/90 disabled:opacity-60 transition-colors"
                   >
                     {csLoading ? 'Creating…' : 'Create startup'}
@@ -1987,9 +2099,9 @@ function AdminDashboardContent() {
               </form>
             )}
 
-            {/* Search + semester filter */}
-            {startups.length > 0 && (
-              <div className="flex flex-col sm:flex-row gap-3 mb-4">
+            {/* Search */}
+            {cohortStartups.length > 0 && (
+              <div className="mb-4">
                 <input
                   type="search"
                   placeholder="Search startups…"
@@ -1997,28 +2109,17 @@ function AdminDashboardContent() {
                   onChange={e => setStartupSearch(e.target.value)}
                   className="flex-1 text-sm text-gray-800 placeholder:text-gray-400 border border-gray-300 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
                 />
-                {allStartupSemesters.length > 0 && (
-                  <select
-                    value={startupSemesterFilter}
-                    onChange={e => setStartupSemesterFilter(e.target.value)}
-                    className="text-xs text-gray-600 border border-gray-300 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40 shrink-0"
-                  >
-                    <option value="">All semesters</option>
-                    {allStartupSemesters.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                )}
               </div>
             )}
 
             {(() => {
               const q = startupSearch.trim().toLowerCase()
-              const filteredStartups = startups.filter(s => {
-                if (startupSemesterFilter && s.semester_name !== startupSemesterFilter) return false
+              const filteredStartups = cohortStartups.filter(s => {
                 if (!q) return true
                 return [s.name, s.industry ?? '', s.stage ?? '', s.description ?? ''].join(' ').toLowerCase().includes(q)
               })
               return filteredStartups.length === 0 ? (
-              <p className="text-sm text-gray-400">{startups.length === 0 ? 'No startups yet.' : 'No startups match the current filters.'}</p>
+              <p className="text-sm text-gray-400">{cohortStartups.length === 0 ? 'No startups in the selected cohort yet.' : 'No startups match the current search.'}</p>
             ) : (
               <div className="space-y-3">
                 {filteredStartups.map(s => {
@@ -2040,6 +2141,13 @@ function AdminDashboardContent() {
                           >
                             Edit
                           </button>
+                          {isSuperAdmin && <button
+                            onClick={() => void deleteStartup(s)}
+                            disabled={deletingStartupId === s.id}
+                            className="text-[10px] font-medium text-red-600 hover:text-red-800 border border-red-200 hover:border-red-400 px-2 py-0.5 rounded-full transition-colors disabled:opacity-50"
+                          >
+                            {deletingStartupId === s.id ? 'Deleting…' : 'Delete permanently'}
+                          </button>}
                           <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${lifecycleToneClasses[presentation.tone]}`}>
                             <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current" />
                             {presentation.label}
@@ -2050,13 +2158,6 @@ function AdminDashboardContent() {
                           )}
                         </div>
                         <p className="text-xs text-gray-500 mt-0.5">{[s.industry, s.stage].filter(Boolean).join(' · ')}</p>
-                        {s.preferred_tags && s.preferred_tags.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-1.5">
-                            {s.preferred_tags.map(t => (
-                              <span key={t} className="text-[10px] bg-[#002147]/8 text-[#002147] px-2 py-0.5 rounded-full font-medium">{t}</span>
-                            ))}
-                          </div>
-                        )}
                         {s.mentorship_needs && s.mentorship_needs.length > 0 && (
                           <div className="mt-1.5">
                             <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mr-1">Mentorship Needs:</span>
@@ -2091,7 +2192,7 @@ function AdminDashboardContent() {
                                     className="text-[10px] text-gray-500 border border-gray-200 rounded px-1 py-0.5 bg-white cursor-pointer disabled:opacity-40"
                                   >
                                     <option value="" disabled>Move to…</option>
-                                    {startups.filter(os => os.id !== s.id).map(os => (
+                                    {cohortStartups.filter(os => os.id !== s.id).map(os => (
                                       <option key={os.id} value={os.id}>{os.name}</option>
                                     ))}
                                   </select>
@@ -2274,10 +2375,6 @@ function AdminDashboardContent() {
                     </select>
                   </div>
                   <div className="sm:col-span-2">
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Expertise tags</label>
-                    <TagInput value={esTagsArr} onChange={setEsTagsArr} suggestions={allTags} placeholder="Search or create tags…" />
-                  </div>
-                  <div className="sm:col-span-2">
                     <label className="block text-xs font-medium text-gray-600 mb-1">Mentorship needs</label>
                     <TagInput value={esMentorshipNeeds} onChange={setEsMentorshipNeeds}
                       suggestions={['Fundraising & Investor Relations','Product Development','Marketing & Branding','Operations','GTM Strategy','Legal & IP','Finance','Talent & Hiring','Customer Acquisition']}
@@ -2381,6 +2478,30 @@ function AdminDashboardContent() {
                 )}
               </div>
             </div>
+            <section className="rounded-xl border border-gray-200 bg-gray-50 p-4" aria-labelledby="session-attendance-title">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#0066a1]">Participant responses</p>
+                  <h4 id="session-attendance-title" className="mt-1 text-sm font-semibold text-[#002147]">Session attendance</h4>
+                </div>
+                {editAttendance && <div className="flex gap-1.5 text-[11px] font-semibold">
+                  <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-emerald-800">{editAttendance.counts.attending} attending</span>
+                  <span className="rounded-full bg-rose-100 px-2.5 py-1 text-rose-800">{editAttendance.counts.notAttending} not attending</span>
+                  <span className="rounded-full bg-gray-200 px-2.5 py-1 text-gray-700">{editAttendance.counts.noResponse} pending</span>
+                </div>}
+              </div>
+              {editAttendanceLoading && <p role="status" className="mt-3 text-xs text-gray-500">Loading responses…</p>}
+              {editAttendanceError && <p role="alert" className="mt-3 text-xs text-red-600">{editAttendanceError}</p>}
+              {editAttendance && <div className="mt-3 divide-y divide-gray-200 rounded-lg border border-gray-200 bg-white">
+                {editAttendance.attendees.map(attendee => <div key={attendee.semesterMembershipId} className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
+                  <span><strong className="block text-[#002147]">{attendee.fullName}</strong><small className="capitalize text-gray-400">{attendee.role}</small></span>
+                  <span className={attendee.response === 'attending' ? 'font-semibold text-emerald-700' : attendee.response === 'not_attending' ? 'font-semibold text-rose-700' : 'font-semibold text-gray-500'}>
+                    {attendee.response === 'attending' ? 'Attending' : attendee.response === 'not_attending' ? 'Not attending' : 'No response'}
+                  </span>
+                </div>)}
+                {editAttendance.attendees.length === 0 && <p className="px-3 py-3 text-xs text-gray-500">No eligible participants are assigned.</p>}
+              </div>}
+            </section>
             <div className="flex items-center justify-between pt-1">
               <button onClick={deleteSession} disabled={editSaving}
                 className="px-3 py-2 text-xs font-medium text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50">

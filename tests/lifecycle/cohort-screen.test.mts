@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  filterSemesterRecords,
   filterRecordsForCohort,
   membershipsForRecord,
   membershipIdsForRecords,
@@ -31,6 +32,22 @@ test("screen records follow the selected cohort and role and exclude unlinked re
   assert.deepEqual(
     filterRecordsForCohort(records, memberships, { semesterId: null, role: "mentor" }).map((record) => record.recordId),
     ["mentor-current", "mentor-prior"],
+  );
+});
+
+test("semester-owned records follow the shared cohort selection", () => {
+  const startups = [
+    { id: "spring-startup", semester_id: "spring-2026" },
+    { id: "fall-startup", semester_id: "fall-2026" },
+  ];
+
+  assert.deepEqual(
+    filterSemesterRecords(startups, "fall-2026").map((startup) => startup.id),
+    ["fall-startup"],
+  );
+  assert.deepEqual(
+    filterSemesterRecords(startups, null).map((startup) => startup.id),
+    ["spring-startup", "fall-startup"],
   );
 });
 

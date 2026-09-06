@@ -1,12 +1,13 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(40);
+select plan(41);
 
 select has_table('public', table_name, table_name || ' is part of the canonical 20-table schema')
 from unnest(array[
   'profiles', 'platform_roles', 'semesters', 'semester_memberships', 'invitations',
   'mentor_profiles', 'mentor_semesters', 'startup_organizations', 'startup_semesters',
   'startup_team_memberships', 'meetings', 'meeting_availability', 'sessions',
+  'session_rsvps',
   'program_audit_events', 'outreach_contacts', 'outreach_companies',
   'outreach_contact_companies', 'outreach_opportunities', 'outreach_activities',
   'outreach_imports'
@@ -18,8 +19,8 @@ from unnest(array['mentors', 'startups', 'session_dates', 'availability']) as re
 select is(
   (select count(*) from information_schema.tables
    where table_schema = 'public' and table_type = 'BASE TABLE'),
-  20::bigint,
-  'public contains exactly the canonical 20 base tables'
+  21::bigint,
+  'public contains exactly the canonical 21 base tables'
 );
 
 select is(

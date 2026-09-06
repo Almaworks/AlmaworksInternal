@@ -7,7 +7,6 @@ type CreateStartupPayload = {
   industry: string
   stage: string
   description: string
-  tags: string[]
   slug: string
   semesterId: string | null
 }
@@ -20,7 +19,6 @@ export async function POST(req: Request) {
     const industry = (payload.industry ?? '').trim()
     const stage = (payload.stage ?? '').trim()
     const description = (payload.description ?? '').trim()
-    const tags = Array.isArray(payload.tags) ? payload.tags : []
     const semesterId = payload.semesterId ?? null
 
     if (!name || !slug) {
@@ -35,7 +33,6 @@ export async function POST(req: Request) {
       description: description || null,
       industry: industry || null,
       name,
-      preferredTags: tags,
       semesterId,
       slug,
       stage: stage || null,

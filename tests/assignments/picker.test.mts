@@ -149,14 +149,12 @@ test("shapes an atomic commit payload with trimmed topic, exact overrides, and r
     },
   });
 });
-test("derives primary and secondary Mentor Needs without preferred expertise displacing them", () => {
+test("derives assignment priorities exclusively from structured Mentor Needs", () => {
   assert.deepEqual(deriveStartupNeeds({
     mentorshipNeeds: ["Enterprise Sales", "Pricing"],
-    preferredExpertiseTags: ["Fundraising", "Enterprise Sales"],
   }), {
     primary: "Enterprise Sales",
     secondary: "Pricing",
-    preferredExpertise: ["Fundraising", "Enterprise Sales"],
   });
 });
 

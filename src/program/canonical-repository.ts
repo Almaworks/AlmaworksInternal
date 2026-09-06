@@ -62,7 +62,6 @@ type StartupSemesterRow = {
     slug: string;
     website_url: string | null;
   }>;
-  preferred_expertise_tags: string[] | null;
   readiness_status: MembershipReadinessStatus;
   semester: Related<{ name: string }>;
   semester_id: string;
@@ -89,6 +88,8 @@ export type MentorView = {
   photo_url: string | null;
   preferred_format: string | null;
   profile_id: string;
+  profile_active: boolean;
+  membership_id: string;
   membership_status: MembershipStatus;
   readiness_status: MembershipReadinessStatus;
   role_title: string | null;
@@ -111,7 +112,6 @@ export type StartupView = {
   mentorship_needs: string[];
   name: string;
   organization_id: string;
-  preferred_tags: string[];
   readiness_status: MembershipReadinessStatus;
   semester_id: string;
   semester_name: string | null;
@@ -158,7 +158,6 @@ const STARTUP_DIRECTORY_SELECT = `
   stage,
   goals,
   mentorship_needs,
-  preferred_expertise_tags,
   readiness_status,
   semester:semesters(name),
   organization:startup_organizations!inner(
@@ -223,6 +222,8 @@ function mapMentor(row: MentorSemesterRow): MentorView {
     photo_url: mentor?.photo_url ?? null,
     preferred_format: row.preferred_format,
     profile_id: membership?.profile_id ?? "",
+    profile_active: profile?.is_active ?? false,
+    membership_id: membership?.id ?? "",
     membership_status: membership?.status ?? "invited",
     readiness_status: row.readiness_status,
     role_title: mentor?.title ?? null,
@@ -287,7 +288,6 @@ function mapStartup(row: StartupSemesterRow): StartupView {
     mentorship_needs: row.mentorship_needs ?? [],
     name: organization?.name ?? "Unnamed startup",
     organization_id: organization?.id ?? "",
-    preferred_tags: row.preferred_expertise_tags ?? [],
     readiness_status: row.readiness_status,
     semester_id: row.semester_id,
     semester_name: one(row.semester)?.name ?? null,

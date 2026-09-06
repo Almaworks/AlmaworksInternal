@@ -18,14 +18,15 @@ function throwIfError(error: { message: string } | null): void {
   if (error) throw new Error(error.message);
 }
 
-export async function loadCanonicalAccess(client: AccessClient, profileId: string) {
+export async function loadCanonicalAccess(client: AccessClient, authUserId: string) {
   const profileResult = await client
     .from("profiles")
-    .select("email,full_name,is_active,status")
-    .eq("id", profileId)
+    .select("id,email,full_name,is_active,status")
+    .eq("auth_user_id", authUserId)
     .maybeSingle();
   throwIfError(profileResult.error);
   if (!profileResult.data) return null;
+  const profileId = profileResult.data.id;
 
   const platformResult = await client
     .from("platform_roles")
@@ -38,7 +39,7 @@ export async function loadCanonicalAccess(client: AccessClient, profileId: strin
     .from("semester_memberships")
     .select("role,status,semester_id,semester:semesters!inner(name,is_active)")
     .eq("profile_id", profileId)
-    .in("status", ["onboarding", "active"])
+    .in("status", ["invited", "onboarding", "active"])
     .order("is_active", { ascending: false, referencedTable: "semester" });
   throwIfError(membershipResult.error);
 
@@ -46,7 +47,11 @@ export async function loadCanonicalAccess(client: AccessClient, profileId: strin
   const membership = memberships.find((row) => one(row.semester)?.is_active) ?? memberships[0] ?? null;
   const isGlobalAdmin = (platformResult.data ?? []).some((row) => row.role === "super_admin");
   return {
-    ...profileResult.data,
+    email: profileResult.data.email,
+    full_name: profileResult.data.full_name,
+    is_active: profileResult.data.is_active,
+    profileId,
+    status: profileResult.data.status,
     isGlobalAdmin,
     membershipRole: membership?.role ?? null,
     role: isGlobalAdmin ? "admin" as const : membership?.role ?? null,

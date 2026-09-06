@@ -128,7 +128,6 @@ export type CreateStartupRecordsInput = {
   description: string | null;
   industry: string | null;
   name: string;
-  preferredTags: string[];
   semesterId: string;
   slug: string;
   stage: string | null;
@@ -150,7 +149,6 @@ export async function createStartupRecords(client: AdminClient, input: CreateSta
   const semesterResult = await client
     .from("startup_semesters")
     .insert({
-      preferred_expertise_tags: input.preferredTags,
       readiness_status: "ready",
       semester_id: input.semesterId,
       stage: input.stage,
@@ -278,7 +276,6 @@ export type UpdateStartupRecordsInput = {
   industry: string | null;
   mentorshipNeeds: string[];
   name: string;
-  preferredTags: string[];
   slug: string;
   stage: string | null;
   startupSemesterId: string;
@@ -290,7 +287,7 @@ export async function updateStartupRecords(client: AdminClient, input: UpdateSta
     p_industry: input.industry,
     p_mentorship_needs: input.mentorshipNeeds,
     p_name: input.name,
-    p_preferred_expertise_tags: input.preferredTags,
+    p_preferred_expertise_tags: [],
     p_slug: input.slug,
     p_stage: input.stage,
     p_startup_semester_id: input.startupSemesterId,

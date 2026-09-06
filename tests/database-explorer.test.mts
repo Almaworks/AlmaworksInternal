@@ -63,10 +63,11 @@ test("generator preserves the complete verified Almaworks schema", () => {
   const html = generate(markdown);
   const schema = readEmbeddedSchema(html);
 
-  assert.deepEqual(schema.totals, { tables: 20, columns: 234 });
-  assert.equal(new Set(schema.tables.map((table) => table.name)).size, 20);
+  assert.deepEqual(schema.totals, { tables: 21, columns: 242 });
+  assert.equal(new Set(schema.tables.map((table) => table.name)).size, 21);
   assert.ok(schema.tables.some((table) => table.name === "semester_memberships" && table.connections.includes("profiles") && table.connections.includes("semesters")));
   assert.ok(schema.tables.some((table) => table.name === "sessions" && table.connections.includes("meetings") && table.connections.includes("mentor_semesters") && table.connections.includes("startup_semesters")));
+  assert.ok(schema.tables.some((table) => table.name === "session_rsvps" && table.connections.includes("sessions") && table.connections.includes("semester_memberships")));
   assert.ok(schema.tables.some((table) => table.name === "outreach_opportunities" && table.connections.includes("outreach_contacts")));
   for (const retired of ["mentors", "startups", "session_dates", "availability", "agents", "visa_application_orders"]) {
     assert.ok(!schema.tables.some((table) => table.name === retired));

@@ -2,6 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "../db/types.ts";
 
+type AdminCapabilityClient = Pick<SupabaseClient<Database>, "from">;
+
 export type LegacyProfileRole = "admin" | "mentor" | "startup" | null;
 export type DashboardPersona = "admin" | "mentor" | "startup";
 
@@ -15,22 +17,29 @@ export interface AdminCapabilitySource {
   hasActiveSemesterAdminMembership(profileId: string): Promise<CapabilityLookup<boolean>>;
 }
 
+export type AdminRouteAuthority = {
+  isSuperAdmin: boolean;
+  hasActiveSemesterAdminMembership: boolean;
+  lookupFailed: boolean;
+};
+
 export async function resolveAdminCapability(
   source: AdminCapabilitySource,
   profileId: string,
-): Promise<{ canManageAdmin: boolean; canRemoveMemberLogin: boolean }> {
+): Promise<{ canManageAdmin: boolean; canRemoveMemberLogin: boolean; isSuperAdmin: boolean }> {
   const superAdmin = await source.isSuperAdmin(profileId);
   if (superAdmin.error !== null) {
-    return { canManageAdmin: false, canRemoveMemberLogin: false };
+    return { canManageAdmin: false, canRemoveMemberLogin: false, isSuperAdmin: false };
   }
   if (superAdmin.data) {
-    return { canManageAdmin: true, canRemoveMemberLogin: true };
+    return { canManageAdmin: true, canRemoveMemberLogin: true, isSuperAdmin: true };
   }
 
   const membership = await source.hasActiveSemesterAdminMembership(profileId);
   return {
     canManageAdmin: membership.error === null && membership.data,
     canRemoveMemberLogin: false,
+    isSuperAdmin: false,
   };
 }
 
@@ -44,7 +53,7 @@ export function resolveDashboardPersona(
 }
 
 export function createSupabaseAdminCapabilitySource(
-  client: SupabaseClient<Database>,
+  client: AdminCapabilityClient,
 ): AdminCapabilitySource {
   return {
     isSuperAdmin: async (profileId) => {
@@ -67,5 +76,34 @@ export function createSupabaseAdminCapabilitySource(
         .maybeSingle();
       return { data: result.data !== null, error: result.error };
     },
+  };
+}
+
+export async function loadAdminRouteAuthority(
+  client: AdminCapabilityClient,
+  profileId: string,
+): Promise<AdminRouteAuthority> {
+  const source = createSupabaseAdminCapabilitySource(client);
+  const superAdmin = await source.isSuperAdmin(profileId);
+  if (superAdmin.error !== null) {
+    return {
+      isSuperAdmin: false,
+      hasActiveSemesterAdminMembership: false,
+      lookupFailed: true,
+    };
+  }
+  if (superAdmin.data) {
+    return {
+      isSuperAdmin: true,
+      hasActiveSemesterAdminMembership: false,
+      lookupFailed: false,
+    };
+  }
+
+  const membership = await source.hasActiveSemesterAdminMembership(profileId);
+  return {
+    isSuperAdmin: false,
+    hasActiveSemesterAdminMembership: membership.error === null && membership.data,
+    lookupFailed: membership.error !== null,
   };
 }

@@ -30,6 +30,7 @@ test('brand assets and primary surfaces use the shared mark', () => {
     'app/learn-more/page.tsx',
     'app/pending/page.tsx',
     'app/dashboard/onboarding/onboarding-flow.tsx',
+    'app/dashboard/participant/ParticipantDashboard.tsx',
   ]) {
     assert.match(read(path), /AlmaworksBrand/, `${path} should use AlmaworksBrand`)
   }

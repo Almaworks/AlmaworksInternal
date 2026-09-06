@@ -1,3 +1,5 @@
+import { canChangeSessionRsvp, sessionStartIso, type SessionAttendeeRsvp, type SessionRsvpState } from "../sessions/rsvp.ts";
+
 export type ParticipantRole = "mentor" | "startup";
 export type ParticipantMembershipStatus = "invited" | "onboarding" | "active" | "alumni" | "suspended";
 
@@ -148,14 +150,42 @@ export interface ParticipantSessionInput {
   meetingDate: string;
   startsAt: string;
   endsAt: string;
+  timezone?: string | null;
   topic: string | null;
   format: string | null;
   status: string;
+  attendees?: SessionAttendeeRsvp[];
+}
+
+export interface ParticipantMentorNeedsSummary {
+  needs: string[];
+  context: string | null;
+  noPreference: boolean;
+}
+
+export interface ParticipantSessionView extends ParticipantSessionInput {
+  timing: "upcoming" | "past";
+  sessionStartsAt: string;
+  rsvpOpen: boolean;
+  ownRsvp: SessionRsvpState;
+  attendees: SessionAttendeeRsvp[];
 }
 
 export interface ParticipantDirectoryEntry extends ParticipantNetworkEntry {
   websiteUrl: string | null;
   photoUrl: string | null;
+}
+
+export interface ParticipantAvailabilityWindow {
+  meetingId: string;
+  meetingDate: string;
+  slot: 1 | 2;
+  startsAt: string;
+  endsAt: string;
+  timezone: string | null;
+  isAvailable: boolean;
+  format: "in_person" | "remote" | "hybrid";
+  confirmedSession: { id: string; startup: string; topic: string | null; format: string | null } | null;
 }
 
 export interface ParticipantDashboardView {
@@ -165,7 +195,7 @@ export interface ParticipantDashboardView {
   semester: { id: string; name: string };
   identity: { profileId: string; fullName: string; email: string; emailVerified: boolean };
   activation: ActivationStep[];
-  sessions: Array<ParticipantSessionInput & { timing: "upcoming" | "past" }>;
+  sessions: ParticipantSessionView[];
   network: ParticipantDirectoryEntry[];
   notifications: Array<{
     id: string;
@@ -181,10 +211,8 @@ export interface ParticipantDashboardView {
     websiteUrl: string;
     linkedinUrl: string;
   };
-}
-
-function dateStart(value: string): number {
-  return Date.parse(`${value}T00:00:00Z`);
+  mentorNeeds: ParticipantMentorNeedsSummary | null;
+  availability: ParticipantAvailabilityWindow[];
 }
 
 export function buildParticipantDashboard(input: {
@@ -198,6 +226,8 @@ export function buildParticipantDashboard(input: {
   sessions: ParticipantSessionInput[];
   network: ParticipantDirectoryEntry[];
   profile?: ParticipantDashboardView["profile"];
+  mentorNeeds?: ParticipantMentorNeedsSummary | null;
+  availability?: ParticipantAvailabilityWindow[];
 }): ParticipantDashboardView {
   const activation = buildActivationSteps(input.context.role, {
     emailVerified: input.identity.emailVerified,
@@ -213,7 +243,18 @@ export function buildParticipantDashboard(input: {
         ? session.mentorSemesterId === input.mentorSemesterId
         : session.startupSemesterId === input.startupSemesterId)
     ))
-    .map((session) => ({ ...session, timing: dateStart(session.meetingDate) < now ? "past" as const : "upcoming" as const }))
+    .map((session): ParticipantSessionView => {
+      const sessionStartsAt = sessionStartIso({ meetingDate: session.meetingDate, startsAt: session.startsAt, timezone: session.timezone });
+      const attendees = session.attendees ?? [];
+      return {
+        ...session,
+        attendees,
+        sessionStartsAt,
+        timing: Date.parse(sessionStartsAt) <= now ? "past" : "upcoming",
+        rsvpOpen: canChangeSessionRsvp({ now: input.now, sessionStartsAt, status: session.status }),
+        ownRsvp: attendees.find((attendee) => attendee.semesterMembershipId === input.context.membershipId)?.response ?? "no_response",
+      };
+    })
     .sort((left, right) => left.meetingDate.localeCompare(right.meetingDate));
   const network = input.network.filter((entry) => (
     entry.semesterId === input.context.semesterId
@@ -253,6 +294,8 @@ export function buildParticipantDashboard(input: {
     network,
     notifications,
     profile: input.profile ?? { headline: "", summary: "", tags: [], websiteUrl: "", linkedinUrl: "" },
+    mentorNeeds: input.context.role === "startup" ? input.mentorNeeds ?? { needs: [], context: null, noPreference: false } : null,
+    availability: input.context.role === "mentor" ? input.availability ?? [] : [],
   };
 }
 
@@ -295,7 +338,6 @@ export function buildProfileUpdate(role: ParticipantRole, input: {
     profile,
     startupSemester: {
       company_snapshot: clean(input.summary),
-      preferred_expertise_tags: tagsFrom(input.tags),
       mentor_need_context: clean(input.headline),
     },
   };

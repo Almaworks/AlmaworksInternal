@@ -110,6 +110,67 @@ test("builds a startup dashboard from only owned active-semester sessions", () =
   assert.equal(dashboard.activation.every((step) => step.status === "complete"), true);
 });
 
+test("projects exact session timing, own RSVP, visible attendees, and startup Mentor Needs", () => {
+  const dashboard = buildParticipantDashboard({
+    now: "2026-09-04T19:00:00.000Z",
+    context: { kind: "participant", semesterId: "fall", semesterName: "Fall 2026", membershipId: "founder-member", role: "startup", status: "active" },
+    identity: { profileId: "founder", fullName: "Nadia Rahman", email: "nadia@example.com", emailVerified: true },
+    startupSemesterId: "startup-me",
+    mentorSemesterId: null,
+    profileComplete: true,
+    roleSetupComplete: true,
+    mentorNeeds: { needs: ["Enterprise sales", "Pricing"], context: "Prepare for our first enterprise pilot.", noPreference: false },
+    sessions: [{
+      id: "next-session",
+      semesterId: "fall",
+      mentorSemesterId: "mentor-a",
+      startupSemesterId: "startup-me",
+      partnerName: "Maya Chen",
+      meetingDate: "2026-09-04",
+      startsAt: "15:30",
+      endsAt: "16:15",
+      timezone: "America/New_York",
+      topic: "Enterprise sales",
+      format: "In person",
+      status: "confirmed",
+      attendees: [
+        { semesterMembershipId: "mentor-member", profileId: "mentor", fullName: "Maya Chen", role: "mentor", response: "attending", respondedAt: "2026-09-01T12:00:00Z", updatedAt: "2026-09-01T12:00:00Z" },
+        { semesterMembershipId: "founder-member", profileId: "founder", fullName: "Nadia Rahman", role: "startup", response: "no_response", respondedAt: null, updatedAt: null },
+      ],
+    }],
+    network: [],
+  });
+
+  assert.deepEqual(dashboard.mentorNeeds, { needs: ["Enterprise sales", "Pricing"], context: "Prepare for our first enterprise pilot.", noPreference: false });
+  assert.equal(dashboard.sessions[0]?.sessionStartsAt, "2026-09-04T19:30:00.000Z");
+  assert.equal(dashboard.sessions[0]?.timing, "upcoming");
+  assert.equal(dashboard.sessions[0]?.rsvpOpen, true);
+  assert.equal(dashboard.sessions[0]?.ownRsvp, "no_response");
+  assert.deepEqual(dashboard.sessions[0]?.attendees.map((attendee) => attendee.fullName), ["Maya Chen", "Nadia Rahman"]);
+});
+
+test("locks a session at its exact start and does not expose Mentor Needs to mentors", () => {
+  const dashboard = buildParticipantDashboard({
+    now: "2026-09-04T19:30:00.000Z",
+    context: { kind: "participant", semesterId: "fall", semesterName: "Fall 2026", membershipId: "mentor-member", role: "mentor", status: "active" },
+    identity: { profileId: "mentor", fullName: "Maya Chen", email: "maya@example.com", emailVerified: true },
+    startupSemesterId: null,
+    mentorSemesterId: "mentor-a",
+    profileComplete: true,
+    roleSetupComplete: true,
+    mentorNeeds: { needs: ["Hidden"], context: null, noPreference: false },
+    sessions: [{
+      id: "starting-session", semesterId: "fall", mentorSemesterId: "mentor-a", startupSemesterId: "startup-me", partnerName: "Northstar",
+      meetingDate: "2026-09-04", startsAt: "15:30", endsAt: "16:15", timezone: "America/New_York", topic: null, format: null, status: "confirmed",
+    }],
+    network: [],
+  });
+
+  assert.equal(dashboard.mentorNeeds, null);
+  assert.equal(dashboard.sessions[0]?.timing, "past");
+  assert.equal(dashboard.sessions[0]?.rsvpOpen, false);
+});
+
 test("safe profile payloads never include role, membership, or sign-in email", () => {
   assert.deepEqual(buildProfileUpdate("mentor", {
     fullName: " Maya Chen ",
@@ -126,6 +187,23 @@ test("safe profile payloads never include role, membership, or sign-in email", (
       expertise_tags: ["Sales", "Growth"],
       website_url: "https://example.com",
       linkedin_url: "linkedin.com/in/maya",
+    },
+  });
+});
+
+test("startup profile saves keep matching preferences in the Mentor Needs form", () => {
+  assert.deepEqual(buildProfileUpdate("startup", {
+    fullName: " Layth Rahman ",
+    headline: "Preparing for an enterprise sales mentor",
+    summary: "A concise company snapshot.",
+    tags: "Finance, Sales",
+    websiteUrl: "",
+    linkedinUrl: "",
+  }), {
+    profile: { full_name: "Layth Rahman" },
+    startupSemester: {
+      company_snapshot: "A concise company snapshot.",
+      mentor_need_context: "Preparing for an enterprise sales mentor",
     },
   });
 });

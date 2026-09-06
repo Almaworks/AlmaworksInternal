@@ -50,7 +50,6 @@ function startupRow(status: "onboarding" | "active" | "alumni" | "suspended", re
       slug: `${status}-startup`,
       website_url: null,
     },
-    preferred_expertise_tags: [],
     readiness_status: readiness,
     semester: { name: "Fall 2026" },
     semester_id: "fall-2026",

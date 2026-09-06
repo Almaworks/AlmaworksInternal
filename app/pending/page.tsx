@@ -4,6 +4,7 @@ import { createClient } from '@/utils/supabase/client'
 import { AlmaworksBrand } from '@/components/AlmaworksBrand'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
+import { resolvePostLoginDestination } from '@/src/auth/profile-access'
 import { loadCanonicalAccess } from '@/src/program/canonical-access'
 
 export default function PendingPage() {
@@ -16,14 +17,13 @@ export default function PendingPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
       setEmail(user.email ?? null)
-      const access = await loadCanonicalAccess(supabase, user.id)
-      if (!access || access.status !== 'approved' || !access.role) return
-      if (access.is_active === false) return
-      const dest =
-        access.role === 'admin' ? '/dashboard/admin' :
-        access.role === 'mentor' ? '/dashboard/mentor' :
-        '/dashboard/startup'
-      router.replace(dest)
+      try {
+        const access = await loadCanonicalAccess(supabase, user.id)
+        const destination = resolvePostLoginDestination(access)
+        if (destination !== '/pending') router.replace(destination)
+      } catch {
+        router.replace('/?error=identity_lookup_failed')
+      }
     }
     checkStatus()
   }, [supabase, router])

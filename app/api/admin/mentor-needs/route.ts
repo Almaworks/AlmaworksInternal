@@ -15,8 +15,8 @@ export async function GET(request: Request) {
     const { user, userClient } = await requireSemesterAdmin(request, semesterId);
     const manageable = await loadManageableCohorts(userClient, user.id);
     const semesterIds = scope === "all" ? manageable.map((semester) => semester.id) : [semesterId];
-    const rows = await loadMentorNeedsBoard(userClient, semesterIds);
-    return NextResponse.json(buildMentorNeedsBoardPayload(buildCohortOptions(manageable), rows, scope));
+    const board = await loadMentorNeedsBoard(userClient, semesterIds);
+    return NextResponse.json(buildMentorNeedsBoardPayload(buildCohortOptions(manageable), board.rows, board.summary, scope));
   } catch (error) {
     if (error instanceof AuthorizationError) return NextResponse.json({ error: error.message }, { status: error.status });
     const message = error instanceof MentorNeedsRepositoryError || error instanceof Error ? error.message : "Unable to load mentor needs.";

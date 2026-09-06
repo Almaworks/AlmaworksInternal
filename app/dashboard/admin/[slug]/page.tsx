@@ -21,7 +21,6 @@ type Startup = {
   stage: string | null
   logo_url: string | null
   website: string | null
-  preferred_tags: string[]
   founders: Founder[]
 }
 
@@ -111,19 +110,6 @@ export default function StartupProfilePage() {
         </div>
       </div>
 
-      {/* Tags */}
-      {startup.preferred_tags && startup.preferred_tags.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-6">
-          {startup.preferred_tags.map(tag => (
-            <span
-              key={tag}
-              className="text-xs font-semibold px-3 py-1 rounded-full bg-[#002147]/8 text-[#002147] border border-[#002147]/10"
-            >
-              {tag}
-            </span>
-          ))}
-        </div>
-      )}
 
       {/* Description */}
       {startup.description && (

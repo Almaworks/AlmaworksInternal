@@ -30,18 +30,20 @@ function recordingClient(responses: readonly unknown[]) {
 
 test("role-aware access derives global admin from platform roles and cohort role from active membership", async () => {
   const { client, requests } = recordingClient([
-    { email: "admin@example.com", full_name: "Admin", is_active: true, status: "approved" },
+    { id: "profile-1", email: "admin@example.com", full_name: "Admin", is_active: true, status: "approved" },
     [{ role: "super_admin" }],
     [{ role: "mentor", status: "active", semester_id: "semester-1", semester: { is_active: true, name: "Fall 2026" } }],
   ]);
 
-  const access = await loadCanonicalAccess(client, "profile-1");
+  const access = await loadCanonicalAccess(client, "auth-user-9");
 
+  assert.equal(access?.profileId, "profile-1");
   assert.equal(access?.role, "admin");
   assert.equal(access?.membershipRole, "mentor");
   assert.equal(access?.semesterId, "semester-1");
   assert.equal(requests[0].url.pathname, "/rest/v1/profiles");
-  assert.equal(requests[0].url.searchParams.get("select"), "email,full_name,is_active,status");
+  assert.equal(requests[0].url.searchParams.get("select"), "id,email,full_name,is_active,status");
+  assert.equal(requests[0].url.searchParams.get("auth_user_id"), "eq.auth-user-9");
   assert.equal(requests[1].url.pathname, "/rest/v1/platform_roles");
   assert.equal(requests[1].url.searchParams.get("profile_id"), "eq.profile-1");
   assert.equal(requests[2].url.pathname, "/rest/v1/semester_memberships");

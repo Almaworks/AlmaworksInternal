@@ -26,6 +26,10 @@ function SignInContent() {
       ? 'Sign-in failed. Please request a new magic link.'
       : errorParam === 'account_inactive'
       ? 'Your account has been deactivated. Contact an Almaworks admin to restore access.'
+      : errorParam === 'identity_link_missing'
+      ? 'Your sign-in succeeded, but your Almaworks profile is not linked. Contact an Almaworks admin.'
+      : errorParam === 'identity_lookup_failed'
+      ? 'We could not verify your Almaworks profile. Please try signing in again.'
       : null
 
   const [email, setEmail] = useState('')

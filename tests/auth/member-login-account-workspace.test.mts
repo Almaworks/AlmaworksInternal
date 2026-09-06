@@ -3,9 +3,11 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const page = readFileSync(new URL("../../app/dashboard/admin/page.tsx", import.meta.url), "utf8");
+const memberQuery = readFileSync(new URL("../../src/dashboard/admin-members-query.ts", import.meta.url), "utf8");
 
 test("members workspace loads durable login fields and latest account audit in one batch", () => {
-  assert.match(page, /auth_user_id, is_active, created_at, memberships:semester_memberships/u);
+  assert.match(memberQuery, /auth_user_id,[\s\S]*?is_active,[\s\S]*?created_at,[\s\S]*?memberships:semester_memberships/u);
+  assert.match(page, /memberDirectorySelect/u);
   assert.match(page, /profile_is_active: boolean/u);
   assert.match(page, /membership_is_active: boolean/u);
   assert.match(page, /latest_removal_audit_action/u);

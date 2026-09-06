@@ -209,7 +209,6 @@ export default function MentorAssignmentPicker({ open, target, onClose, onCommit
   ), [selectedMentorId, visibleCandidates]);
   const needs = useMemo(() => deriveStartupNeeds({
     mentorshipNeeds: context?.startup.mentorshipNeeds ?? [],
-    preferredExpertiseTags: context?.startup.preferredExpertiseTags ?? [],
   }), [context]);
   const submitEnabled = canSubmitAssignment(selectedCandidate, overrideAcknowledged, overrideReason) && !submitting;
 
@@ -337,12 +336,6 @@ export default function MentorAssignmentPicker({ open, target, onClose, onCommit
                 <strong>{needs.secondary ?? "Not specified"}</strong>
               </div>
             </div>
-            {needs.preferredExpertise.length > 0 && (
-              <div className={styles.preferredExpertise}>
-                <span>Preferred expertise</span>
-                <div>{needs.preferredExpertise.map((tag) => <span key={tag}>{tag}</span>)}</div>
-              </div>
-            )}
             {(context?.startup.mentorNeedContext || context?.startup.companySnapshot) && (
               <p className={styles.contextCopy}>{context.startup.mentorNeedContext ?? context.startup.companySnapshot}</p>
             )}
