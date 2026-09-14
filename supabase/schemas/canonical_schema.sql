@@ -3235,7 +3235,7 @@ GRANT ALL ON FUNCTION "public"."carry_forward_outreach_contacts"("p_source_semes
 
 
 REVOKE ALL ON FUNCTION "public"."commit_mentor_assignment"("p_semester_id" "uuid", "p_meeting_id" "uuid", "p_slot" smallint, "p_startup_semester_id" "uuid", "p_mentor_semester_id" "uuid", "p_idempotency_key" "text", "p_format" "text", "p_topic" "text", "p_override_types" "text"[], "p_override_reason" "text", "p_ranking_context" "jsonb") FROM PUBLIC;
-GRANT ALL ON FUNCTION "public"."commit_mentor_assignment"("p_semester_id" "uuid", "p_meeting_id" "uuid", "p_slot" smallint, "p_startup_semester_id" "uuid", "p_mentor_semester_id" "uuid", "p_idempotency_key" "text", "p_format" "text", "p_topic" "text", "p_override_types" "text"[], "p_override_reason" "text", "p_ranking_context" "jsonb") TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."commit_mentor_assignment"("p_semester_id" "uuid", "p_meeting_id" "uuid", "p_slot" smallint, "p_startup_semester_id" "uuid", "p_mentor_semester_id" "uuid", "p_idempotency_key" "text", "p_format" "text", "p_topic" "text", "p_override_types" "text"[], "p_override_reason" "text", "p_ranking_context" "jsonb") FROM "authenticated";
 
 
 

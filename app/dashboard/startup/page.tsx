@@ -1,5 +1,11 @@
+import { Suspense } from "react";
+
 import ParticipantDashboard from "@/app/dashboard/participant/ParticipantDashboard";
 
+function DashboardLoading() {
+  return <main role="status" aria-live="polite">Loading your dashboard…</main>;
+}
+
 export default function StartupDashboardPage() {
-  return <ParticipantDashboard expectedRole="startup" />;
+  return <Suspense fallback={<DashboardLoading />}><ParticipantDashboard expectedRole="startup" /></Suspense>;
 }

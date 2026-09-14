@@ -6,6 +6,16 @@ updated: 2026-09-06
 
 # Handoff
 
+## 2026-09-14-booking-real-calendar-week - Integrated for commit
+
+- Mentor and startup Bookings display the actual Sunday-to-Saturday calendar date range prominently at the upper right, computed from the real current date in the semester timezone rather than session-week state.
+- Startup booking opens on the actual current week, filters elapsed times, shows dated weekday headers, disables backward navigation from the current week, and pages forward through semester end.
+- The complete booking module, API, RLS-backed migrations, dashboard route, and mentor/startup navigation are included as one deployable boundary.
+- TDD covered timezone boundaries, forward-week projection, the shared header, dated headers, forward-only navigation, and the direct booking route.
+- Validation: the isolated prospective commit passes the complete repository suite (520/520), production `next build` with the verified allowlisted Almaworks environment, migration-safety validation, and ESLint with zero errors (15 warnings). Authenticated desktop/narrow QA remains blocked because no browser surface is available.
+- No remote database operation, deployment, booking mutation, or push occurred.
+- Route: Sol / medium for cross-module integration; implementation remained in the coordinator.
+
 ## 2026-09-06-commit-workspace - Validated for commit
 
 - User authorized committing all pending workspace changes, including Outreach selection, participant dashboard/network/notification changes, session formats and RSVP, Super Admin lifecycle gates, migrations, tests, and project memory.

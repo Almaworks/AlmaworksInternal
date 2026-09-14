@@ -7,7 +7,7 @@ import { AdminViewTransitionShell } from '@/components/AdminViewTransitionShell'
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { useEffect, useMemo, useState, useTransition } from 'react'
-import { Bell, BookOpen, CalendarClock, CalendarDays, CalendarRange, ChevronLeft, ChevronRight, House, Inbox, LayoutDashboard, LogOut, Menu, Megaphone, Network, Settings, Target, Users, X } from 'lucide-react'
+import { Bell, BookOpen, CalendarClock, CalendarDays, CalendarPlus, CalendarRange, ChevronLeft, ChevronRight, House, Inbox, LayoutDashboard, LogOut, Menu, Megaphone, Network, Settings, Target, Users, X } from 'lucide-react'
 import { isDashboardNavigationActive } from '@/src/assignments/schedule-navigation'
 import { resolveDashboardPersona } from '@/src/auth/admin-capability'
 import { authenticatedFetch } from '@/src/auth/authenticated-fetch'
@@ -119,12 +119,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       ? [
           { href: '/dashboard/mentor', label: 'My Schedule' },
           { href: '/dashboard/mentor/inbox', label: 'Inbox' },
+          { href: '/dashboard/bookings', label: 'Bookings' },
           { href: '/dashboard/mentors', label: 'Mentor Directory' },
         ]
       : effectiveRole === 'startup'
       ? [
           { href: '/dashboard/startup', label: 'Dashboard' },
           { href: '/dashboard/mentors', label: 'Mentors' },
+          { href: '/dashboard/bookings', label: 'Bookings' },
         ]
       : []
 
@@ -141,6 +143,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     Inbox: Inbox,
     'Mentor Directory': Network,
     Dashboard: House,
+    Bookings: CalendarPlus,
   } as const
 
   const roleLabel =

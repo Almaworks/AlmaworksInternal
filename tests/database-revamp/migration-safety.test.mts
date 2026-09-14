@@ -29,6 +29,8 @@ test("active migrations separate the local replay baseline, cutovers, and review
   assert.ok(plan.postCutover.includes("20260905221051_onboarding_meeting_visibility.sql"));
   assert.ok(plan.postCutover.includes("20260906160236_remove_preferred_expertise.sql"));
   assert.ok(plan.postCutover.includes("20260906160526_restore_startup_rpc_compatibility.sql"));
+  assert.ok(plan.postCutover.includes("20260914164349_accepted_booking_request_composite_key.sql"));
+  assert.ok(plan.postCutover.includes("20260914164611_accepted_booking_occupancy.sql"));
   assert.deepEqual(plan.unknown, []);
   assert.match(plan.localReplayOnly[0], /production_baseline_local_replay_only\.sql$/u);
   assert.ok(plan.preCutover.every((migration) => migration < plan.localReplayOnly[0]));

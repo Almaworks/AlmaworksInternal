@@ -31,6 +31,35 @@ const reviewedPostCutoverMigrations = [
   // Reviewed lifecycle hardening: limits draft creation, draft meeting
   // replacement, and semester activation to durable platform super admins.
   "20260906224257_restrict_semester_lifecycle_to_super_admin.sql",
+  // Generated Friday program schema, RLS, immutable publication triggers,
+  // and the separately generated function-permission correction.
+  "20260909003419_friday_program.sql",
+  "20260909003551_friday_program_permissions.sql",
+  "20260909003833_friday_program_admin_roster.sql",
+  // Generated independent booking extension, schema, guards, RLS, and grants.
+  "20260909012650_mentor_booking_extension.sql",
+  "20260909012850_independent_mentor_booking.sql",
+  // Generated outreach email snapshots, provider receipts, RLS and invoker guards.
+  "20260909025717_outreach_email.sql",
+  // Generated profile photo column, path constraint, and narrow update grants.
+  "20260909031829_profile_photos.sql",
+  // Generated retirement of legacy Friday mentorship writes and timezone-safe
+  // Friday rejection for independent mentor availability publication.
+  "20260909235051_retire_friday_mentorship_scheduling.sql",
+  // Generated retirement of the legacy Friday mentor-availability table and
+  // its associated rows; Friday Program and independent bookings remain.
+  "20260910040958_retire_legacy_friday_mentor_availability.sql",
+  // Generated calendar-first booking migration; preserves historical requests
+  // while replacing dated availability windows with weekly calendar ranges.
+  "20260910204603_calendar_first_mentor_booking.sql",
+  // Generated Friday-program replacement RPC plus narrow, admin-only RLS
+  // privileges required to refresh a selected week's saved assignments.
+  "20260911050456_friday_program_regeneration.sql",
+  "20260911050723_friday_program_regeneration_access.sql",
+  // Generated accepted-booking occupancy key and privacy-safe RLS relation;
+  // the occupancy migration also includes the reviewed idempotent backfill.
+  "20260914164349_accepted_booking_request_composite_key.sql",
+  "20260914164611_accepted_booking_occupancy.sql",
 ];
 const requiredOutreachArchiveMigrations = [
   "20260901215752_archive_outreach_contacts.sql",

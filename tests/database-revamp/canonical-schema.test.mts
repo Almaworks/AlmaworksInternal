@@ -101,7 +101,7 @@ test("least-privilege grants and relationship indexes are present", () => {
   assert.match(source, /revoke all on function public\.commit_mentor_assignment[\s\S]*? from anon/u);
   assert.match(source, /grant insert \(semester_id, meeting_id, semester_membership_id, slot, is_available, format, source\) on table public\.meeting_availability to authenticated/u);
   assert.match(source, /grant update \(goals, mentorship_needs, mentor_need_context, mentor_need_no_preference, company_snapshot\) on table public\.startup_semesters to authenticated/u);
-  assert.match(source, /grant insert \(semester_id, meeting_id, mentor_semester_id, startup_semester_id, slot, status, topic, format\) on table public\.sessions to authenticated/u);
+  assert.match(source, /revoke insert \(semester_id, meeting_id, mentor_semester_id, startup_semester_id, slot, status, topic, format\) on table public\.sessions from authenticated/u);
   assert.match(source, /grant update \(status\) on table public\.profiles to service_role/u);
   for (const index of [
     "invitations_invited_by_idx", "meeting_availability_member_idx",

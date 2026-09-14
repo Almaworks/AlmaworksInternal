@@ -98,6 +98,132 @@ export type Database = {
           },
         ]
       }
+      friday_program_assignments: {
+        Row: {
+          created_at: string
+          group_code: string
+          group_position: number
+          id: string
+          program_id: string
+          semester_id: string
+          startup_name: string
+          startup_organization_id: string
+          startup_semester_id: string
+          startup_slug: string
+        }
+        Insert: {
+          created_at?: string
+          group_code: string
+          group_position: number
+          id?: string
+          program_id: string
+          semester_id: string
+          startup_name: string
+          startup_organization_id: string
+          startup_semester_id: string
+          startup_slug: string
+        }
+        Update: {
+          created_at?: string
+          group_code?: string
+          group_position?: number
+          id?: string
+          program_id?: string
+          semester_id?: string
+          startup_name?: string
+          startup_organization_id?: string
+          startup_semester_id?: string
+          startup_slug?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "friday_program_assignments_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "friday_program_assignments_semester_id_program_id_fkey"
+            columns: ["semester_id", "program_id"]
+            isOneToOne: false
+            referencedRelation: "friday_programs"
+            referencedColumns: ["semester_id", "id"]
+          },
+          {
+            foreignKeyName: "friday_program_assignments_semester_id_startup_semester_id_fkey"
+            columns: ["semester_id", "startup_semester_id"]
+            isOneToOne: false
+            referencedRelation: "startup_semesters"
+            referencedColumns: ["semester_id", "id"]
+          },
+          {
+            foreignKeyName: "friday_program_assignments_startup_organization_id_fkey"
+            columns: ["startup_organization_id"]
+            isOneToOne: false
+            referencedRelation: "startup_organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      friday_programs: {
+        Row: {
+          agenda_version: number
+          generated_at: string
+          generated_by_profile_id: string
+          group_a_facilitator: string
+          group_b_facilitator: string
+          id: string
+          meeting_id: string
+          semester_id: string
+          startup_count: number
+        }
+        Insert: {
+          agenda_version?: number
+          generated_at?: string
+          generated_by_profile_id: string
+          group_a_facilitator?: string
+          group_b_facilitator?: string
+          id?: string
+          meeting_id: string
+          semester_id: string
+          startup_count: number
+        }
+        Update: {
+          agenda_version?: number
+          generated_at?: string
+          generated_by_profile_id?: string
+          group_a_facilitator?: string
+          group_b_facilitator?: string
+          id?: string
+          meeting_id?: string
+          semester_id?: string
+          startup_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "friday_programs_generated_by_profile_id_fkey"
+            columns: ["generated_by_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "friday_programs_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "friday_programs_semester_id_meeting_id_fkey"
+            columns: ["semester_id", "meeting_id"]
+            isOneToOne: true
+            referencedRelation: "meetings"
+            referencedColumns: ["semester_id", "id"]
+          },
+        ]
+      }
       invitations: {
         Row: {
           accepted_at: string | null
@@ -193,6 +319,7 @@ export type Database = {
       meeting_availability: {
         Row: {
           created_at: string
+          format: string | null
           id: string
           is_available: boolean
           meeting_id: string
@@ -204,6 +331,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          format?: string | null
           id?: string
           is_available?: boolean
           meeting_id: string
@@ -215,6 +343,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          format?: string | null
           id?: string
           is_available?: boolean
           meeting_id?: string
@@ -292,6 +421,226 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semesters"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      mentor_booking_accepted_occupancy: {
+        Row: {
+          ends_at: string
+          mentor_semester_id: string
+          request_id: string
+          semester_id: string
+          starts_at: string
+        }
+        Insert: {
+          ends_at: string
+          mentor_semester_id: string
+          request_id: string
+          semester_id: string
+          starts_at: string
+        }
+        Update: {
+          ends_at?: string
+          mentor_semester_id?: string
+          request_id?: string
+          semester_id?: string
+          starts_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mentor_booking_accepted_occupancy_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: true
+            referencedRelation: "mentor_booking_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mentor_booking_accepted_occupancy_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mentor_booking_accepted_occupancy_semester_mentor_fkey"
+            columns: ["semester_id", "mentor_semester_id"]
+            isOneToOne: false
+            referencedRelation: "mentor_semesters"
+            referencedColumns: ["semester_id", "id"]
+          },
+          {
+            foreignKeyName: "mentor_booking_accepted_occupancy_semester_request_fkey"
+            columns: ["semester_id", "request_id"]
+            isOneToOne: false
+            referencedRelation: "mentor_booking_requests"
+            referencedColumns: ["semester_id", "id"]
+          },
+        ]
+      }
+      mentor_booking_requests: {
+        Row: {
+          cancelled_at: string | null
+          ends_at: string
+          id: string
+          mentor_name: string
+          mentor_profile_id: string
+          mentor_semester_id: string
+          requested_at: string
+          requested_by_profile_id: string
+          responded_at: string | null
+          semester_id: string
+          starts_at: string
+          startup_name: string
+          startup_organization_id: string
+          startup_semester_id: string
+          status: string
+          topic: string
+          updated_at: string
+          window_id: string | null
+        }
+        Insert: {
+          cancelled_at?: string | null
+          ends_at: string
+          id?: string
+          mentor_name: string
+          mentor_profile_id: string
+          mentor_semester_id: string
+          requested_at?: string
+          requested_by_profile_id: string
+          responded_at?: string | null
+          semester_id: string
+          starts_at: string
+          startup_name: string
+          startup_organization_id: string
+          startup_semester_id: string
+          status?: string
+          topic: string
+          updated_at?: string
+          window_id?: string | null
+        }
+        Update: {
+          cancelled_at?: string | null
+          ends_at?: string
+          id?: string
+          mentor_name?: string
+          mentor_profile_id?: string
+          mentor_semester_id?: string
+          requested_at?: string
+          requested_by_profile_id?: string
+          responded_at?: string | null
+          semester_id?: string
+          starts_at?: string
+          startup_name?: string
+          startup_organization_id?: string
+          startup_semester_id?: string
+          status?: string
+          topic?: string
+          updated_at?: string
+          window_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mentor_booking_requests_mentor_profile_id_fkey"
+            columns: ["mentor_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mentor_booking_requests_requested_by_profile_id_fkey"
+            columns: ["requested_by_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mentor_booking_requests_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mentor_booking_requests_semester_mentor_fkey"
+            columns: ["semester_id", "mentor_semester_id"]
+            isOneToOne: false
+            referencedRelation: "mentor_semesters"
+            referencedColumns: ["semester_id", "id"]
+          },
+          {
+            foreignKeyName: "mentor_booking_requests_semester_startup_fkey"
+            columns: ["semester_id", "startup_semester_id"]
+            isOneToOne: false
+            referencedRelation: "startup_semesters"
+            referencedColumns: ["semester_id", "id"]
+          },
+          {
+            foreignKeyName: "mentor_booking_requests_startup_organization_id_fkey"
+            columns: ["startup_organization_id"]
+            isOneToOne: false
+            referencedRelation: "startup_organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mentor_booking_windows: {
+        Row: {
+          created_at: string
+          ends_at: string
+          id: string
+          mentor_name: string
+          mentor_profile_id: string
+          mentor_semester_id: string
+          semester_id: string
+          starts_at: string
+          updated_at: string
+          withdrawn_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          ends_at: string
+          id?: string
+          mentor_name: string
+          mentor_profile_id: string
+          mentor_semester_id: string
+          semester_id: string
+          starts_at: string
+          updated_at?: string
+          withdrawn_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          ends_at?: string
+          id?: string
+          mentor_name?: string
+          mentor_profile_id?: string
+          mentor_semester_id?: string
+          semester_id?: string
+          starts_at?: string
+          updated_at?: string
+          withdrawn_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mentor_booking_windows_mentor_profile_id_fkey"
+            columns: ["mentor_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mentor_booking_windows_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mentor_booking_windows_semester_mentor_fkey"
+            columns: ["semester_id", "mentor_semester_id"]
+            isOneToOne: false
+            referencedRelation: "mentor_semesters"
+            referencedColumns: ["semester_id", "id"]
           },
         ]
       }
@@ -432,6 +781,54 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semester_memberships"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      mentor_weekly_availability: {
+        Row: {
+          created_at: string
+          ends_at: string
+          id: string
+          mentor_semester_id: string
+          semester_id: string
+          starts_at: string
+          updated_at: string
+          weekday: number
+        }
+        Insert: {
+          created_at?: string
+          ends_at: string
+          id?: string
+          mentor_semester_id: string
+          semester_id: string
+          starts_at: string
+          updated_at?: string
+          weekday: number
+        }
+        Update: {
+          created_at?: string
+          ends_at?: string
+          id?: string
+          mentor_semester_id?: string
+          semester_id?: string
+          starts_at?: string
+          updated_at?: string
+          weekday?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mentor_weekly_availability_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mentor_weekly_availability_semester_mentor_fkey"
+            columns: ["semester_id", "mentor_semester_id"]
+            isOneToOne: false
+            referencedRelation: "mentor_semesters"
+            referencedColumns: ["semester_id", "id"]
           },
         ]
       }
@@ -695,6 +1092,237 @@ export type Database = {
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      outreach_email_messages: {
+        Row: {
+          body: string
+          client_idempotency_key: string
+          contact_id: string
+          created_at: string
+          created_by: string
+          id: string
+          idempotency_expires_at: string
+          opportunity_id: string
+          recipient_email: string
+          recipient_name: string
+          request_digest: string
+          scheduled_at: string | null
+          semester_id: string
+          sender: string
+          snapshot_digest: string
+          snapshot_key_id: string
+          snapshot_signature: string
+          snapshot_version: number
+          subject: string
+          template_id: string | null
+        }
+        Insert: {
+          body: string
+          client_idempotency_key: string
+          contact_id: string
+          created_at: string
+          created_by: string
+          id: string
+          idempotency_expires_at: string
+          opportunity_id: string
+          recipient_email: string
+          recipient_name: string
+          request_digest: string
+          scheduled_at?: string | null
+          semester_id: string
+          sender: string
+          snapshot_digest: string
+          snapshot_key_id: string
+          snapshot_signature: string
+          snapshot_version: number
+          subject: string
+          template_id?: string | null
+        }
+        Update: {
+          body?: string
+          client_idempotency_key?: string
+          contact_id?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          idempotency_expires_at?: string
+          opportunity_id?: string
+          recipient_email?: string
+          recipient_name?: string
+          request_digest?: string
+          scheduled_at?: string | null
+          semester_id?: string
+          sender?: string
+          snapshot_digest?: string
+          snapshot_key_id?: string
+          snapshot_signature?: string
+          snapshot_version?: number
+          subject?: string
+          template_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outreach_email_messages_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "outreach_contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_email_messages_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_email_messages_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_email_messages_semester_opportunity_fkey"
+            columns: ["semester_id", "opportunity_id"]
+            isOneToOne: false
+            referencedRelation: "outreach_opportunities"
+            referencedColumns: ["semester_id", "id"]
+          },
+          {
+            foreignKeyName: "outreach_email_messages_semester_template_fkey"
+            columns: ["semester_id", "template_id"]
+            isOneToOne: false
+            referencedRelation: "outreach_email_templates"
+            referencedColumns: ["semester_id", "id"]
+          },
+        ]
+      }
+      outreach_email_receipts: {
+        Row: {
+          checked_at: string
+          created_at: string
+          delivered_at: string | null
+          id: string
+          last_error: string | null
+          message_id: string
+          message_status: string
+          provider_id: string | null
+          provider_status: string
+          receipt_digest: string
+          receipt_key_id: string
+          receipt_signature: string
+          receipt_version: number
+          semester_id: string
+          sent_at: string | null
+          sequence: number
+          snapshot_digest: string
+        }
+        Insert: {
+          checked_at: string
+          created_at?: string
+          delivered_at?: string | null
+          id?: string
+          last_error?: string | null
+          message_id: string
+          message_status: string
+          provider_id?: string | null
+          provider_status: string
+          receipt_digest: string
+          receipt_key_id: string
+          receipt_signature: string
+          receipt_version: number
+          semester_id: string
+          sent_at?: string | null
+          sequence?: number
+          snapshot_digest: string
+        }
+        Update: {
+          checked_at?: string
+          created_at?: string
+          delivered_at?: string | null
+          id?: string
+          last_error?: string | null
+          message_id?: string
+          message_status?: string
+          provider_id?: string | null
+          provider_status?: string
+          receipt_digest?: string
+          receipt_key_id?: string
+          receipt_signature?: string
+          receipt_version?: number
+          semester_id?: string
+          sent_at?: string | null
+          sequence?: number
+          snapshot_digest?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outreach_email_receipts_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_email_receipts_semester_message_fkey"
+            columns: ["semester_id", "message_id"]
+            isOneToOne: false
+            referencedRelation: "outreach_email_messages"
+            referencedColumns: ["semester_id", "id"]
+          },
+        ]
+      }
+      outreach_email_templates: {
+        Row: {
+          archived_at: string | null
+          body_template: string
+          created_at: string
+          created_by: string
+          id: string
+          name: string
+          semester_id: string
+          subject_template: string
+          updated_at: string
+        }
+        Insert: {
+          archived_at?: string | null
+          body_template: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          name: string
+          semester_id: string
+          subject_template: string
+          updated_at?: string
+        }
+        Update: {
+          archived_at?: string | null
+          body_template?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          name?: string
+          semester_id?: string
+          subject_template?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outreach_email_templates_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_email_templates_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
             referencedColumns: ["id"]
           },
         ]
@@ -967,6 +1595,7 @@ export type Database = {
           full_name: string | null
           id: string
           is_active: boolean
+          photo_path: string | null
           role: Database["public"]["Enums"]["user_role"]
           semester_id: string | null
           status: string
@@ -979,6 +1608,7 @@ export type Database = {
           full_name?: string | null
           id: string
           is_active?: boolean
+          photo_path?: string | null
           role: Database["public"]["Enums"]["user_role"]
           semester_id?: string | null
           status?: string
@@ -991,6 +1621,7 @@ export type Database = {
           full_name?: string | null
           id?: string
           is_active?: boolean
+          photo_path?: string | null
           role?: Database["public"]["Enums"]["user_role"]
           semester_id?: string | null
           status?: string
@@ -1403,6 +2034,7 @@ export type Database = {
           mentor_need_context: string | null
           mentor_need_no_preference: boolean
           mentorship_needs: string[]
+          preferred_expertise_tags: string[]
           readiness_status: string
           semester_id: string
           stage: Database["public"]["Enums"]["startup_stage"] | null
@@ -1417,6 +2049,7 @@ export type Database = {
           mentor_need_context?: string | null
           mentor_need_no_preference?: boolean
           mentorship_needs?: string[]
+          preferred_expertise_tags?: string[]
           readiness_status?: string
           semester_id: string
           stage?: Database["public"]["Enums"]["startup_stage"] | null
@@ -1431,6 +2064,7 @@ export type Database = {
           mentor_need_context?: string | null
           mentor_need_no_preference?: boolean
           mentorship_needs?: string[]
+          preferred_expertise_tags?: string[]
           readiness_status?: string
           semester_id?: string
           stage?: Database["public"]["Enums"]["startup_stage"] | null
@@ -1544,6 +2178,10 @@ export type Database = {
         Args: { candidate_id?: string; target_semester_id: string }
         Returns: boolean
       }
+      cancel_mentor_booking_request: {
+        Args: { p_request_id: string; p_semester_id: string }
+        Returns: string
+      }
       carry_forward_outreach_contacts: {
         Args: {
           p_contact_ids: string[]
@@ -1609,6 +2247,19 @@ export type Database = {
           auth_user_id: string
           placeholder_discarded: boolean
           profile_id: string
+        }[]
+      }
+      generate_friday_program: {
+        Args: {
+          p_meeting_id: string
+          p_regenerate?: boolean
+          p_semester_id: string
+        }
+        Returns: {
+          assignment_count: number
+          generated_at: string
+          program_id: string
+          was_created: boolean
         }[]
       }
       import_prior_semester_memberships: {
@@ -1689,6 +2340,10 @@ export type Database = {
           suspend_membership_ids: string[]
         }[]
       }
+      publish_mentor_booking_window: {
+        Args: { p_ends_at: string; p_semester_id: string; p_starts_at: string }
+        Returns: string
+      }
       release_inactive_owner_work: {
         Args: { p_owner_profile_id: string }
         Returns: {
@@ -1699,9 +2354,86 @@ export type Database = {
         Args: { p_meetings: Json; p_semester_id: string }
         Returns: number
       }
+      replace_mentor_weekly_availability: {
+        Args: { p_availability: Json; p_semester_id: string }
+        Returns: undefined
+      }
+      request_mentor_booking: {
+        Args: {
+          p_ends_at: string
+          p_mentor_semester_id: string
+          p_semester_id: string
+          p_starts_at: string
+          p_topic: string
+        }
+        Returns: string
+      }
+      request_mentor_booking_window: {
+        Args: { p_semester_id: string; p_topic: string; p_window_id: string }
+        Returns: string
+      }
+      reserve_outreach_email_message: {
+        Args: {
+          p_body: string
+          p_client_idempotency_key: string
+          p_contact_id: string
+          p_created_at: string
+          p_id: string
+          p_idempotency_expires_at: string
+          p_opportunity_id: string
+          p_recipient_email: string
+          p_recipient_name: string
+          p_request_digest: string
+          p_scheduled_at?: string
+          p_semester_id: string
+          p_sender: string
+          p_snapshot_digest: string
+          p_snapshot_key_id: string
+          p_snapshot_signature: string
+          p_snapshot_version: number
+          p_subject: string
+          p_template_id?: string
+        }
+        Returns: {
+          body: string
+          client_idempotency_key: string
+          contact_id: string
+          created_at: string
+          created_by: string
+          id: string
+          idempotency_expires_at: string
+          opportunity_id: string
+          recipient_email: string
+          recipient_name: string
+          request_digest: string
+          scheduled_at: string | null
+          semester_id: string
+          sender: string
+          snapshot_digest: string
+          snapshot_key_id: string
+          snapshot_signature: string
+          snapshot_version: number
+          subject: string
+          template_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "outreach_email_messages"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       reset_outreach_opportunities: {
         Args: { p_opportunity_ids: string[]; p_semester_id: string }
         Returns: number
+      }
+      respond_to_mentor_booking_request: {
+        Args: {
+          p_request_id: string
+          p_response: string
+          p_semester_id: string
+        }
+        Returns: string
       }
       set_mentor_account_access: {
         Args: { p_enabled: boolean; p_mentor_semester_id: string }
@@ -1941,6 +2673,10 @@ export type Database = {
           contact_id: string
           opportunity_id: string
         }[]
+      }
+      withdraw_mentor_booking_window: {
+        Args: { p_semester_id: string; p_window_id: string }
+        Returns: string
       }
     }
     Enums: {
@@ -2186,4 +2922,3 @@ export const Constants = {
     },
   },
 } as const
-

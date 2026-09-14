@@ -34,7 +34,7 @@ grant select on table
 to authenticated;
 
 grant insert (semester_id, meeting_id, semester_membership_id, slot, is_available, format, source) on table public.meeting_availability to authenticated;
-grant insert (semester_id, meeting_id, mentor_semester_id, startup_semester_id, slot, status, topic, format) on table public.sessions to authenticated;
+revoke insert (semester_id, meeting_id, mentor_semester_id, startup_semester_id, slot, status, topic, format) on table public.sessions from authenticated;
 grant insert (semester_id, session_id, semester_membership_id, response) on table public.session_rsvps to authenticated;
 grant insert (semester_id, source_name, status, idempotency_key, rows, result, created_by) on table public.outreach_imports to authenticated;
 grant update (full_name) on table public.profiles to authenticated;
@@ -83,7 +83,7 @@ grant execute on function public.bulk_set_membership_activity(uuid,uuid[],boolea
 grant execute on function public.can_manage_any_outreach(uuid) to authenticated;
 grant execute on function public.can_manage_semester(uuid,uuid) to authenticated;
 grant execute on function public.carry_forward_outreach_contacts(uuid,uuid,uuid[]) to authenticated;
-grant execute on function public.commit_mentor_assignment(uuid,uuid,smallint,uuid,uuid,text,text,text,text[],text,jsonb) to authenticated;
+revoke all on function public.commit_mentor_assignment(uuid,uuid,smallint,uuid,uuid,text,text,text,text[],text,jsonb) from authenticated;
 revoke all on function public.commit_mentor_assignment(uuid,uuid,smallint,uuid,uuid,text,text,text,text[],text,jsonb) from anon;
 grant execute on function public.create_semester_draft(uuid,text,date,date,jsonb) to authenticated;
 grant execute on function public.import_prior_semester_memberships(uuid,uuid,uuid[]) to authenticated;
