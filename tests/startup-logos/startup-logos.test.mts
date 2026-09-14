@@ -93,3 +93,25 @@ test("URL resolver signs managed paths once and preserves an HTTPS legacy fallba
   assert.equal(await resolver(null, "javascript:alert(1)"), null);
   assert.deepEqual(signed, [path]);
 });
+
+test("URL resolver preserves an HTTPS legacy fallback when signing reports an error", async () => {
+  const resolver = createStartupLogoUrlResolver({
+    createSignedUrl: async () => ({ data: null, error: { message: "storage unavailable" } }),
+  });
+
+  assert.equal(
+    await resolver(`${ORGANIZATION_ID}/logo.jpg`, "https://legacy.test/logo.jpg"),
+    "https://legacy.test/logo.jpg",
+  );
+});
+
+test("URL resolver preserves an HTTPS legacy fallback when signing throws", async () => {
+  const resolver = createStartupLogoUrlResolver({
+    createSignedUrl: async () => { throw new Error("storage unavailable"); },
+  });
+
+  assert.equal(
+    await resolver(`${ORGANIZATION_ID}/logo.jpg`, "https://legacy.test/logo.jpg"),
+    "https://legacy.test/logo.jpg",
+  );
+});

@@ -14,6 +14,13 @@ import { createProfilePhotoUrlResolver } from "../../src/profile-photos/urls.ts"
 const PROFILE_ID = "10000000-0000-0000-0000-000000000001";
 
 const onePixelPng = await sharp({ create: { width: 1, height: 1, channels: 3, background: "white" } }).png().toBuffer();
+// A structurally valid PNG header for 10,000 x 5,001 pixels. It has no pixel payload,
+// so Sharp rejects it at its decoded-pixel-limit guard without allocating a large image.
+const overPixelLimitPng = Uint8Array.from([
+  137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 39, 16, 0, 0, 19, 137,
+  8, 2, 0, 0, 0, 83, 105, 51, 186, 0, 0, 0, 0, 73, 68, 65, 84, 53, 175, 6, 30, 0, 0, 0, 0,
+  73, 69, 78, 68, 174, 66, 96, 130,
+]);
 
 function png(bytes: Uint8Array = onePixelPng): File {
   return new File([Uint8Array.from(bytes).buffer], "portrait.png", { type: "image/png" });
@@ -36,6 +43,37 @@ test("shared image processor normalizes accepted profile images", async () => {
 
   assert.equal(processed.extension, "png");
   assert.equal(processed.file.type, "image/png");
+});
+
+test("shared image processor accepts JPEG and WebP inputs", async () => {
+  const jpeg = await sharp({ create: { width: 1, height: 1, channels: 3, background: "white" } }).jpeg().toBuffer();
+  const webp = await sharp({ create: { width: 1, height: 1, channels: 3, background: "white" } }).webp().toBuffer();
+
+  const processedJpeg = await processProfileImage(new File([jpeg], "portrait.jpg", { type: "image/jpeg" }), "Profile photos");
+  const processedWebp = await processProfileImage(new File([webp], "portrait.webp", { type: "image/webp" }), "Profile photos");
+
+  assert.equal(processedJpeg.extension, "jpg");
+  assert.equal(processedJpeg.file.type, "image/jpeg");
+  assert.equal(processedWebp.extension, "webp");
+  assert.equal(processedWebp.file.type, "image/webp");
+});
+
+test("shared image processor does not enlarge sub-1024 images", async () => {
+  const source = await sharp({ create: { width: 320, height: 180, channels: 3, background: "white" } }).png().toBuffer();
+  const processed = await processProfileImage(png(source), "Profile photos");
+  const metadata = await sharp(Buffer.from(await processed.file.arrayBuffer())).metadata();
+
+  assert.equal(metadata.width, 320);
+  assert.equal(metadata.height, 180);
+});
+
+test("shared image processor rejects PNG headers above the decoded pixel limit", async () => {
+  const oversizedDimensions = new File([overPixelLimitPng], "too-many-pixels.png", { type: "image/png" });
+
+  await assert.rejects(
+    processProfileImage(oversizedDimensions, "Profile photos"),
+    (error: unknown) => error instanceof Error && error.message === "The selected file is not a valid image.",
+  );
 });
 
 test("uploads a validated image to a versioned owned path", async () => {

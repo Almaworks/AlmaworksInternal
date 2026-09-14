@@ -46,6 +46,6 @@ export function createStartupLogoUrlResolver(
         .catch(() => null);
       cache.set(logoPath, pending);
     }
-    return await pending;
+    return (await pending) ?? safeLegacyLogoUrl(legacyLogoUrl);
   };
 }
