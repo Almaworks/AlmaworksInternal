@@ -6,9 +6,13 @@ import test from "node:test";
 const layout = readFileSync(resolve(import.meta.dirname, "../../app/dashboard/layout.tsx"), "utf8");
 const page = readFileSync(resolve(import.meta.dirname, "../../app/dashboard/bookings/page.tsx"), "utf8");
 
-test("mentor and startup navigation opens the shared booking page", () => {
-  const entries = [...layout.matchAll(/href: '\/dashboard\/bookings', label: 'Bookings'/gu)];
-  assert.equal(entries.length, 2);
+test("mentor and startup navigation each expose their booking workspace", () => {
+  for (const role of ["mentor", "startup"]) {
+    const navigation = new RegExp(`effectiveRole === '${role}'\\s*\\?\\s*\\[([^\\]]+)\\]`, "u").exec(layout)?.[1];
+    assert.ok(navigation, `Missing ${role} navigation`);
+    const destination = new RegExp(`href: '/dashboard/(?:bookings|${role}\\?tab=bookings)', label: 'Bookings'`, "u");
+    assert.match(navigation, destination);
+  }
 });
 
 test("the shared booking page renders the workspace without a participant redirect", () => {

@@ -6,6 +6,14 @@ updated: 2026-09-06
 
 # Handoff
 
+## 2026-09-15-availability-release-latency - Release build verified; hosted QA pending
+
+- User confirms local freeze resolved. Confirmed cause: release reran an unused semester-wide preview; seven-day 9-10 AM September-December fixture took 14,943.5862 ms / 56,623 formatters. Removed dead preview/publisher/planner/state; weekly save, pointer behavior, reservations, and accepted overlays preserved.
+- Clean release check: exported HEAD into `work/availability-release-check`, overlaid only changed component and tests, reused installed dependencies, loaded environment into the child process without copying credentials. Full Next production build PASS (compile, TypeScript, all 79 static pages); booking/UI tests PASS 78/78 both isolated and shared workspace. Independent Sol/medium review found no blocking issues. Coordinator model unchanged.
+- Cleaned stale navigation assertion to verify each participant role supports its shared or role-dashboard booking destination. `npm run lint -- --ignore-pattern '.tmp/**' --ignore-pattern 'work/**' --ignore-pattern 'outputs/**'`: PASS, 0 errors / 2 existing unrelated image warnings. Scoped lint and whitespace PASS. Whole dirty workspace production bundle compiled, then failed on unrelated startup-profile status typing; preserved unrelated edits.
+- Report/reproduction: `outputs/availability-release-investigation.md`, `outputs/availability-release-benchmark.mjs`. Restored Next-generated tsconfig changes after confirming they were task-only. Temporary verification build copies removed after checks; logs retained under work. No task background services.
+- User authorized scoped commit; no push/deployment/remote database operation. Hosted authenticated rapid drag timing, save/reload, errors/permissions, and desktop/narrow QA remain pending; prior browser inventory empty. Bootstrap conflict preserved; TEAM/SESSION absent.
+
 ## 2026-09-14-booking-real-calendar-week - Integrated for commit
 
 - Mentor and startup Bookings display the actual Sunday-to-Saturday calendar date range prominently at the upper right, computed from the real current date in the semester timezone rather than session-week state.
