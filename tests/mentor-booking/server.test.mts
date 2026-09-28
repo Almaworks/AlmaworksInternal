@@ -1,11 +1,60 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-import { acceptedOccupancyForWorkspace, createMentorBookingHandlers, MentorBookingHttpError, mentorBookingDatabaseError, mentorWeeklyAvailabilityForWorkspace, startupNeedsForWorkspace, toWeeklyAvailabilityRpcPayload, type MentorBookingStore } from "../../src/mentor-booking/server.ts";
+import { acceptedOccupancyForWorkspace, createMentorBookingHandlers, createMentorBookingStore, MentorBookingHttpError, mentorBookingDatabaseError, mentorWeeklyAvailabilityForWorkspace, startupNeedsForWorkspace, toWeeklyAvailabilityRpcPayload, type MentorBookingStore } from "../../src/mentor-booking/server.ts";
 import type { MentorBookingModelInput } from "../../src/mentor-booking/model.ts";
+import type { MentorBookingCommand } from "../../src/mentor-booking/types.ts";
+import type { Database } from "../../src/db/types.ts";
 
 const semesterId = "11111111-1111-4111-8111-111111111111";
 const requestId = "33333333-3333-4333-8333-333333333333";
+
+test("mentor availability commands cannot reach booking database RPCs", async () => {
+  const client = { rpc: () => assert.fail("availability write reached database") } as unknown as SupabaseClient<Database>;
+  const booking = createMentorBookingStore(client, { profileId: "p1", role: "mentor", mentorSemesterId: "m1", startupSemesterId: null });
+  const commands: MentorBookingCommand[] = [
+    { action: "replace_weekly_availability", semesterId, availability: [] },
+    { action: "publish_window", semesterId, startsAt: "2026-10-05T14:00:00Z", endsAt: "2026-10-05T14:15:00Z" },
+    { action: "withdraw_window", semesterId, windowId: requestId },
+  ];
+  for (const command of commands) await assert.rejects(booking.execute(command), /Mentors cannot change program availability/);
+});
+test("Calendar-only mentor expertise reaches startup, admin and mentor workspaces", async (context) => {
+  const url="https://layjdjfvxkowxidwuvbs.supabase.co";
+  const priorUrl=process.env.NEXT_PUBLIC_SUPABASE_URL, priorKey=process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  process.env.NEXT_PUBLIC_SUPABASE_URL=url; process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY="test-public-key";
+  context.after(()=>{
+    if(priorUrl===undefined)delete process.env.NEXT_PUBLIC_SUPABASE_URL;else process.env.NEXT_PUBLIC_SUPABASE_URL=priorUrl;
+    if(priorKey===undefined)delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;else process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY=priorKey;
+  });
+  let profileReads=0;
+  const fetcher:typeof fetch=async(input,init)=>{
+    const request=new Request(input,init), target=new URL(request.url);
+    assert.equal(target.origin,url);
+    if(target.pathname.endsWith("mentor_semesters"))return Response.json([{id:"m1",semester_memberships:{profile_id:"p1",role:"mentor",status:"active",profiles:{full_name:"Calendar Mentor",is_active:true,status:"approved"}}}]);
+    if(target.pathname.endsWith("calendar_effective_slots")){
+      assert.equal(request.headers.get("authorization"),"Bearer participant-token");
+      const body=await request.json();const start=Date.parse(body.p_from)+900000;
+      return Response.json([{starts_at:new Date(start).toISOString(),ends_at:new Date(start+900000).toISOString()}]);
+    }
+    if(target.pathname.endsWith("mentor_profiles")){
+      profileReads++;
+      assert.match(target.searchParams.get("profile_id")??"",/p1/);
+      return Response.json([{profile_id:"p1",expertise_tags:["Product strategy","Fundraising"]}]);
+    }
+    return Response.json([]);
+  };
+  context.mock.method(globalThis,"fetch",fetcher);
+  const client=createClient<Database>(url,"test-public-key",{auth:{persistSession:false,autoRefreshToken:false},global:{fetch:fetcher}});
+  for(const role of ["startup","admin","mentor"] as const){
+    const workspace=await createMentorBookingStore(client,{profileId:"p1",role,mentorSemesterId:role==="mentor"?"m1":null,startupSemesterId:role==="startup"?"startup-term":null},
+      {configuration:{timezone:"UTC"},start_date:"2026-09-01",end_date:"2026-12-20"},"participant-token").load(semesterId);
+    assert.equal(workspace.availability?.length,0);
+    assert.deepEqual(workspace.effectiveAvailability?.[0]?.mentor.expertiseTags,["Product strategy","Fundraising"]);
+  }
+  assert.equal(profileReads,3);
+});
 const model: MentorBookingModelInput = {
   semesterId, semesterStartDate: "2026-09-01", semesterEndDate: "2026-12-20", timeZone: "UTC",
   viewer: { profileId: "p1", role: "mentor", mentorSemesterId: "m1", startupSemesterId: null },
@@ -22,6 +71,90 @@ function store(overrides: Partial<MentorBookingStore> = {}): MentorBookingStore 
     ...overrides,
   };
 }
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((complete) => { resolve = complete; });
+  return { promise, resolve };
+}
+
+test("booking reads and mutation refreshes keep the selected availability week", async () => {
+  const weeks: (number | undefined)[] = [];
+  let writes = 0;
+  const handlers = createMentorBookingHandlers(async () => store({ load: async (_semester, week) => { weeks.push(week); return model; }, execute: async () => { writes++; } }));
+  assert.equal((await handlers.GET(new Request(`http://localhost/api/mentor-booking?semesterId=${semesterId}&weekOffset=3`))).status, 200);
+  assert.equal((await handlers.POST(new Request("http://localhost/api/mentor-booking?weekOffset=3", { method: "POST", body: JSON.stringify({ action: "cancel_request", semesterId, requestId }) }))).status, 200);
+  assert.deepEqual(weeks, [3,3]); assert.equal(writes, 1);
+  assert.equal((await handlers.POST(new Request("http://localhost/api/mentor-booking?weekOffset=53", { method: "POST", body: JSON.stringify({ action: "cancel_request", semesterId, requestId }) }))).status, 400);
+  assert.equal(writes, 1);
+});
+
+test("mentor booking store starts the semester and independent workspace reads together", async () => {
+  type Result = { data: Record<string, unknown> | readonly Record<string, unknown>[]; error: null };
+  interface Query {
+    eq(column: string, value: unknown): Query;
+    gt(column: string, value: unknown): Query;
+    in(column: string, values: readonly unknown[]): Query;
+    order(column: string, options?: { ascending: boolean }): Query;
+    range(start: number, end: number): Promise<Result>;
+    select(columns: string): Query;
+    single(): Promise<Result>;
+  }
+  const semester = deferred<Result>();
+  const availability = deferred<Result>();
+  const requests = deferred<Result>();
+  const occupancy = deferred<Result>();
+  const started: string[] = [];
+  const results: Record<string, Promise<Result>> = {
+    semesters: semester.promise,
+    mentor_weekly_availability: availability.promise,
+    mentor_booking_requests: requests.promise,
+    mentor_booking_accepted_occupancy: occupancy.promise,
+  };
+  const client = {
+    from(table: string) {
+      const start = async () => {
+        started.push(table);
+        return await results[table];
+      };
+      const query: Query = {
+        eq: () => query,
+        gt: () => query,
+        in: () => query,
+        order: () => query,
+        range: start,
+        select: () => query,
+        single: start,
+      };
+      return query;
+    },
+  } as unknown as SupabaseClient<Database>;
+
+  const loading = createMentorBookingStore(client, model.viewer).load(semesterId);
+  assert.deepEqual(started, [
+    "semesters",
+    "mentor_weekly_availability",
+    "mentor_booking_requests",
+    "mentor_booking_accepted_occupancy",
+  ]);
+  semester.resolve({ data: { configuration: null, start_date: "2026-09-01", end_date: "2026-12-20" }, error: null });
+  availability.resolve({ data: [], error: null });
+  requests.resolve({ data: [], error: null });
+  occupancy.resolve({ data: [], error: null });
+  assert.equal((await loading).semesterId, semesterId);
+
+  started.length = 0;
+  await createMentorBookingStore(client, model.viewer, {
+    configuration: null,
+    end_date: "2026-12-20",
+    start_date: "2026-09-01",
+  }).load(semesterId);
+  assert.deepEqual(started, [
+    "mentor_weekly_availability",
+    "mentor_booking_requests",
+    "mentor_booking_accepted_occupancy",
+  ]);
+});
 
 test("GET returns a private uncached workspace after semester authorization", async () => {
   const calls: unknown[] = [];

@@ -60,8 +60,7 @@ for update to authenticated using (
 revoke all on table public.mentor_booking_windows from anon,authenticated;
 revoke all on table public.mentor_booking_requests from anon,authenticated;
 grant select on table public.mentor_booking_windows,public.mentor_booking_requests to authenticated;
-grant insert (semester_id,mentor_semester_id,mentor_profile_id,mentor_name,starts_at,ends_at) on public.mentor_booking_windows to authenticated;
-grant update (withdrawn_at,updated_at) on public.mentor_booking_windows to authenticated;
+-- Program staff manage availability; mentors retain read access to existing windows.
 grant insert (semester_id,window_id,mentor_semester_id,mentor_profile_id,mentor_name,startup_semester_id,startup_organization_id,startup_name,requested_by_profile_id,topic,status,starts_at,ends_at) on public.mentor_booking_requests to authenticated;
 grant update (status,responded_at,cancelled_at,updated_at) on public.mentor_booking_requests to authenticated;
 
@@ -70,8 +69,8 @@ revoke all on function public.withdraw_mentor_booking_window(uuid,uuid) from pub
 revoke all on function public.request_mentor_booking_window(uuid,uuid,text) from public,anon;
 revoke all on function public.respond_to_mentor_booking_request(uuid,uuid,text) from public,anon;
 revoke all on function public.cancel_mentor_booking_request(uuid,uuid) from public,anon;
-grant execute on function public.publish_mentor_booking_window(uuid,timestamptz,timestamptz) to authenticated;
-grant execute on function public.withdraw_mentor_booking_window(uuid,uuid) to authenticated;
+revoke execute on function public.publish_mentor_booking_window(uuid,timestamptz,timestamptz) from authenticated;
+revoke execute on function public.withdraw_mentor_booking_window(uuid,uuid) from authenticated;
 grant execute on function public.request_mentor_booking_window(uuid,uuid,text) to authenticated;
 grant execute on function public.respond_to_mentor_booking_request(uuid,uuid,text) to authenticated;
 grant execute on function public.cancel_mentor_booking_request(uuid,uuid) to authenticated;

@@ -4,6 +4,7 @@ import type {
   MentorBookingRequestStatus,
   MentorBookingViewer,
   MentorBookingWorkspaceResponse,
+  MentorEffectiveAvailability,
 } from "./types.ts";
 
 export class MentorBookingRequestError extends Error {
@@ -26,6 +27,7 @@ export interface MentorBookingWindowRecord {
 }
 
 export interface MentorBookingRequestRecord {
+  calendarHoldStatus?: MentorBookingRequest["calendarHoldStatus"];
   cancelledAt: string | null;
   endsAt: string;
   mentorName: string;
@@ -63,6 +65,9 @@ export interface MentorBookingAcceptedOccupancyRecord {
 }
 
 export interface MentorBookingModelInput {
+  startupRoster?: Array<{ startupSemesterId: string; name: string }>;
+  effectiveAvailability?: readonly MentorEffectiveAvailability[];
+  availabilityWeekOffset?: number;
   acceptedOccupancy?: readonly MentorBookingAcceptedOccupancyRecord[];
   availability?: readonly MentorWeeklyAvailabilityRecord[];
   claims?: readonly { status: "accepted" | "pending"; windowId: string }[];
@@ -119,8 +124,13 @@ function topic(value: unknown): string {
   return result;
 }
 
-export function parseMentorBookingQuery(url: string): { semesterId: string } {
-  return { semesterId: uuid(new URL(url).searchParams.get("semesterId"), "semesterId") };
+export function parseMentorBookingWeekOffset(url: string): number {
+  const value = new URL(url).searchParams.get("weekOffset") ?? "0";
+  if (!/^\d{1,2}$/.test(value) || Number(value) > 52) throw new MentorBookingRequestError("weekOffset must be between 0 and 52.");
+  return Number(value);
+}
+export function parseMentorBookingQuery(url: string): { semesterId: string; weekOffset: number } {
+  return { semesterId: uuid(new URL(url).searchParams.get("semesterId"), "semesterId"), weekOffset: parseMentorBookingWeekOffset(url) };
 }
 
 export function parseMentorBookingCommand(value: unknown): MentorBookingCommand {
@@ -152,7 +162,8 @@ export function parseMentorBookingCommand(value: unknown): MentorBookingCommand 
   if (body.action === "request_booking") {
     const startsAt = timestamp(body.startsAt, "startsAt");
     const endsAt = timestamp(body.endsAt, "endsAt");
-    if (Date.parse(endsAt) - Date.parse(startsAt) !== 15 * 60 * 1000) throw new MentorBookingRequestError("Booking requests must be exactly 15 minutes.");
+    const durationMinutes = (Date.parse(endsAt) - Date.parse(startsAt)) / 60_000;
+    if (durationMinutes !== 15 && durationMinutes !== 30) throw new MentorBookingRequestError("Booking requests must be 15 or 30 minutes.");
     return { action: body.action, semesterId, mentorSemesterId: uuid(body.mentorSemesterId, "mentorSemesterId"), startsAt, endsAt, topic: topic(body.topic) };
   }
   if (body.action === "accept_request" || body.action === "decline_request" || body.action === "cancel_request") {
@@ -167,6 +178,7 @@ function requestView(record: MentorBookingRequestRecord, viewer: MentorBookingVi
   const ownStartup = viewer.role === "startup" && viewer.startupSemesterId === record.startupSemesterId;
   return {
     requestId: record.requestId,
+    ...(record.calendarHoldStatus ? { calendarHoldStatus: record.calendarHoldStatus } : {}),
     windowId: record.windowId,
     mentorSemesterId: record.mentorSemesterId,
     mentor: { profileId: record.mentorProfileId, name: record.mentorName },
@@ -209,6 +221,7 @@ export function buildMentorBookingWorkspace(input: MentorBookingModelInput): Men
       startsAt: occupancy.startsAt,
       endsAt: occupancy.endsAt,
     })),
+    ...(input.effectiveAvailability ? { effectiveAvailability: [...input.effectiveAvailability], availabilityWeekOffset: input.availabilityWeekOffset ?? 0 } : {}),
     availability: availability.map((range) => ({
       mentorSemesterId: range.mentorSemesterId,
       mentor: { profileId: range.mentorProfileId, name: range.mentorName, ...(range.mentorExpertiseTags?.length ? { expertiseTags: range.mentorExpertiseTags } : {}) },
@@ -237,6 +250,7 @@ export function buildMentorBookingWorkspace(input: MentorBookingModelInput): Men
         request,
       };
     }),
+    ...(input.startupRoster ? { startupRoster: input.startupRoster.filter(startup => input.viewer.role === "admin" || startup.startupSemesterId === input.viewer.startupSemesterId) } : {}),
     history: requests,
   };
 }

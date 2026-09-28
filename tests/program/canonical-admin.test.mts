@@ -100,6 +100,7 @@ test("startup creation writes the durable organization before its cohort record"
   });
 
   assert.deepEqual(result, { organizationId: "organization-1", startupSemesterId: "startup-term-1" });
+  assert.equal(JSON.parse(requests[1].body ?? "null").readiness_status, "not_started");
   assert.deepEqual(requests.map((request) => request.path), [
     "/rest/v1/startup_organizations",
     "/rest/v1/startup_semesters",
@@ -178,10 +179,11 @@ test("founder assignment creates canonical semester and team memberships", async
     "/rest/v1/semester_memberships",
     "/rest/v1/startup_team_memberships",
   ]);
+  assert.equal(JSON.parse(requests[1].body ?? "null").status, "onboarding");
   assert.equal(requests[2].url.searchParams.get("on_conflict"), "startup_semester_id,semester_membership_id");
 });
 
-test("founder assignment reactivates an existing membership without updating identity keys", async () => {
+test("founder assignment preserves existing onboarding and lifecycle status", async () => {
   const { client, requests } = recordingClient([
     { semester_id: "semester-1" },
     { body: null, status: 200 },
@@ -200,8 +202,8 @@ test("founder assignment reactivates an existing membership without updating ide
     "/rest/v1/semester_memberships",
     "/rest/v1/startup_team_memberships",
   ]);
-  assert.equal(requests[2].method, "PATCH");
-  assert.deepEqual(JSON.parse(requests[2].body ?? "null"), { status: "active" });
+  assert.equal(requests[2].method, "GET");
+  assert.equal(requests[2].body, null);
 });
 
 test("founder move is one atomic canonical command", async () => {

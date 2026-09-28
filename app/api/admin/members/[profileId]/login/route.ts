@@ -74,7 +74,7 @@ function errorResponse(error: unknown): Response {
       ? 403
       : error.code === "P0002"
         ? 404
-        : ["55000", "23505", "40001"].includes(error.code)
+        : ["55000", "23505", "PT409", "40001"].includes(error.code)
           ? 409
           : error.code === "22023"
             ? 400

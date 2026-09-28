@@ -49,8 +49,8 @@ test("shared image processor accepts JPEG and WebP inputs", async () => {
   const jpeg = await sharp({ create: { width: 1, height: 1, channels: 3, background: "white" } }).jpeg().toBuffer();
   const webp = await sharp({ create: { width: 1, height: 1, channels: 3, background: "white" } }).webp().toBuffer();
 
-  const processedJpeg = await processProfileImage(new File([jpeg], "portrait.jpg", { type: "image/jpeg" }), "Profile photos");
-  const processedWebp = await processProfileImage(new File([webp], "portrait.webp", { type: "image/webp" }), "Profile photos");
+  const processedJpeg = await processProfileImage(new File([Uint8Array.from(jpeg).buffer], "portrait.jpg", { type: "image/jpeg" }), "Profile photos");
+  const processedWebp = await processProfileImage(new File([Uint8Array.from(webp).buffer], "portrait.webp", { type: "image/webp" }), "Profile photos");
 
   assert.equal(processedJpeg.extension, "jpg");
   assert.equal(processedJpeg.file.type, "image/jpeg");
@@ -215,4 +215,36 @@ test("URL resolver returns null when signing throws", async () => {
   });
 
   assert.equal(await resolver(`${PROFILE_ID}/photo.jpg`), null);
+});
+
+test("URL resolver batches unique paths and isolates per-object signing failures", async () => {
+  const signedBatches: string[][] = [];
+  const firstPath = `${PROFILE_ID}/first.jpg`;
+  const deniedPath = `${PROFILE_ID}/denied.jpg`;
+  const resolver = createProfilePhotoUrlResolver({
+    createSignedUrl: async () => { throw new Error("single signing should not run"); },
+    createSignedUrls: async (paths) => {
+      signedBatches.push(paths);
+      return {
+        data: [
+          { error: null, path: firstPath, signedUrl: `https://signed.test/${firstPath}` },
+          { error: "denied", path: deniedPath, signedUrl: null },
+        ],
+        error: null,
+      };
+    },
+  });
+
+  assert.deepEqual(await resolver.resolveMany([
+    { photoPath: firstPath },
+    { photoPath: firstPath },
+    { legacyPhotoUrl: "https://legacy.test/photo.jpg" },
+    { photoPath: deniedPath },
+  ]), [
+    `https://signed.test/${firstPath}`,
+    `https://signed.test/${firstPath}`,
+    "https://legacy.test/photo.jpg",
+    null,
+  ]);
+  assert.deepEqual(signedBatches, [[firstPath, deniedPath]]);
 });

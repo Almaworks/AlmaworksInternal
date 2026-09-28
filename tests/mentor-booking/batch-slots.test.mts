@@ -33,6 +33,19 @@ test("uses the correct standard-time offset across fall DST", () => {
   assert.deepEqual(result.slots.map((slot) => slot.startsAt), ["2026-11-01T14:00:00.000Z", "2026-11-01T14:30:00.000Z"]);
 });
 
+test("keeps the earlier instant when a fall-back wall time occurs twice", () => {
+  const result = buildMentorBookingBatch({
+    ...base,
+    dailyEnd: "01:30",
+    dailyStart: "01:00",
+    rangeEnd: "2026-11-01",
+    rangeStart: "2026-11-01",
+  });
+  assert.deepEqual(result.slots.map((slot) => [slot.startsAt, slot.endsAt]), [
+    ["2026-11-01T05:00:00.000Z", "2026-11-01T05:30:00.000Z"],
+  ]);
+});
+
 test("honors duration and buffer without emitting a partial final slot", () => {
   const result = buildMentorBookingBatch({ ...base, rangeStart: "2026-03-09", rangeEnd: "2026-03-09", weekdays: ["monday"], dailyStart: "09:00", dailyEnd: "10:00", durationMinutes: 20, bufferMinutes: 10 });
   assert.deepEqual(result.slots.map((slot) => [slot.startsAt, slot.endsAt]), [

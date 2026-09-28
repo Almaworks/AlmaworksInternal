@@ -10,6 +10,10 @@ const securitySource = readFileSync(
   new URL("../../supabase/schemas/zz_security.sql", import.meta.url),
   "utf8",
 ).replaceAll('"', "").toLowerCase();
+const configSource = readFileSync(
+  new URL("../../supabase/config.toml", import.meta.url),
+  "utf8",
+).toLowerCase();
 const source = `${canonicalSource}\n${securitySource}`;
 const migrationDirectory = new URL("../../supabase/migrations/", import.meta.url);
 const cutoverMigrations = readdirSync(migrationDirectory)
@@ -76,13 +80,54 @@ test("identity, semester vocabulary, and canonical scheduling are enforced", () 
   assert.doesNotMatch(source, /function public\.(replace_draft_session_dates|commit_legacy_outreach_migration|sync_session_compatibility_columns)/u);
 });
 
-test("all tables have RLS, policy actions are consolidated, and auth calls use initplans", () => {
+test("startup organizations store constrained private logo paths", () => {
+  const start = source.indexOf("create table if not exists public.startup_organizations");
+  const table = source.slice(start, source.indexOf(";", start));
+  assert.match(table, /logo_path text/u);
+  assert.match(table, /startup_organizations_logo_path_check/u);
+  assert.match(source, /grant update \(name, industry, description, website_url, logo_path\) on table public\.startup_organizations to authenticated/u);
+  assert.match(source, /bucket_id = 'startup-logos'/u);
+  assert.match(source, /startup_team_memberships/u);
+});
+
+test("startup logo bucket is private and image-only", () => {
+  const start = configSource.indexOf("[storage.buckets.startup-logos]");
+  const bucket = configSource.slice(start, configSource.indexOf("\n[", start + 1));
+  assert.match(bucket, /public = false/u);
+  assert.match(bucket, /file_size_limit = "4mib"/u);
+  assert.match(bucket, /allowed_mime_types = \["image\/jpeg", "image\/png", "image\/webp"\]/u);
+});
+
+test("all tables have RLS, only reviewed onboarding policies overlap, and auth calls use initplans", () => {
   for (const table of tables) {
     assert.match(source, new RegExp(`alter table public\\.${table} enable row level security`, "u"));
   }
-  const policies = [...source.matchAll(/create policy [\s\S]*? on public\.([a-z_]+)[\s\S]*? for (select|insert|update|delete)[\s\S]*?;/gu)];
-  const keys = policies.map((match) => `${match[1]}:${match[2]}`);
-  assert.equal(new Set(keys).size, keys.length);
+  const policies = [...source.matchAll(/create policy [^;]*?\bon (public|storage)\.([a-z_]+)[^;]*?\bfor (select|insert|update|delete)[^;]*?;/gu)];
+  const keys = policies.map((match) => `${match[1]}.${match[2]}:${match[3]}`);
+  // The reviewed onboarding migration adds own-assignment reads without changing
+  // active-cohort access. Keep this exception exact; behavior is covered by
+  // supabase/tests/database/startup_onboarding_read.test.sql.
+  const reviewedOverlaps = new Map([
+    ["public.startup_organizations:select", ["cohort members read startup organizations", "assigned onboarding startups read own organizations"]],
+    ["public.startup_semesters:select", ["cohort members read startup semesters", "assigned onboarding startups read own startup semesters"]],
+  ]);
+  for (const key of new Set(keys)) {
+    const matching = policies.filter((_, index) => keys[index] === key);
+    const reviewed = reviewedOverlaps.get(key);
+    if (reviewed) {
+      assert.deepEqual(
+        matching.map((policy) => /^create policy (.*?)\s+on\s/su.exec(policy[0])?.[1]).sort(),
+        [...reviewed].sort(),
+        `only the reviewed policies may overlap for ${key}`,
+      );
+    } else {
+      assert.equal(matching.length, 1, `unreviewed policy overlap for ${key}`);
+    }
+  }
+  for (const key of reviewedOverlaps.keys()) assert.ok(keys.includes(key), `missing reviewed policy group ${key}`);
+  for (const action of ["select", "insert", "delete"]) {
+    assert.ok(keys.includes(`storage.objects:${action}`), `storage ${action} policy is checked`);
+  }
   for (const policy of policies) {
     assert.doesNotMatch(policy[0], /(?<!select )auth\.(uid|role|jwt)\(\)/u);
     assert.doesNotMatch(
@@ -100,7 +145,10 @@ test("least-privilege grants and relationship indexes are present", () => {
   assert.match(source, /alter default privileges for role postgres\s+revoke all on functions from public/u);
   assert.match(source, /revoke all on function public\.commit_mentor_assignment[\s\S]*? from anon/u);
   assert.match(source, /grant insert \(semester_id, meeting_id, semester_membership_id, slot, is_available, format, source\) on table public\.meeting_availability to authenticated/u);
-  assert.match(source, /grant update \(goals, mentorship_needs, mentor_need_context, mentor_need_no_preference, company_snapshot\) on table public\.startup_semesters to authenticated/u);
+  assert.match(source, /grant update \(goals, mentorship_needs, mentor_need_context, mentor_need_no_preference, company_snapshot, readiness_status\) on table public\.startup_semesters to authenticated/u);
+  assert.match(source, /grant update \(stage\) on table public\.startup_semesters to authenticated/u);
+  assert.match(source, /grant update \(name, industry, description, website_url, logo_path\) on table public\.startup_organizations to authenticated/u);
+  assert.match(source, /create policy "?startup teams update startup organizations"?\s+on public\.startup_organizations for update to authenticated/u);
   assert.match(source, /revoke insert \(semester_id, meeting_id, mentor_semester_id, startup_semester_id, slot, status, topic, format\) on table public\.sessions from authenticated/u);
   assert.match(source, /grant update \(status\) on table public\.profiles to service_role/u);
   for (const index of [

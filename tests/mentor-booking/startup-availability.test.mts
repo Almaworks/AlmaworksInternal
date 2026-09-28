@@ -1,6 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+test("composes adjacent database timestamps regardless of equivalent UTC formatting", () => {
+  const mentor = { profileId: "qa-profile", name: "QA mentor" };
+  const slots = startupBookingSlots({
+    availability: [],
+    effectiveAvailability: [
+      { mentorSemesterId: "qa-mentor", mentor, startsAt: "2026-10-05T13:30:00+00:00", endsAt: "2026-10-05T13:45:00+00:00" },
+      { mentorSemesterId: "qa-mentor", mentor, startsAt: "2026-10-05T13:45:00+00:00", endsAt: "2026-10-05T14:00:00+00:00" },
+    ],
+    semesterStartDate: "2026-10-02", semesterEndDate: "2026-11-20",
+    now: new Date("2026-10-04T12:00:00Z"), timeZone: "America/New_York", durationMinutes: 30,
+  });
+  assert.equal(slots.length, 1);
+  assert.equal(Date.parse(slots[0]!.endsAt) - Date.parse(slots[0]!.startsAt), 1800000);
+});
+
 import * as startupAvailability from "../../src/mentor-booking/startup-availability.ts";
 
 const { startupBookingSlots } = startupAvailability;
@@ -42,6 +57,7 @@ test("projects Layth's weekly Monday range into future requestable 15-minute app
     semesterStartDate: "2026-09-01",
     timeZone: "America/New_York",
     now: new Date("2026-10-04T16:00:00.000Z"),
+    durationMinutes: 15,
   });
 
   assert.deepEqual(slots.slice(0, 3).map((slot) => [slot.mentor.name, slot.startsAt, slot.endsAt]), [
@@ -49,6 +65,66 @@ test("projects Layth's weekly Monday range into future requestable 15-minute app
     ["Layth Rahman", "2026-10-05T15:30:00.000Z", "2026-10-05T15:45:00.000Z"],
     ["Layth Rahman", "2026-10-05T15:45:00.000Z", "2026-10-05T16:00:00.000Z"],
   ]);
+});
+
+test("starts with the first cohort week when the semester has not begun", () => {
+  const slots = startupBookingSlots({
+    availability: [{
+      mentorSemesterId: "mentor-1",
+      mentor: { profileId: "profile-1", name: "Future Mentor" },
+      weekday: 5,
+      startsAt: "09:00:00",
+      endsAt: "10:00:00",
+    }],
+    semesterStartDate: "2026-10-02",
+    semesterEndDate: "2026-11-20",
+    timeZone: "America/New_York",
+    now: new Date("2026-09-26T16:00:00.000Z"),
+  });
+
+  assert.equal(slots[0]?.startsAt, "2026-10-02T13:00:00.000Z");
+});
+
+test("defaults to 30 minutes and offers only contiguous intervals", () => {
+  const base = {
+    availability: [{
+      mentorSemesterId: "mentor-1",
+      mentor: { profileId: "profile-1", name: "Mentor" },
+      weekday: 1,
+      startsAt: "09:30:00",
+      endsAt: "10:15:00",
+    }],
+    semesterStartDate: "2026-10-05",
+    semesterEndDate: "2026-10-05",
+    timeZone: "America/New_York",
+    now: new Date("2026-10-04T16:00:00.000Z"),
+  } as const;
+
+  assert.deepEqual(startupBookingSlots(base).map(slot => [slot.startsAt, slot.endsAt]), [
+    ["2026-10-05T13:30:00.000Z", "2026-10-05T14:00:00.000Z"],
+    ["2026-10-05T13:45:00.000Z", "2026-10-05T14:15:00.000Z"],
+  ]);
+  assert.deepEqual(startupBookingSlots({ ...base, durationMinutes: 15 }).map(slot => slot.startsAt), [
+    "2026-10-05T13:30:00.000Z",
+    "2026-10-05T13:45:00.000Z",
+    "2026-10-05T14:00:00.000Z",
+  ]);
+});
+
+test("does not bridge a busy quarter-hour into a 30-minute booking", () => {
+  const slots = startupBookingSlots({
+    effectiveAvailability: [
+      { mentorSemesterId: "mentor-1", mentor: { profileId: "profile-1", name: "Mentor" }, startsAt: "2026-10-05T13:30:00.000Z", endsAt: "2026-10-05T13:45:00.000Z" },
+      { mentorSemesterId: "mentor-1", mentor: { profileId: "profile-1", name: "Mentor" }, startsAt: "2026-10-05T14:00:00.000Z", endsAt: "2026-10-05T14:15:00.000Z" },
+    ],
+    availability: [],
+    semesterStartDate: "2026-10-05",
+    semesterEndDate: "2026-10-05",
+    timeZone: "America/New_York",
+    now: new Date("2026-10-04T16:00:00.000Z"),
+  });
+
+  assert.deepEqual(slots, []);
 });
 
 test("projects requestable startup times for a later real-world week", () => {
@@ -65,6 +141,7 @@ test("projects requestable startup times for a later real-world week", () => {
     timeZone: "America/New_York",
     now: new Date("2026-10-04T16:00:00.000Z"),
     weekOffset: 3,
+    durationMinutes: 15,
   });
 
   assert.deepEqual(slots.map((slot) => slot.startsAt), ["2026-10-26T15:15:00.000Z"]);
@@ -75,6 +152,30 @@ test("shows a mentor's broad weekly range without invoking the publishing batch 
     availability: [{ mentorSemesterId: "mentor", mentor: { profileId: "mentor", name: "Full Day Mentor" }, weekday: 1, startsAt: "06:00:00", endsAt: "22:00:00" }],
     semesterEndDate: "2026-12-20", semesterStartDate: "2026-09-01", timeZone: "America/New_York", now: new Date("2026-10-04T16:00:00.000Z"),
   }));
+});
+
+test("broad availability reuses timezone formatters instead of constructing one per slot boundary", () => {
+  const OriginalDateTimeFormat = Intl.DateTimeFormat;
+  let constructions = 0;
+  const TrackingDateTimeFormat = new Proxy(OriginalDateTimeFormat, {
+    construct(target, argumentsList) {
+      constructions += 1;
+      return Reflect.construct(target, argumentsList);
+    },
+  });
+  Object.defineProperty(Intl, "DateTimeFormat", { configurable: true, value: TrackingDateTimeFormat });
+  try {
+    const slots = startupBookingSlots({
+      availability: [{ mentorSemesterId: "mentor", mentor: { profileId: "mentor", name: "Full Day Mentor" }, weekday: 1, startsAt: "06:00:00", endsAt: "22:00:00" }],
+      semesterEndDate: "2026-12-20", semesterStartDate: "2026-09-01", timeZone: "America/New_York", now: new Date("2026-10-04T16:00:00.000Z"),
+      durationMinutes: 15,
+    });
+
+    assert.equal(slots.length, 64);
+    assert.ok(constructions <= 6, `expected at most 6 timezone formatter constructions, received ${constructions}`);
+  } finally {
+    Object.defineProperty(Intl, "DateTimeFormat", { configurable: true, value: OriginalDateTimeFormat });
+  }
 });
 
 test("does not offer startup bookings during the Friday 3 PM to 5 PM in-person meeting", () => {
@@ -90,6 +191,7 @@ test("does not offer startup bookings during the Friday 3 PM to 5 PM in-person m
     semesterStartDate: "2026-10-09",
     timeZone: "America/New_York",
     now: new Date("2026-10-09T12:00:00.000Z"),
+    durationMinutes: 15,
   });
 
   assert.deepEqual(slots.map((slot) => [slot.startsAt, slot.endsAt]), [
@@ -109,6 +211,7 @@ test("removes only the accepted mentor from an occupied startup slot and restore
     semesterStartDate: "2026-10-05",
     timeZone: "America/New_York",
     now: new Date("2026-10-04T16:00:00.000Z"),
+    durationMinutes: 15,
   });
 
   assert.deepEqual(slots.map((slot) => [slot.mentorSemesterId, slot.startsAt]), [
@@ -126,6 +229,7 @@ test("ignores occupancy after its meeting interval has ended", () => {
     semesterStartDate: "2026-10-05",
     timeZone: "America/New_York",
     now: new Date("2026-10-05T15:14:00.000Z"),
+    durationMinutes: 15,
   });
 
   assert.deepEqual(slots.map((slot) => slot.startsAt), ["2026-10-05T15:15:00.000Z"]);

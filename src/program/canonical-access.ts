@@ -28,19 +28,20 @@ export async function loadCanonicalAccess(client: AccessClient, authUserId: stri
   if (!profileResult.data) return null;
   const profileId = profileResult.data.id;
 
-  const platformResult = await client
-    .from("platform_roles")
-    .select("role")
-    .eq("profile_id", profileId)
-    .eq("role", "super_admin");
+  const [platformResult, membershipResult] = await Promise.all([
+    client
+      .from("platform_roles")
+      .select("role")
+      .eq("profile_id", profileId)
+      .eq("role", "super_admin"),
+    client
+      .from("semester_memberships")
+      .select("role,status,semester_id,semester:semesters!inner(name,is_active)")
+      .eq("profile_id", profileId)
+      .in("status", ["invited", "onboarding", "active"])
+      .order("is_active", { ascending: false, referencedTable: "semester" }),
+  ]);
   throwIfError(platformResult.error);
-
-  const membershipResult = await client
-    .from("semester_memberships")
-    .select("role,status,semester_id,semester:semesters!inner(name,is_active)")
-    .eq("profile_id", profileId)
-    .in("status", ["invited", "onboarding", "active"])
-    .order("is_active", { ascending: false, referencedTable: "semester" });
   throwIfError(membershipResult.error);
 
   const memberships = (membershipResult.data ?? []) as unknown as MembershipRow[];

@@ -20,6 +20,12 @@ test("renders a time-first calendar with mentor highlighting and an accessible b
   assert.match(source, /aria-modal="true"/u);
   assert.match(source, /rankAvailableMentors/u);
   assert.match(source, /Request this time/u);
+  assert.match(source, /30 minutes/u);
+  assert.match(source, /15 minutes/u);
+  assert.match(source, /Friday Program reserved time/u);
+  assert.match(source, /data\.timeZone/u);
+  assert.match(source, /No verified mentor availability/u);
+  assert.match(source, /connected calendar may need to be refreshed/u);
 });
 
 test("starts on the real current week and exposes only forward week navigation with dated day headers", () => {

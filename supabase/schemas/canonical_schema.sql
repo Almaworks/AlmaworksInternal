@@ -129,7 +129,9 @@ ALTER TYPE "public"."semester_lifecycle_status" OWNER TO "postgres";
 CREATE TYPE "public"."startup_stage" AS ENUM (
     'idea',
     'mvp',
-    'growth'
+    'pilot',
+    'growth',
+    'fundraising'
 );
 
 
@@ -643,7 +645,7 @@ begin
   end if;
 
   if p_expected_updated_at is not null and v_opportunity.updated_at <> p_expected_updated_at then
-    raise exception 'Outreach opportunity is stale' using errcode = '40001';
+    raise exception 'Outreach opportunity is stale' using errcode = 'PT409';
   end if;
 
   if p_activity_kind in ('email', 'call', 'linkedin') and p_channel is null then
@@ -982,7 +984,7 @@ begin
   end if;
 
   if p_expected_updated_at is not null and v_opportunity.updated_at <> p_expected_updated_at then
-    raise exception 'Outreach opportunity is stale' using errcode = '40001';
+    raise exception 'Outreach opportunity is stale' using errcode = 'PT409';
   end if;
 
   if p_is_silenced and (p_reason is null or length(btrim(p_reason)) = 0) then
@@ -1067,7 +1069,7 @@ begin
   end if;
 
   if p_expected_updated_at is not null and v_opportunity.updated_at <> p_expected_updated_at then
-    raise exception 'Outreach opportunity is stale' using errcode = '40001';
+    raise exception 'Outreach opportunity is stale' using errcode = 'PT409';
   end if;
 
   if p_snoozed_until is not null and p_snoozed_until <= now() then
@@ -1269,12 +1271,33 @@ begin
   insert into public.semester_memberships (
     semester_id, profile_id, role, status, activated_at
   ) values (
-    p_semester_id, p_profile_id, p_role, 'active'::public.membership_lifecycle_status, now()
+    p_semester_id,
+    p_profile_id,
+    p_role,
+    case
+      when p_approve is not true or p_role = 'admin' then 'active'::public.membership_lifecycle_status
+      else 'onboarding'::public.membership_lifecycle_status
+    end,
+    case when p_approve is not true or p_role = 'admin' then now() else null end
   )
   on conflict (semester_id, profile_id) do update
   set role = excluded.role,
-      status = 'active',
-      activated_at = coalesce(public.semester_memberships.activated_at, now()),
+      status = case
+        when p_approve is not true then 'active'::public.membership_lifecycle_status
+        when public.semester_memberships.status = 'invited' then
+          case
+            when excluded.role = 'admin' then 'active'::public.membership_lifecycle_status
+            else 'onboarding'::public.membership_lifecycle_status
+          end
+        else public.semester_memberships.status
+      end,
+      activated_at = case
+        when p_approve is not true then coalesce(public.semester_memberships.activated_at, now())
+        when public.semester_memberships.status = 'invited' and excluded.role = 'admin' then
+          coalesce(public.semester_memberships.activated_at, now())
+        when public.semester_memberships.status = 'invited' then null
+        else public.semester_memberships.activated_at
+      end,
       updated_at = now()
   returning id into v_membership_id;
 
@@ -1360,7 +1383,7 @@ begin
   end if;
 
   if v_membership.updated_at <> p_expected_updated_at then
-    raise exception 'Semester membership is stale' using errcode = '40001';
+    raise exception 'Semester membership is stale' using errcode = 'PT409';
   end if;
 
   update public.semester_memberships as target_membership
@@ -1376,7 +1399,7 @@ begin
   returning target_membership.* into v_membership;
 
   if not found then
-    raise exception 'Semester membership is stale' using errcode = '40001';
+    raise exception 'Semester membership is stale' using errcode = 'PT409';
   end if;
 
   with released as (
@@ -1487,7 +1510,7 @@ begin
   end if;
 
   if v_opportunity.semester_id <> v_opportunity_semester_id then
-    raise exception 'Outreach opportunity is stale' using errcode = '40001';
+    raise exception 'Outreach opportunity is stale' using errcode = 'PT409';
   end if;
 
   if not public.can_manage_semester(v_opportunity.semester_id, v_actor_id) then
@@ -1495,7 +1518,7 @@ begin
   end if;
 
   if p_expected_updated_at is not null and v_opportunity.updated_at <> p_expected_updated_at then
-    raise exception 'Outreach opportunity is stale' using errcode = '40001';
+    raise exception 'Outreach opportunity is stale' using errcode = 'PT409';
   end if;
 
   v_previous_owner_profile_id := v_opportunity.owner_profile_id;
@@ -1692,7 +1715,7 @@ begin
       description = p_description, updated_at = now()
   where id = v_organization_id;
   update public.startup_semesters
-  set stage = p_stage::public.startup_stage,
+  set stage = nullif(lower(regexp_replace(btrim(p_stage), ' +', ' ', 'g')), ''),
       mentorship_needs = coalesce(p_mentorship_needs, '{}'),
       updated_at = now()
   where id = p_startup_semester_id;
@@ -1711,22 +1734,65 @@ CREATE OR REPLACE FUNCTION "public"."delete_startup_permanently"("p_startup_orga
 declare
   v_name text;
   v_deleted_sessions integer;
+  v_friday_program record;
+  v_friday_program_ids uuid[];
 begin
   if auth.uid() is null or not private.is_super_admin(auth.uid()) then
     raise exception 'Platform super-administrator access required' using errcode = '42501';
   end if;
 
+  -- Generation takes this same lock before inserting organization references.
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('almaworks:friday-roster-maintenance', 0)
+  );
+
   select organization.name
   into v_name
   from public.startup_organizations organization
-  where organization.id = p_startup_organization_id;
+  where organization.id = p_startup_organization_id
+  for update;
 
   if v_name is null then
     raise exception 'Startup not found' using errcode = 'P0002';
   end if;
-  if btrim(p_confirmation_name) <> v_name then
+  if p_confirmation_name is null or btrim(p_confirmation_name) <> v_name then
     raise exception 'Startup name confirmation does not match' using errcode = '22023';
   end if;
+
+  select coalesce(array_agg(distinct assignment.program_id), '{}'::uuid[])
+  into v_friday_program_ids
+  from public.friday_program_assignments assignment
+  where assignment.startup_organization_id = p_startup_organization_id;
+
+  -- Match Friday generation's lock order and retain shared program records.
+  for v_friday_program in
+    select program.id, program.semester_id, program.meeting_id
+    from public.friday_programs program
+    where program.id = any(v_friday_program_ids)
+    order by program.semester_id, program.meeting_id
+  loop
+    perform pg_catalog.pg_advisory_xact_lock(
+      pg_catalog.hashtextextended(v_friday_program.semester_id::text || ':' || v_friday_program.meeting_id::text, 0)
+    );
+    perform 1 from public.friday_programs where id = v_friday_program.id for update;
+  end loop;
+
+  delete from public.friday_program_assignments
+  where startup_organization_id = p_startup_organization_id;
+
+  -- Serialize mentor responses with cleanup so accepted occupancy cannot
+  -- be recreated between releasing it and deleting the associated request.
+  perform request.id from public.mentor_booking_requests request
+  where request.startup_organization_id = p_startup_organization_id
+  for update;
+
+  delete from public.mentor_booking_accepted_occupancy occupancy
+  using public.mentor_booking_requests request
+  where occupancy.request_id = request.id
+    and request.startup_organization_id = p_startup_organization_id;
+
+  delete from public.mentor_booking_requests
+  where startup_organization_id = p_startup_organization_id;
 
   delete from public.sessions session
   using public.startup_semesters term
@@ -1736,6 +1802,34 @@ begin
 
   delete from public.startup_organizations
   where id = p_startup_organization_id;
+
+  -- Reinsert retained assignment identities to avoid immediate unique-position
+  -- collisions while restoring balanced groups and contiguous positions.
+  for v_friday_program in
+    select program.id from public.friday_programs program
+    where program.id = any(v_friday_program_ids)
+  loop
+    with retained as (
+      delete from public.friday_program_assignments
+      where program_id = v_friday_program.id
+      returning *
+    ), numbered as (
+      select retained.*, row_number() over (order by group_code, group_position, id) as position
+      from retained
+    )
+    insert into public.friday_program_assignments (
+      id, semester_id, program_id, startup_semester_id, startup_organization_id,
+      startup_name, startup_slug, group_code, group_position, created_at
+    )
+    select id, semester_id, program_id, startup_semester_id, startup_organization_id,
+      startup_name, startup_slug, case when position % 2 = 1 then 'A' else 'B' end,
+      ((position + 1) / 2)::smallint, created_at
+    from numbered;
+
+    update public.friday_programs
+    set startup_count = (select count(*) from public.friday_program_assignments where program_id = v_friday_program.id)
+    where id = v_friday_program.id;
+  end loop;
 
   return jsonb_build_object('startupName', v_name, 'deletedSessions', v_deleted_sessions);
 end;
@@ -2169,8 +2263,10 @@ CREATE TABLE IF NOT EXISTS "public"."profiles" (
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "full_name" "text",
+    "photo_path" "text",
     "status" "text" DEFAULT 'pending'::"text" NOT NULL,
     "is_active" boolean DEFAULT true NOT NULL,
+    CONSTRAINT "profiles_photo_path_check" CHECK (("photo_path" IS NULL) OR ("photo_path" ~ (('^'::"text" || ("id")::"text") || '/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png|webp)$'::"text"))),
     CONSTRAINT "profiles_status_check" CHECK (("status" = ANY (ARRAY['pending'::"text", 'approved'::"text", 'rejected'::"text"])))
 );
 
@@ -2246,9 +2342,14 @@ CREATE TABLE IF NOT EXISTS "public"."startup_organizations" (
     "industry" "text",
     "website_url" "text",
     "logo_url" "text",
+    "logo_path" "text",
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
-    "durable_contact_data" "jsonb" DEFAULT '{}'::"jsonb" NOT NULL
+    "durable_contact_data" "jsonb" DEFAULT '{}'::"jsonb" NOT NULL,
+    CONSTRAINT "startup_organizations_logo_path_check" CHECK (
+      "logo_path" IS NULL OR
+      "logo_path" ~ (('^'::"text" || ("id")::"text") || '/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png|webp)$'::"text")
+    )
 );
 
 
@@ -2260,7 +2361,7 @@ CREATE TABLE IF NOT EXISTS "public"."startup_semesters" (
     "semester_id" "uuid" NOT NULL,
     "startup_organization_id" "uuid" NOT NULL,
     "company_snapshot" "text",
-    "stage" "public"."startup_stage",
+    "stage" "text",
     "goals" "text"[] DEFAULT '{}'::"text"[] NOT NULL,
     "mentorship_needs" "text"[] DEFAULT '{}'::"text"[] NOT NULL,
     "readiness_status" "text" DEFAULT 'not_started'::"text" NOT NULL,
@@ -2268,6 +2369,7 @@ CREATE TABLE IF NOT EXISTS "public"."startup_semesters" (
     "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "mentor_need_context" "text",
     "mentor_need_no_preference" boolean DEFAULT false NOT NULL,
+    CONSTRAINT "startup_semesters_stage_tag_check" CHECK (stage IS NULL OR (char_length(stage) BETWEEN 1 AND 40 AND stage = btrim(stage) AND stage !~ '[,;\n\r\t]')),
     CONSTRAINT "startup_semesters_readiness_status_check" CHECK (("readiness_status" = ANY (ARRAY['not_started'::"text", 'in_progress'::"text", 'ready'::"text"])))
 );
 
@@ -2301,12 +2403,6 @@ ALTER TABLE ONLY "public"."meeting_availability"
 ALTER TABLE ONLY "public"."meeting_availability"
     ADD CONSTRAINT "meeting_availability_pkey" PRIMARY KEY ("id");
 
-ALTER TABLE ONLY "public"."schedule_attention_alerts"
-    ADD CONSTRAINT "schedule_attention_alerts_semester_id_fkey" FOREIGN KEY ("semester_id") REFERENCES "public"."semesters"("id") ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."schedule_attention_alerts"
-    ADD CONSTRAINT "schedule_attention_alerts_session_id_fkey" FOREIGN KEY ("session_id") REFERENCES "public"."sessions"("id") ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."schedule_attention_alerts"
-    ADD CONSTRAINT "schedule_attention_alerts_semester_mentor_fkey" FOREIGN KEY ("semester_id", "mentor_semester_id") REFERENCES "public"."mentor_semesters"("semester_id", "id") ON DELETE CASCADE;
 
 
 
@@ -2674,6 +2770,13 @@ CREATE OR REPLACE TRIGGER "validate_canonical_outreach_owner_membership" BEFORE 
 
 
 
+ALTER TABLE ONLY "public"."schedule_attention_alerts"
+    ADD CONSTRAINT "schedule_attention_alerts_semester_id_fkey" FOREIGN KEY ("semester_id") REFERENCES "public"."semesters"("id") ON DELETE CASCADE;
+ALTER TABLE ONLY "public"."schedule_attention_alerts"
+    ADD CONSTRAINT "schedule_attention_alerts_session_id_fkey" FOREIGN KEY ("session_id") REFERENCES "public"."sessions"("id") ON DELETE CASCADE;
+ALTER TABLE ONLY "public"."schedule_attention_alerts"
+    ADD CONSTRAINT "schedule_attention_alerts_semester_mentor_fkey" FOREIGN KEY ("semester_id", "mentor_semester_id") REFERENCES "public"."mentor_semesters"("semester_id", "id") ON DELETE CASCADE;
+
 ALTER TABLE ONLY "public"."invitations"
     ADD CONSTRAINT "invitations_invited_by_fkey" FOREIGN KEY ("invited_by") REFERENCES "public"."profiles"("id");
 
@@ -2923,8 +3026,88 @@ CREATE POLICY "cohort members read startup organizations" ON "public"."startup_o
   WHERE (("startup_term"."startup_organization_id" = "startup_organizations"."id") AND "private"."has_semester_role"("startup_term"."semester_id", ARRAY['admin'::"public"."user_role", 'mentor'::"public"."user_role", 'startup'::"public"."user_role"], ( SELECT "auth"."uid"() AS "uid"))))));
 
 
+CREATE POLICY "assigned onboarding startups read own organizations"
+ON public.startup_organizations FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1
+  FROM public.startup_semesters startup_term
+  JOIN public.startup_team_memberships team
+    ON team.startup_semester_id = startup_term.id
+   AND team.semester_id = startup_term.semester_id
+  JOIN public.semester_memberships membership
+    ON membership.id = team.semester_membership_id
+   AND membership.semester_id = team.semester_id
+  JOIN public.profiles profile
+    ON profile.id = membership.profile_id
+   AND profile.auth_user_id = (SELECT auth.uid())
+  WHERE startup_term.startup_organization_id = startup_organizations.id
+    AND membership.role = 'startup'::public.user_role
+    AND membership.status IN (
+      'invited'::public.membership_lifecycle_status,
+      'onboarding'::public.membership_lifecycle_status
+    )
+    AND profile.status = 'approved'
+    AND profile.is_active
+));
+
+
+
+CREATE POLICY "startup teams update startup organizations"
+ON public.startup_organizations FOR UPDATE TO authenticated
+USING (
+  private.can_manage_semester(
+    (SELECT startup_term.semester_id FROM public.startup_semesters startup_term
+      WHERE startup_term.startup_organization_id = startup_organizations.id LIMIT 1),
+    (SELECT auth.uid())
+  ) OR EXISTS (
+    SELECT 1 FROM public.startup_semesters startup_term
+    JOIN public.startup_team_memberships team
+      ON team.startup_semester_id = startup_term.id AND team.semester_id = startup_term.semester_id
+    JOIN public.semester_memberships membership
+      ON membership.id = team.semester_membership_id AND membership.semester_id = team.semester_id
+    WHERE startup_term.startup_organization_id = startup_organizations.id
+      AND membership.profile_id = (SELECT private.current_profile_id((SELECT auth.uid())))
+      AND membership.role = 'startup'::public.user_role
+      AND membership.status IN ('onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status)
+  )
+)
+WITH CHECK (EXISTS (
+  SELECT 1 FROM public.startup_semesters startup_term
+  JOIN public.startup_team_memberships team
+    ON team.startup_semester_id = startup_term.id AND team.semester_id = startup_term.semester_id
+  JOIN public.semester_memberships membership
+    ON membership.id = team.semester_membership_id AND membership.semester_id = team.semester_id
+  WHERE startup_term.startup_organization_id = startup_organizations.id
+    AND membership.profile_id = (SELECT private.current_profile_id((SELECT auth.uid())))
+    AND membership.role = 'startup'::public.user_role
+    AND membership.status IN ('onboarding'::public.membership_lifecycle_status, 'active'::public.membership_lifecycle_status)
+));
+
 
 CREATE POLICY "cohort members read startup semesters" ON "public"."startup_semesters" FOR SELECT TO "authenticated" USING ("private"."has_semester_role"("semester_id", ARRAY['admin'::"public"."user_role", 'mentor'::"public"."user_role", 'startup'::"public"."user_role"], ( SELECT "auth"."uid"() AS "uid")));
+
+
+CREATE POLICY "assigned onboarding startups read own startup semesters"
+ON public.startup_semesters FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1
+  FROM public.startup_team_memberships team
+  JOIN public.semester_memberships membership
+    ON membership.id = team.semester_membership_id
+   AND membership.semester_id = team.semester_id
+  JOIN public.profiles profile
+    ON profile.id = membership.profile_id
+   AND profile.auth_user_id = (SELECT auth.uid())
+  WHERE team.startup_semester_id = startup_semesters.id
+    AND team.semester_id = startup_semesters.semester_id
+    AND membership.role = 'startup'::public.user_role
+    AND membership.status IN (
+      'invited'::public.membership_lifecycle_status,
+      'onboarding'::public.membership_lifecycle_status
+    )
+    AND profile.status = 'approved'
+    AND profile.is_active
+));
 
 
 
@@ -4373,7 +4556,7 @@ begin
     and profile.auth_user_id = p_auth_user_id;
 
   if not found then
-    raise exception 'Replacement placeholder changed during discard' using errcode = '40001';
+    raise exception 'Replacement placeholder changed during discard' using errcode = 'PT409';
   end if;
 
   return query
@@ -4647,5 +4830,114 @@ USING (
       semester_membership_id,
       semester_id,
       (SELECT auth.uid())
+    )
+);
+
+-- Managed participant images live in private buckets. Reads follow existing
+-- profile or startup cohort visibility; writes are limited to the caller's
+-- assigned UUID folder and the application's versioned image path shapes.
+CREATE POLICY "authenticated viewers read visible profile photos"
+ON storage.objects FOR SELECT TO authenticated
+USING (
+    (
+      bucket_id = 'profile-photos'
+      AND EXISTS (
+        SELECT 1
+        FROM public.profiles visible_profile
+        WHERE visible_profile.id::text = (storage.foldername(storage.objects.name))[1]
+      )
+    )
+    OR (
+      bucket_id = 'startup-logos'
+      AND name ~ ('^' || (storage.foldername(storage.objects.name))[1] || '/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png|webp)$')
+      AND EXISTS (
+        SELECT 1
+        FROM public.startup_organizations visible_startup
+        JOIN public.startup_semesters startup_term
+          ON startup_term.startup_organization_id = visible_startup.id
+        JOIN public.semesters semester
+          ON semester.id = startup_term.semester_id
+        WHERE visible_startup.id::text = (storage.foldername(storage.objects.name))[1]
+          AND semester.is_active
+      )
+    )
+);
+
+CREATE POLICY "active participants insert own profile photos"
+ON storage.objects FOR INSERT TO authenticated
+WITH CHECK (
+    (
+      bucket_id = 'profile-photos'
+      AND (storage.foldername(storage.objects.name))[1] = (SELECT private.current_profile_id((SELECT auth.uid())))::text
+      AND name ~ ('^' || (SELECT private.current_profile_id((SELECT auth.uid())))::text || '/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png|webp)$')
+      AND EXISTS (
+        SELECT 1
+        FROM public.semester_memberships membership
+        JOIN public.semesters semester ON semester.id = membership.semester_id
+        WHERE membership.profile_id = (SELECT private.current_profile_id((SELECT auth.uid())))
+          AND membership.role IN ('mentor', 'startup')
+          AND membership.status IN ('onboarding', 'active')
+          AND semester.is_active
+      )
+    )
+    OR (
+      bucket_id = 'startup-logos'
+      AND name ~ ('^' || (storage.foldername(storage.objects.name))[1] || '/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png|webp)$')
+      AND EXISTS (
+        SELECT 1
+        FROM public.semesters semester
+        JOIN public.startup_semesters startup_term
+          ON startup_term.semester_id = semester.id
+        JOIN public.startup_team_memberships team
+          ON team.semester_id = startup_term.semester_id
+         AND team.startup_semester_id = startup_term.id
+        JOIN public.semester_memberships membership
+          ON membership.semester_id = team.semester_id
+         AND membership.id = team.semester_membership_id
+        WHERE semester.is_active
+          AND startup_term.startup_organization_id::text = (storage.foldername(storage.objects.name))[1]
+          AND membership.profile_id = (SELECT private.current_profile_id((SELECT auth.uid())))
+          AND membership.role = 'startup'
+          AND membership.status IN ('onboarding', 'active')
+      )
+    )
+);
+
+CREATE POLICY "active participants delete own profile photos"
+ON storage.objects FOR DELETE TO authenticated
+USING (
+    (
+      bucket_id = 'profile-photos'
+      AND (storage.foldername(storage.objects.name))[1] = (SELECT private.current_profile_id((SELECT auth.uid())))::text
+      AND EXISTS (
+        SELECT 1
+        FROM public.semester_memberships membership
+        JOIN public.semesters semester ON semester.id = membership.semester_id
+        WHERE membership.profile_id = (SELECT private.current_profile_id((SELECT auth.uid())))
+          AND membership.role IN ('mentor', 'startup')
+          AND membership.status IN ('onboarding', 'active')
+          AND semester.is_active
+      )
+    )
+    OR (
+      bucket_id = 'startup-logos'
+      AND name ~ ('^' || (storage.foldername(storage.objects.name))[1] || '/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png|webp)$')
+      AND EXISTS (
+        SELECT 1
+        FROM public.semesters semester
+        JOIN public.startup_semesters startup_term
+          ON startup_term.semester_id = semester.id
+        JOIN public.startup_team_memberships team
+          ON team.semester_id = startup_term.semester_id
+         AND team.startup_semester_id = startup_term.id
+        JOIN public.semester_memberships membership
+          ON membership.semester_id = team.semester_id
+         AND membership.id = team.semester_membership_id
+        WHERE semester.is_active
+          AND startup_term.startup_organization_id::text = (storage.foldername(storage.objects.name))[1]
+          AND membership.profile_id = (SELECT private.current_profile_id((SELECT auth.uid())))
+          AND membership.role = 'startup'
+          AND membership.status IN ('onboarding', 'active')
+      )
     )
 );

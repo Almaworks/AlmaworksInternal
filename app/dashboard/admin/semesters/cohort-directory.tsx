@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { DataLoading } from "@/components/DataLoading";
 import { createClient } from "@/utils/supabase/client";
 import type { CohortMember, CohortSummary } from "@/src/lifecycle/cohort-management";
 
@@ -42,43 +43,64 @@ export default function CohortDirectory() {
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
+  const loadRequestId = useRef(0);
 
   const load = useCallback(async (semesterId: string, allTime = false) => {
+    const requestId = loadRequestId.current + 1;
+    loadRequestId.current = requestId;
     setLoading(true);
-    setError(null);
+    setLoadError(null);
+    setMembers([]);
+    setSelected([]);
+    setScope(allTime ? "all" : semesterId);
     try {
       const result = await jsonRequest<CohortResponse>(
         `/api/admin/lifecycle/cohorts?semesterId=${encodeURIComponent(semesterId)}&scope=${allTime ? "all" : "semester"}`,
       );
+      if (loadRequestId.current !== requestId) return;
       setCohorts(result.cohorts);
       setMembers(result.members);
       setScope(allTime ? "all" : semesterId);
       setSelected([]);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to load cohorts.");
+      if (loadRequestId.current === requestId) setLoadError(cause instanceof Error ? cause.message : "Unable to load cohorts.");
     } finally {
-      setLoading(false);
+      if (loadRequestId.current === requestId) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    let active = true;
     async function start() {
-      const client = createClient();
-      const { data, error: semesterError } = await client
-        .from("semesters")
-        .select("id")
-        .eq("is_active", true)
-        .maybeSingle();
-      if (semesterError || !data) {
-        setError("No active cohort is configured.");
-        setLoading(false);
-        return;
+      const requestId = loadRequestId.current + 1;
+      loadRequestId.current = requestId;
+      setLoading(true);
+      setLoadError(null);
+      setMembers([]);
+      setSelected([]);
+      try {
+        const client = createClient();
+        const { data, error: semesterError } = await client
+          .from("semesters")
+          .select("id")
+          .eq("is_active", true)
+          .maybeSingle();
+        if (semesterError || !data) throw new Error("No active cohort is configured.");
+        if (!active || loadRequestId.current !== requestId) return;
+        await load(data.id);
+      } catch (cause) {
+        if (active && loadRequestId.current === requestId) {
+          setLoadError(cause instanceof Error ? cause.message : "Unable to load cohorts.");
+          setLoading(false);
+        }
       }
-      await load(data.id);
     }
     void start();
-  }, [load]);
+    return () => { active = false; loadRequestId.current += 1; };
+  }, [bootstrapAttempt, load]);
 
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -142,6 +164,9 @@ export default function CohortDirectory() {
 
   const allVisibleSelected = visible.length > 0 && visible.every((member) => selected.includes(member.membershipId));
 
+  if (loading) return <DataLoading label="Loading cohort memberships" />;
+  if (loadError) return <main className="mx-auto max-w-2xl p-6"><section role="alert" className="rounded-xl border border-red-200 bg-red-50 p-5 text-red-800"><h1 className="font-semibold text-[#002147]">Cohort memberships could not load</h1><p className="mt-1 text-sm">{loadError}</p><button type="button" onClick={() => { if (scope) void load(scope === "all" && cohorts.current ? cohorts.current.id : scope, scope === "all"); else setBootstrapAttempt((value) => value + 1); }} className="mt-4 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-[#002147]">Try again</button></section></main>;
+
   return (
     <main className="p-6 max-w-7xl mx-auto">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between mb-6">
@@ -170,8 +195,7 @@ export default function CohortDirectory() {
         {scope !== "all" && cohorts.current && scope !== cohorts.current.id && selected.length === 0 && <div className="px-4 py-3 border-b border-gray-100 text-sm flex items-center justify-between gap-3"><span>Bring this entire prior cohort into {cohorts.current.name} as invited memberships.</span><button disabled={working} onClick={() => void importIntoCurrent()} className="rounded-lg bg-[#002147] text-white px-3 py-2 text-xs font-semibold">Import entire cohort</button></div>}
 
         <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500"><tr><th className="p-3"><input aria-label="Select all filtered people" type="checkbox" checked={allVisibleSelected} onChange={(event) => setSelected(event.target.checked ? visible.map((member) => member.membershipId) : [])} disabled={scope === "all"} /></th><th className="p-3">Person</th><th className="p-3">Role</th><th className="p-3">Cohort</th><th className="p-3">Status</th></tr></thead><tbody className="divide-y divide-gray-100">{visible.map((member) => <tr key={member.membershipId}><td className="p-3"><input aria-label={`Select ${member.name}`} type="checkbox" checked={selected.includes(member.membershipId)} onChange={(event) => setSelected((current) => event.target.checked ? [...new Set([...current, member.membershipId])] : current.filter((id) => id !== member.membershipId))} disabled={scope === "all"} /></td><td className="p-3"><strong className="block text-[#002147]">{member.name}</strong><span className="text-xs text-gray-400">{member.email}</span></td><td className="p-3 capitalize">{member.role}</td><td className="p-3"><span className="rounded-full bg-[#75AADB]/20 px-2 py-1 text-xs font-semibold text-[#002147]">{member.semesterName}</span></td><td className="p-3"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${member.status === "active" ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>{member.status === "active" ? "Active" : "Inactive"} <span className="font-normal">· {member.status}</span></span></td></tr>)}</tbody></table></div>
-        {!loading && visible.length === 0 && <div className="p-10 text-center text-sm text-gray-400">No memberships match these filters.</div>}
-        {loading && <div className="p-10 text-center text-sm text-gray-400">Loading cohort memberships…</div>}
+        {visible.length === 0 && <div className="p-10 text-center text-sm text-gray-400">No memberships match these filters.</div>}
       </section>
     </main>
   );

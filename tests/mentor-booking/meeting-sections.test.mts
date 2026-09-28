@@ -26,11 +26,17 @@ test("separates pending requests, confirmed upcoming sessions, and completed boo
 
   assert.deepEqual(pending.map((item) => item.requestId), ["pending"]);
   assert.deepEqual(upcoming.map((item) => item.requestId), ["upcoming-accepted"]);
-  assert.deepEqual(history.map((item) => item.requestId), ["completed"]);
+  assert.deepEqual(history.map((item) => item.requestId), ["completed", "cancelled", "declined"]);
 });
 
 test("a cancelled session is removed from the upcoming queue after its status refreshes", () => {
   const upcoming = request({ requestId: "cancel-me", status: "accepted" });
   assert.deepEqual(bookingSections([upcoming], new Date("2026-09-11T14:00:00.000Z")).upcoming.map((item) => item.requestId), ["cancel-me"]);
   assert.equal(bookingSections([{ ...upcoming, status: "cancelled", cancelledAt: "2026-09-11T14:01:00.000Z", canCancel: false }], new Date("2026-09-11T14:00:00.000Z")).upcoming.length, 0);
+});
+
+test("expired pending requests remain in history instead of disappearing", () => {
+  const sections = bookingSections([request({ endsAt: "2026-09-10T15:00:00Z" })], new Date("2026-09-12T15:00:00Z"));
+  assert.equal(sections.pending.length, 0);
+  assert.equal(sections.history.length, 1);
 });

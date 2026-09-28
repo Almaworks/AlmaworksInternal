@@ -87,3 +87,12 @@ test("prior-cohort import parser supports selected and filtered bulk imports", (
     /must differ/i,
   );
 });
+
+test("import destination follows a newly active semester instead of Fall 2026 or latest dates", () => {
+  const rows = [
+    { id: "future", name: "Fall 2028", startsOn: "2028-09-01", isActive: false },
+    { id: "active", name: "Spring 2027", startsOn: "2027-01-01", isActive: true },
+    { id: "prior", name: "Fall 2026", startsOn: "2026-09-01", isActive: false },
+  ];
+  assert.equal(buildCohortOptions(rows).current?.id, "active");
+});

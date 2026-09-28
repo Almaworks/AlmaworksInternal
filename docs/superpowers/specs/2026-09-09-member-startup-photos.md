@@ -1,0 +1,11 @@
+# Complete person photos and startup logos
+
+The user requested pictures for startups, members and mentors. Existing uploads cover people with an active/onboarding mentor or startup membership. They do not cover pure admin members or startup-company logos.
+
+1. Regenerate the existing personal-photo migration through CLI db diff, preserving exact snapshot bytes and managed Storage ownership. Keep the private bucket setup explicit. The old `outputs/profile-photos-migration.sql` is a review artifact and must not be deployed as a hand-written migration.
+2. Extend self-photo eligibility to active admins and active global Super Admin identities. Preserve owner-only writes, profile visibility for reads, MIME decoding/re-encoding, size limits, metadata stripping, versioned object paths and conditional replacement. Apply the same eligibility in server checks and Storage RLS; disabled identities must not retain write access. Do not grant admins arbitrary edits to other people through this self-service endpoint.
+3. Add a personal Profile entry for admin members using the existing upload/remove control, with authenticated own-profile reads and clear eligibility/error states. Display avatars where existing member records are shown without exposing signed URLs beyond current profile visibility.
+4. Add startup organization logo uploads with separate private storage paths and a durable organization-level storage reference. Current active startup team members and authorized semester admins may manage their startup's logo. Validate ownership/organization scope through RLS, not client-supplied paths. Preserve existing public logo_url as a fallback during rollout. Add upload/remove to an appropriate startup Profile/Our startup area and admin company editor; render through the shared safe avatar/image behavior.
+5. Include stable image references in semester export and retain the explicit binary-asset omission until an authenticated asset archive is implemented. Generate new migration(s) with db diff; no manual deliverable SQL. Verify unrelated-account denial, disabled memberships, concurrent replace/remove, invalid image uploads, signed reads and desktop/mobile UI.
+
+This is implementation direction under the user's broad discretion, not an authorization to deploy or upload actual participant files for testing. Use fictional local test images/accounts.

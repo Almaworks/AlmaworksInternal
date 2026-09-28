@@ -41,12 +41,7 @@ export function sessionFormatSource(client: SupabaseClient<Database>): FormatSou
       if (error) throw new Error("Unable to check mentor meeting format.");
       return data === null ? null : { membershipId: data.semester_membership_id, preferredFormat: data.preferred_format };
     },
-    slotFormat: async (input, membershipId) => {
-      const { data, error } = await client.from("meeting_availability").select("*")
-        .eq("semester_id", input.semesterId).eq("meeting_id", input.meetingId)
-        .eq("semester_membership_id", membershipId).eq("slot", input.slot).maybeSingle();
-      if (error) throw new Error("Unable to check slot meeting format.");
-      return data !== null && "format" in data && typeof data.format === "string" ? data.format : null;
-    },
+    // The Friday slot table was retired; historical sessions use mentor preferences.
+    slotFormat: async () => null,
   };
 }

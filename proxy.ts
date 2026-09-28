@@ -2,13 +2,25 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
-import { shouldDeferAdminAuthorization } from '@/src/auth/admin-route'
+import { isAdminDashboardPath } from '@/src/auth/admin-route'
 import { resolvePostLoginDestination, shouldRenderAuthError } from '@/src/auth/profile-access'
 import { needsParticipantOnboarding } from '@/src/auth/participant-onboarding-gate'
+import { isAuthServiceUnavailable } from '@/src/auth/auth-errors'
 import { loadCanonicalAccess } from '@/src/program/canonical-access'
 
 export async function proxy(req: NextRequest) {
   let res = NextResponse.next({ request: req })
+  const { pathname } = req.nextUrl
+
+  function redirect(url: URL) {
+    const response = NextResponse.redirect(url)
+    res.cookies.getAll().forEach(cookie => response.cookies.set(cookie))
+    return response
+  }
+
+  // API handlers validate their bearer token themselves. Public pages and assets
+  // do not need a cookie-session refresh before their response can begin.
+  if (pathname.startsWith('/api/') || ['/learn-more', '/request-access', '/verify-email', '/forgot-password'].includes(pathname) || pathname.startsWith('/auth/') || pathname.startsWith('/_next') || pathname === '/favicon.ico' || shouldRenderAuthError(pathname, req.nextUrl.searchParams.get('error'))) return res
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -31,22 +43,12 @@ export async function proxy(req: NextRequest) {
     }
   )
 
-  // getSession() reads from cookies without a network call — correct for proxy-level routing.
-  // Sensitive server actions use getUser() independently to verify the JWT.
-  const { data: { session } } = await supabase.auth.getSession()
-  const userId = session?.user?.id ?? null
-  const { pathname } = req.nextUrl
-
-  if (shouldRenderAuthError(pathname, req.nextUrl.searchParams.get('error'))) return res
-
-  // Public routes — no auth required
-  if (
-    pathname === '/learn-more' ||
-    pathname.startsWith('/auth/') ||
-    pathname.startsWith('/_next') ||
-    pathname === '/favicon.ico'
-  ) {
-    return res
+  // Verify the signed identity instead of trusting the cookie's user object.
+  // Membership and account-state reads below remain request-fresh and RLS-backed.
+  const { data: verified, error: claimsError } = await supabase.auth.getClaims()
+  const userId = !claimsError && typeof verified?.claims.sub === 'string' ? verified.claims.sub : null
+  if (isAuthServiceUnavailable(claimsError) && (pathname.startsWith('/dashboard') || pathname === '/pending' || pathname === '/')) {
+    return redirect(new URL('/?error=auth_unavailable', req.url))
   }
 
   async function getAccess() {
@@ -119,10 +121,10 @@ export async function proxy(req: NextRequest) {
     if (userId) {
       try {
         const access = await getAccess()
-        return NextResponse.redirect(new URL(resolvePostLoginDestination(access), req.url))
+        return redirect(new URL(resolvePostLoginDestination(access), req.url))
       } catch (error) {
         console.error('Unable to resolve authenticated profile access', error)
-        return NextResponse.redirect(new URL('/?error=identity_lookup_failed', req.url))
+        return redirect(new URL('/?error=identity_lookup_failed', req.url))
       }
     }
     return res
@@ -130,15 +132,15 @@ export async function proxy(req: NextRequest) {
 
   // Pending page — must be signed in; redirect away if already approved
   if (pathname === '/pending') {
-    if (!userId) return NextResponse.redirect(new URL('/', req.url))
+    if (!userId) return redirect(new URL('/', req.url))
 
     try {
       const access = await getAccess()
       const destination = resolvePostLoginDestination(access)
-      if (destination !== '/pending') return NextResponse.redirect(new URL(destination, req.url))
+      if (destination !== '/pending') return redirect(new URL(destination, req.url))
     } catch (error) {
       console.error('Unable to resolve authenticated profile access', error)
-      return NextResponse.redirect(new URL('/?error=identity_lookup_failed', req.url))
+      return redirect(new URL('/?error=identity_lookup_failed', req.url))
     }
 
     return res
@@ -146,44 +148,61 @@ export async function proxy(req: NextRequest) {
 
   // All dashboard routes — must be signed in and approved
   if (pathname.startsWith('/dashboard')) {
-    if (!userId) return NextResponse.redirect(new URL('/', req.url))
+    if (!userId) return redirect(new URL('/', req.url))
+
+    // Keep account suspension fresh even when Next reuses the admin layout.
+    // The layout owns role grants; do not repeat its two authority reads here.
+    if (isAdminDashboardPath(pathname)) {
+      const { data: account, error } = await supabase.from('profiles')
+        .select('status,is_active').eq('auth_user_id', userId).maybeSingle()
+      if (error) return redirect(new URL('/?error=identity_lookup_failed', req.url))
+      if (!account || account.status !== 'approved') return redirect(new URL('/pending', req.url))
+      if (!account.is_active) return redirect(new URL('/?error=account_inactive', req.url))
+      return res
+    }
 
     let profile: Awaited<ReturnType<typeof getAccess>>
     try {
       profile = await getAccess()
     } catch (error) {
       console.error('Unable to resolve authenticated profile access', error)
-      return NextResponse.redirect(new URL('/?error=identity_lookup_failed', req.url))
+      return redirect(new URL('/?error=identity_lookup_failed', req.url))
     }
 
     const accessDestination = resolvePostLoginDestination(profile)
     if (!profile || accessDestination.startsWith('/?error=') || profile.status !== 'approved') {
-      return NextResponse.redirect(new URL(accessDestination, req.url))
+      return redirect(new URL(accessDestination, req.url))
     }
 
-    // The server layout owns authoritative platform/semester admin checks.
-    if (shouldDeferAdminAuthorization(pathname, profile)) return res
-
-    if (!profile.role) return NextResponse.redirect(new URL('/pending', req.url))
+    if (!profile.role) return redirect(new URL('/pending', req.url))
 
     const onboardingState = await getOnboardingState(profile)
     if (pathname === '/dashboard/onboarding') {
       if (!onboardingState?.needsOnboarding) {
         const dest = profile.role === 'mentor' ? '/dashboard/mentor' : '/dashboard/startup'
-        return NextResponse.redirect(new URL(dest, req.url))
+        return redirect(new URL(dest, req.url))
       }
       return res
     }
     if (onboardingState?.needsOnboarding) {
-      return NextResponse.redirect(new URL('/dashboard/onboarding', req.url))
+      return redirect(new URL('/dashboard/onboarding', req.url))
+    }
+
+    // Reuse the identity already resolved for navigation. Legacy participant
+    // links should not load the administrator's semester-selection workspace.
+    if (pathname === '/dashboard/bookings' && (profile.role === 'mentor' || profile.role === 'startup')) {
+      const destination = new URL(`/dashboard/${profile.role}`, req.url)
+      destination.search = req.nextUrl.search
+      destination.searchParams.set('tab', 'bookings')
+      return redirect(destination)
     }
 
     // Role-route guard
-    if (pathname.startsWith('/dashboard/mentor') && profile.role !== 'mentor' && profile.role !== 'admin') {
-      return NextResponse.redirect(new URL('/dashboard/startup', req.url))
+    if ((pathname === '/dashboard/mentor' || pathname.startsWith('/dashboard/mentor/')) && profile.role !== 'mentor' && profile.role !== 'admin') {
+      return redirect(new URL('/dashboard/startup', req.url))
     }
-    if (pathname.startsWith('/dashboard/startup') && profile.role !== 'startup' && profile.role !== 'admin') {
-      return NextResponse.redirect(new URL('/dashboard/mentor', req.url))
+    if ((pathname === '/dashboard/startup' || pathname.startsWith('/dashboard/startup/')) && profile.role !== 'startup' && profile.role !== 'admin') {
+      return redirect(new URL('/dashboard/mentor', req.url))
     }
 
     return res

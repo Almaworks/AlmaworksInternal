@@ -119,6 +119,13 @@ begin
     return new;
   end if;
   if tg_op='UPDATE' then
+    if current_user='postgres' and private.is_finalizing_member_deletion(old.mentor_profile_id) then
+      if row(old.id,old.semester_id,old.mentor_semester_id,old.mentor_profile_id,old.starts_at,old.ends_at,old.created_at)
+         is distinct from row(new.id,new.semester_id,new.mentor_semester_id,new.mentor_profile_id,new.starts_at,new.ends_at,new.created_at)
+        or new.mentor_name<>'Deleted member' or new.withdrawn_at is null
+      then raise exception 'Invalid personal deletion availability update' using errcode='42501'; end if;
+      return new;
+    end if;
     if row(old.id,old.semester_id,old.mentor_semester_id,old.mentor_profile_id,old.mentor_name,old.starts_at,old.ends_at,old.created_at)
        is distinct from row(new.id,new.semester_id,new.mentor_semester_id,new.mentor_profile_id,new.mentor_name,new.starts_at,new.ends_at,new.created_at)
     then raise exception 'Published availability fields are immutable' using errcode='42501'; end if;
@@ -133,6 +140,9 @@ begin
       raise exception 'Availability with a live request cannot be withdrawn' using errcode='55000';
     end if;
     new.withdrawn_at:=now(); new.updated_at:=now(); return new;
+  end if;
+  if tg_op='DELETE' and current_user='postgres' and private.is_finalizing_member_deletion(old.mentor_profile_id) then
+    return old;
   end if;
   raise exception 'Availability records cannot be deleted' using errcode='42501';
 end;

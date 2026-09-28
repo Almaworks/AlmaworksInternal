@@ -7,6 +7,7 @@ export type OnboardingItemKey =
   | "mentor_profile"
   | "expertise"
   | "availability"
+  | "mentoring_hours_setup"
   | "company_links"
   | "profile_links"
   | "admin_scope";
@@ -43,13 +44,6 @@ const CHECKLISTS: Readonly<Record<ProgramRole, readonly OnboardingChecklistItem[
       step: 2,
     },
     {
-      key: "availability",
-      label: "Set shared availability",
-      description: "Choose the times when your team can meet mentors.",
-      required: true,
-      step: 3,
-    },
-    {
       key: "company_links",
       label: "Add company links",
       description: "Optionally add a website, deck, or product demo.",
@@ -78,13 +72,6 @@ const CHECKLISTS: Readonly<Record<ProgramRole, readonly OnboardingChecklistItem[
       description: "Select the topics where you can be most useful.",
       required: true,
       step: 2,
-    },
-    {
-      key: "availability",
-      label: "Set availability",
-      description: "Choose the times when you can meet startups.",
-      required: true,
-      step: 3,
     },
     {
       key: "profile_links",

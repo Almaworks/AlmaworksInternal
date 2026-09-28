@@ -1,3 +1,4 @@
+import type { CalendarHoldStatus } from "../calendar/hold-status.ts";
 export type MentorBookingViewerRole = "admin" | "mentor" | "startup";
 export type MentorBookingRequestStatus = "accepted" | "cancelled" | "declined" | "pending";
 export type MentorBookingWindowStatus = "accepted" | "available" | "pending";
@@ -35,7 +36,15 @@ export interface MentorBookingAcceptedOccupancy {
   startsAt: string;
 }
 
+export interface MentorEffectiveAvailability {
+  endsAt: string;
+  startsAt: string;
+  mentorSemesterId: string;
+  mentor: MentorBookingMentorIdentity;
+}
+
 export interface MentorBookingRequest {
+  calendarHoldStatus?: CalendarHoldStatus;
   canAccept: boolean;
   canCancel: boolean;
   canDecline: boolean;
@@ -68,6 +77,9 @@ export interface MentorBookingWindow {
 }
 
 export interface MentorBookingWorkspaceResponse {
+  startupRoster?: Array<{ startupSemesterId: string; name: string }>;
+  effectiveAvailability?: MentorEffectiveAvailability[];
+  availabilityWeekOffset?: number;
   acceptedOccupancy: MentorBookingAcceptedOccupancy[];
   availability?: MentorWeeklyAvailability[];
   history: MentorBookingRequest[];

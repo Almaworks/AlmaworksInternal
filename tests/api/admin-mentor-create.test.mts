@@ -113,7 +113,7 @@ test("mentor creation uses the hardened service RPC with the requesting admin id
     assert.deepEqual(responseBody, {
       ok: true,
       mentorId: "c4000000-0000-0000-0000-000000000011",
-      magicLink: "https://local-almaworks.test/auth/verify?token=fake",
+      magicLink: "https://almaworks.test/auth/callback?token_hash=fake-hash&type=email",
     });
 
     const rpcRequest = requests.find((request) => request.url.endsWith("/rest/v1/rpc/create_mentor_records"));

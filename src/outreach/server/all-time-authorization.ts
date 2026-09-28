@@ -20,6 +20,7 @@ export interface AllTimeOutreachContext {
 }
 
 type AuthenticateAllTimeRequest = (request: Request) => Promise<{
+  profileId: string;
   user: User;
   userClient: SupabaseClient<Database>;
 }>;
@@ -28,55 +29,43 @@ export function createRequireAllTimeOutreachAccess(authenticate: AuthenticateAll
   return async function authorizeAllTimeOutreach(
     request: Request,
   ): Promise<AllTimeOutreachContext> {
-  const { user, userClient } = await authenticate(request);
-  const { data: canManageAny, error: authorizationError } = await userClient.rpc(
-    "can_manage_any_outreach",
-    { candidate_id: user.id },
-  );
-  if (authorizationError !== null || canManageAny !== true) {
-    throw new AuthorizationError("All-time outreach administrator access required.", 403);
-  }
+    const { profileId, user, userClient } = await authenticate(request);
+    // Same authority as can_manage_semester, using the authenticated profile from
+    // the server context. RLS still filters every read; never accept browser IDs.
+    const [platform, memberships, semesters] = await Promise.all([
+      userClient.from('platform_roles').select('role').eq('profile_id', profileId).eq('role', 'super_admin'),
+      userClient.from('semester_memberships').select('semester_id').eq('profile_id', profileId).eq('role', 'admin').eq('status', 'active'),
+      userClient.from('semesters').select('id, name, start_date, end_date, is_active')
+        .order('start_date', { ascending: false }).order('id', { ascending: true }).limit(MAX_MANAGEABLE_SEMESTERS + 1),
+    ]);
+    const semesterRows = semesters.data;
+    const semesterError = platform.error ?? memberships.error ?? semesters.error;
+    if (semesterError !== null) {
+      throw new AuthorizationError("Unable to verify manageable outreach semesters.", 500);
+    }
+    if ((semesterRows?.length ?? 0) > MAX_MANAGEABLE_SEMESTERS) {
+      throw new AuthorizationError(
+        `All-time outreach exceeds the ${MAX_MANAGEABLE_SEMESTERS}-semester authorization bound.`,
+        500,
+      );
+    }
 
-  const { data: semesterRows, error: semesterError } = await userClient
-    .from("semesters")
-    .select("id, name, start_date, end_date, is_active")
-    .order("start_date", { ascending: false })
-    .order("id", { ascending: true })
-    .limit(MAX_MANAGEABLE_SEMESTERS + 1);
-  if (semesterError !== null) {
-    throw new AuthorizationError("Unable to verify manageable outreach semesters.", 500);
-  }
-  if ((semesterRows?.length ?? 0) > MAX_MANAGEABLE_SEMESTERS) {
-    throw new AuthorizationError(
-      `All-time outreach exceeds the ${MAX_MANAGEABLE_SEMESTERS}-semester authorization bound.`,
-      500,
-    );
-  }
+    const isSuperAdmin = platform.data?.some(row => row.role === 'super_admin') === true;
+    const manageableIds = new Set((memberships.data ?? []).map(row => row.semester_id));
+    const manageable = (semesterRows ?? []).filter(semester => isSuperAdmin || manageableIds.has(semester.id));
+    if (manageable.length === 0) throw new AuthorizationError('All-time outreach administrator access required.', 403);
 
-  const authorizationResults = await Promise.all((semesterRows ?? []).map(async (semester) => ({
-    semester,
-    result: await userClient.rpc("can_manage_semester", {
-      candidate_id: user.id,
-      target_semester_id: semester.id,
-    }),
-  })));
-  if (authorizationResults.some(({ result }) => result.error !== null)) {
-    throw new AuthorizationError("Unable to verify manageable outreach semesters.", 500);
-  }
-
-  return {
-    user,
-    userClient,
-    manageableSemesters: authorizationResults
-      .filter(({ result }) => result.data === true)
-      .map(({ semester }) => ({
-        id: semester.id,
-        name: semester.name,
-        startsOn: semester.start_date,
-        endsOn: semester.end_date,
-        isActive: semester.is_active,
-      })),
-  };
+    return {
+      user,
+      userClient,
+      manageableSemesters: manageable.map((semester) => ({
+          id: semester.id,
+          name: semester.name,
+          startsOn: semester.start_date,
+          endsOn: semester.end_date,
+          isActive: semester.is_active,
+        })),
+    };
   };
 }
 

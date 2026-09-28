@@ -67,3 +67,20 @@ test("authenticated fetch sends no request without a session and exposes no auth
   );
   assert.equal(requestCount, 0);
 });
+
+test("authenticated fetch does not send a request if its caller aborts while the session loads", async () => {
+  const subject = await import("../../src/auth/authenticated-fetch.ts");
+  const controller = new AbortController();
+  let finishSession: ((value: { data: { session: { access_token: string } }; error: null }) => void) | undefined;
+  let requestCount = 0;
+  const authenticatedFetch = subject.createAuthenticatedFetch(
+    () => ({ auth: { getSession: () => new Promise((resolve) => { finishSession = resolve; }) } }),
+    async () => { requestCount += 1; return new Response(null, { status: 204 }); },
+  );
+
+  const pending = authenticatedFetch("/api/mentor-booking", { signal: controller.signal });
+  controller.abort();
+  finishSession?.({ data: { session: { access_token: "old-token" } }, error: null });
+  await assert.rejects(pending, (error: unknown) => error instanceof Error && error.name === "AbortError");
+  assert.equal(requestCount, 0);
+});

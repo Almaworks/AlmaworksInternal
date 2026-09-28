@@ -107,7 +107,7 @@ function routesFor(source: AssignmentDataSource, authorization?: AuthorizationEr
       if (authorization) throw authorization;
       return source;
     },
-  });
+  }, { allowLegacyWrites: true });
 }
 
 function candidateRequest(search = new URLSearchParams({
@@ -437,6 +437,29 @@ test("commit rejects unsupported format with a field-specific validation envelop
   });
 });
 
+test("legacy mentor assignment writes are retired before authorization or persistence", async () => {
+  let authorizationCalls = 0;
+  let writes = 0;
+  const routes = createAssignmentRoutes({
+    authorize: async () => {
+      authorizationCalls++;
+      return createSource({ commitAssignment: async () => { writes++; return {}; } });
+    },
+  });
+
+  const response = await routes.commit(commitRequest(validCommit));
+
+  assert.equal(response.status, 410);
+  assert.deepEqual(await response.json(), {
+    error: {
+      code: "assignment_retired",
+      message: "New mentor assignments are no longer scheduled in Friday sessions. Use independent mentor booking instead.",
+    },
+  });
+  assert.equal(authorizationCalls, 0);
+  assert.equal(writes, 0);
+});
+
 interface FakeTableResult {
   rows: unknown[];
   single?: unknown | null;
@@ -496,13 +519,13 @@ test("Supabase candidate source maps lifecycle mentors and the selected schedule
     mentor_semesters: { rows: [{ id: "mentor-semester", semester_membership_id: "mentor-membership", semester_id: ids.semester, capacity: 3, preferred_format: "online", readiness_status: "ready" }] },
     profiles: { rows: [{ id: ids.mentor, full_name: "Lifecycle mentor", email: "mentor@example.com" }] },
     mentor_profiles: { rows: [{ profile_id: ids.mentor, expertise_tags: ["Enterprise sales"] }] },
-    meeting_availability: { rows: [{ semester_membership_id: "mentor-membership", meeting_id: ids.date, slot: 1, is_available: true, format: "hybrid" }] },
+    meeting_availability: { rows: [], error: { code: "42P01", message: "Retired relation must not be queried" } },
     sessions: { rows: [] },
   }));
   const result = await source.loadCandidateData({ semesterId: ids.semester, startupSemesterId: ids.startup, meetingId: ids.date, slot: 1, format: "online" });
 
   assert.equal(result.startupScheduleId, ids.startup);
-  assert.equal(result.availability[0]?.format, "hybrid");
+  assert.deepEqual(result.availability, []);
   assert.deepEqual(result.mentors, [{ id: "mentor-semester", scheduleMentorIds: ["mentor-semester"], profileId: ids.mentor, name: "Lifecycle mentor", expertise: ["Enterprise sales"], preferredFormat: "online", capacity: 3 }]);
 });
 

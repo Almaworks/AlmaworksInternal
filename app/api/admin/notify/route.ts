@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireActiveSemesterAdmin } from '@/src/program/canonical-access'
+import { sendSequenzyNotification } from '@/src/notifications/sequenzy'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -146,30 +147,42 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'No recipients provided.' }, { status: 400 })
     }
 
-    const apiKey = process.env.RESEND_API_KEY
+    const sequenzyApiKey = process.env.SEQUENZY_API_KEY?.trim()
+    const resendApiKey = process.env.RESEND_API_KEY?.trim()
     const fromAddress = process.env.NOTIFY_FROM_EMAIL ?? 'Almaworks <notifications@almaworks.co>'
 
     // ── DRY RUN (no API key configured) ──────────────────────────────────────
-    if (!apiKey) {
+    if (!sequenzyApiKey && !resendApiKey) {
       const preview = recipients.map(r => ({
         to: r.email,
         subject: `Your Almaworks session on ${r.meetingDate}`,
         body_preview: buildEmailText(r),
         dry_run: true,
-        message: 'RESEND_API_KEY is not set — this email would have been sent successfully.',
+        message: 'No email provider is configured. This is a preview; no email was sent.',
       }))
       return NextResponse.json({ sent: 0, dry_run: true, preview })
     }
 
-    // ── LIVE SEND via Resend ──────────────────────────────────────────────────
+    // ── LIVE SEND ─────────────────────────────────────────────────────────────
     const results: { email: string; ok: boolean; error?: string }[] = []
 
     for (const r of recipients) {
       try {
+        if (sequenzyApiKey) {
+          const result = await sendSequenzyNotification({
+            apiKey: sequenzyApiKey,
+            to: r.email,
+            subject: `Your Almaworks session on ${r.meetingDate}`,
+            html: buildEmailHtml(r),
+          })
+          results.push(result.ok ? { email: r.email, ok: true } : { email: r.email, ok: false, error: result.error })
+          continue
+        }
+
         const res = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${apiKey}`,
+            Authorization: `Bearer ${resendApiKey}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({

@@ -17,8 +17,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "semesterId and a valid scope are required." }, { status: 400 });
     }
 
-    const { user, userClient } = await requireSemesterAdmin(request, semesterId);
-    const manageable = await loadManageableCohorts(userClient, user.id);
+    const { profileId, user, userClient } = await requireSemesterAdmin(request, semesterId);
+    const manageable = await loadManageableCohorts(userClient, user.id, profileId);
     const selected = scope === "all"
       ? manageable
       : manageable.filter((semester) => semester.id === semesterId);

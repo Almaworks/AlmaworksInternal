@@ -2,11 +2,12 @@
 
 import { createClient } from '@/utils/supabase/client'
 import Link from 'next/link'
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import TagInput from '@/components/TagInput'
+import { DataLoading } from '@/components/DataLoading'
 import MentorModal from '@/components/MentorModal'
 import { CohortScreenControls, useCohortScreen } from '@/components/CohortScreenControls'
-import type { CohortRecordReference } from '@/src/lifecycle/cohort-screen'
+import { selectedVisibleMembershipIds, type CohortRecordReference } from '@/src/lifecycle/cohort-screen'
 import { loadMentorDirectory } from '@/src/program/canonical-repository'
 import { adminMemberHref } from '@/src/assignments/schedule-navigation'
 import { membershipPresentation, type MembershipReadinessStatus } from '@/src/lifecycle/membership-presentation'
@@ -44,6 +45,8 @@ export default function AdminMentorsPage() {
   const [activeSemesterId, setActiveSemesterId] = useState<string | null>(null)
   const [activeSemesterName, setActiveSemesterName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const loadRequestId = useRef(0)
 
   // Add form
   const [showAdd, setShowAdd] = useState(false)
@@ -91,29 +94,43 @@ export default function AdminMentorsPage() {
   }
 
   async function load() {
+    const requestId = loadRequestId.current + 1
+    loadRequestId.current = requestId
     setLoading(true)
-    const { data: sem } = await supabase.from('semesters').select('id, name').eq('is_active', true).maybeSingle()
-    setActiveSemesterId((sem as { id: string; name: string } | null)?.id ?? null)
-    setActiveSemesterName((sem as { id: string; name: string } | null)?.name ?? null)
-    const [{ data: authData }, mentorRows] = await Promise.all([
-      supabase.auth.getUser(),
-      loadMentorDirectory(supabase),
-    ])
-    setRows(mentorRows)
-    const authUserId = authData.user?.id
-    if (!authUserId) {
-      setIsGlobalAdmin(false)
-    } else {
-      const { data: profile } = await supabase.from('profiles').select('id').eq('auth_user_id', authUserId).maybeSingle()
-      const { data: platformRole } = profile
-        ? await supabase.from('platform_roles').select('role').eq('profile_id', profile.id).eq('role', 'super_admin').maybeSingle()
-        : { data: null }
-      setIsGlobalAdmin(Boolean(platformRole))
+    setLoadError(null)
+    try {
+      const { data: sem, error: semesterError } = await supabase.from('semesters').select('id, name').eq('is_active', true).maybeSingle()
+      if (semesterError) throw semesterError
+      const [{ data: authData, error: authError }, mentorRows] = await Promise.all([
+        supabase.auth.getUser(),
+        loadMentorDirectory(supabase),
+      ])
+      if (authError) throw authError
+      const authUserId = authData.user?.id
+      let isSuperAdmin = false
+      if (authUserId) {
+        const { data: profile, error: profileError } = await supabase.from('profiles').select('id').eq('auth_user_id', authUserId).maybeSingle()
+        if (profileError) throw profileError
+        if (profile) {
+          const { data: platformRole, error: platformRoleError } = await supabase.from('platform_roles').select('role').eq('profile_id', profile.id).eq('role', 'super_admin').maybeSingle()
+          if (platformRoleError) throw platformRoleError
+          isSuperAdmin = Boolean(platformRole)
+        }
+      }
+      if (loadRequestId.current !== requestId) return
+      setActiveSemesterId((sem as { id: string; name: string } | null)?.id ?? null)
+      setActiveSemesterName((sem as { id: string; name: string } | null)?.name ?? null)
+      setRows(mentorRows)
+      setIsGlobalAdmin(isSuperAdmin)
+    } catch (cause) {
+      if (loadRequestId.current !== requestId) return
+      setLoadError(cause instanceof Error ? cause.message : 'Mentors could not be loaded. Try again.')
+    } finally {
+      if (loadRequestId.current === requestId) setLoading(false)
     }
-    setLoading(false)
   }
 
-  useEffect(() => { void (async () => { await load() })() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void load(); return () => { loadRequestId.current += 1 } }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const allTagSuggestions = useMemo(() =>
     [...new Set(rows.flatMap(r => r.expertise_tags ?? []))].sort()
@@ -139,6 +156,9 @@ export default function AdminMentorsPage() {
         return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
       })
   }, [rows, search, activeFilter, scopedMentorIds, sortKey, sortDir])
+  const visibleMentorMembershipIds = cohort.membershipIds(filtered.map(row => ({ recordId: row.id, email: row.email, semesterId: row.semester_id })))
+  const selectedVisibleMentorIds = selectedVisibleMembershipIds(cohort.selected, visibleMentorMembershipIds)
+  const showImportSelection = cohort.semesterId !== null && cohort.cohorts.current !== null && cohort.semesterId !== cohort.cohorts.current.id
 
   function handleSort(key: typeof sortKey) {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -280,6 +300,10 @@ export default function AdminMentorsPage() {
 
   const canMutateAccess = cohort.semesterId !== null && cohort.semesterId === cohort.cohorts.current?.id
 
+  if (loading || cohort.loading) return <DataLoading label={loading ? "Loading mentors" : "Loading mentor cohorts"} />
+  if (loadError) return <section className="rounded-xl border border-red-200 bg-red-50 p-5" role="alert"><h1 className="text-lg font-semibold text-[#002147]">Mentors could not load</h1><p className="mt-1 text-sm text-red-700">{loadError}</p><button type="button" onClick={() => void load()} className="mt-4 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-[#002147]">Try again</button></section>
+  if (cohort.loadError) return <div className="max-w-5xl"><CohortScreenControls controller={cohort} visibleRecords={[]} /></div>
+
   return (
     <div className="max-w-5xl">
       {/* Page header */}
@@ -398,7 +422,7 @@ export default function AdminMentorsPage() {
         </form>
       )}
 
-      <CohortScreenControls controller={cohort} visibleRecords={filtered.map(row => ({ recordId: row.id, email: row.email, semesterId: row.semester_id }))} />
+      <CohortScreenControls controller={cohort} visibleRecords={filtered.map(row => ({ recordId: row.id, email: row.email, semesterId: row.semester_id }))} rowSelection />
 
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
@@ -417,27 +441,25 @@ export default function AdminMentorsPage() {
       </div>
 
       {/* List */}
-      {loading ? (
-        <div className="flex items-center justify-center h-32">
-          <div className="w-5 h-5 border-2 border-[#002147] border-t-transparent rounded-full animate-spin" />
-        </div>
-      ) : filtered.length === 0 ? (
+      {filtered.length === 0 ? (
         <p className="text-sm text-gray-400 px-1">No mentors match the current filters.</p>
       ) : (
-        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-          <table className="w-full text-sm table-fixed border-collapse">
+        <div className="overflow-x-auto rounded-xl border border-gray-100 bg-white">
+          <table className="w-full min-w-[900px] table-fixed border-collapse text-sm">
             <colgroup>
-              <col style={{ width: '19%' }} />
+              {showImportSelection && <col style={{ width: '4%' }} />}
+              <col style={{ width: showImportSelection ? '18%' : '19%' }} />
+              <col style={{ width: showImportSelection ? '15%' : '16%' }} />
+              <col style={{ width: '9%' }} />
+              <col style={{ width: '9%' }} />
+              <col style={{ width: showImportSelection ? '8%' : '9%' }} />
               <col style={{ width: '16%' }} />
-              <col style={{ width: '9%' }} />
-              <col style={{ width: '9%' }} />
-              <col style={{ width: '9%' }} />
-              <col style={{ width: '16%' }} />
-              <col style={{ width: '14%' }} />
+              <col style={{ width: showImportSelection ? '13%' : '14%' }} />
               <col style={{ width: '8%' }} />
             </colgroup>
             <thead className="border-b border-gray-100 bg-gray-50">
               <tr>
+                {showImportSelection && <th className="px-2 py-3"><span className="sr-only">Select mentors for import</span></th>}
                 {([['full_name', 'Name'], ['company', 'Company'], ['membership_status', 'Status'], ['semester_name', 'Semester']] as const).map(([k, label]) => (
                   <th key={k} className="px-4 py-3 text-left font-normal">
                     <button onClick={() => handleSort(k)}
@@ -465,6 +487,7 @@ export default function AdminMentorsPage() {
                 return (
                 <Fragment key={m.id}>
                   <tr className="hover:bg-gray-50/50 transition-colors">
+                    {showImportSelection && <td className="px-2 py-3 text-center"><input type="checkbox" aria-label={`Select ${m.full_name} for import`} checked={selectedVisibleMentorIds.includes(m.membership_id)} disabled={cohort.working || !visibleMentorMembershipIds.includes(m.membership_id)} onChange={() => cohort.setSelected(selectedVisibleMentorIds.includes(m.membership_id) ? selectedVisibleMentorIds.filter(id => id !== m.membership_id) : [...selectedVisibleMentorIds, m.membership_id])} /></td>}
                     <td className="px-4 py-3">
                       <button
                         onClick={() => setSelectedMentorId(m.id)}
@@ -570,7 +593,7 @@ export default function AdminMentorsPage() {
                   </tr>
                   {managingAccessId === m.id && (
                     <tr>
-                      <td colSpan={8} className="p-0">
+                      <td colSpan={showImportSelection ? 9 : 8} className="p-0">
                         <div className="border-t border-gray-100 bg-slate-50 px-5 py-5">
                           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                             <div className="max-w-xl">
@@ -626,7 +649,7 @@ export default function AdminMentorsPage() {
                   )}
                   {editingId === m.id && (
                     <tr>
-                      <td colSpan={8} className="p-0">
+                      <td colSpan={showImportSelection ? 9 : 8} className="p-0">
                         <div className="bg-gray-50/80 border-t border-gray-100 px-5 py-4 space-y-3">
                           <div className="grid sm:grid-cols-2 gap-3">
                             {([

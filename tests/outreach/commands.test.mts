@@ -408,30 +408,32 @@ test("authorization failure prevents every database RPC", async () => {
   assert.deepEqual(events, ["authorize"]);
 });
 
-test("a stale updatedAt becomes a typed conflict instead of an overwrite", async () => {
-  const { commands, request } = createHarness({
-    snoozeOpportunity: async () => ({
-      data: null,
-      error: { code: "40001", message: "Outreach opportunity is stale" },
-    }),
-  });
+test("new and legacy stale SQLSTATEs become typed conflicts instead of overwrites", async () => {
+  for (const staleCode of ["PT409", "40001"]) {
+    const { commands, request } = createHarness({
+      snoozeOpportunity: async () => ({
+        data: null,
+        error: { code: staleCode, message: "Outreach opportunity is stale" },
+      }),
+    });
 
-  const result = await commands.snoozeOpportunity({
-    request,
-    semesterId,
-    opportunityId,
-    snoozedUntil: "2027-02-20T12:00:00.000Z",
-    updatedAt,
-  });
+    const result = await commands.snoozeOpportunity({
+      request,
+      semesterId,
+      opportunityId,
+      snoozedUntil: "2027-02-20T12:00:00.000Z",
+      updatedAt,
+    });
 
-  assert.deepEqual(result, {
-    ok: false,
-    error: {
-      kind: "conflict",
-      code: "stale_updated_at",
-      message: "Outreach opportunity changed after it was loaded.",
-    },
-  });
+    assert.deepEqual(result, {
+      ok: false,
+      error: {
+        kind: "conflict",
+        code: "stale_updated_at",
+        message: "Outreach opportunity changed after it was loaded.",
+      },
+    }, staleCode);
+  }
 });
 
 test("release authorizes the semester before returning mapped opportunity identifiers", async () => {
@@ -554,31 +556,33 @@ test("membership suspension authorizes before its single atomic offboarding RPC"
   });
 });
 
-test("membership suspension returns a typed conflict for stale state", async () => {
-  const rpcClient: MembershipSuspensionRpcClient = {
-    suspendOutreachMembership: async () => ({
-      data: null,
-      error: { code: "40001", message: "Semester membership is stale" },
-    }),
-  };
-  const suspendMembership = createSuspendOutreachMembershipCommand(async () => rpcClient);
+test("membership suspension maps new and legacy stale SQLSTATEs to a typed conflict", async () => {
+  for (const staleCode of ["PT409", "40001"]) {
+    const rpcClient: MembershipSuspensionRpcClient = {
+      suspendOutreachMembership: async () => ({
+        data: null,
+        error: { code: staleCode, message: "Semester membership is stale" },
+      }),
+    };
+    const suspendMembership = createSuspendOutreachMembershipCommand(async () => rpcClient);
 
-  const result = await suspendMembership({
-    request: new Request("https://almaworks.example.test/memberships/suspend"),
-    semesterId,
-    profileId: ownerProfileId,
-    reason: "Program role ended",
-    updatedAt,
-  });
+    const result = await suspendMembership({
+      request: new Request("https://almaworks.example.test/memberships/suspend"),
+      semesterId,
+      profileId: ownerProfileId,
+      reason: "Program role ended",
+      updatedAt,
+    });
 
-  assert.deepEqual(result, {
-    ok: false,
-    error: {
-      kind: "conflict",
-      code: "stale_updated_at",
-      message: "Semester membership changed after it was loaded.",
-    },
-  });
+    assert.deepEqual(result, {
+      ok: false,
+      error: {
+        kind: "conflict",
+        code: "stale_updated_at",
+        message: "Semester membership changed after it was loaded.",
+      },
+    }, staleCode);
+  }
 });
 
 test("membership suspension propagates atomic RPC failure without a follow-up mutation", async () => {

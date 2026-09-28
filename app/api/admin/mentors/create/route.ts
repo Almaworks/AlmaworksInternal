@@ -65,7 +65,7 @@ export async function POST(req: Request) {
         data: { full_name: fullName },
       },
     })
-    if (linkErr || !linkData.user?.id || !linkData.properties?.action_link) {
+    if (linkErr || !linkData.user?.id || !linkData.properties?.hashed_token) {
       return NextResponse.json({ error: linkErr?.message ?? 'Could not generate magic link.' }, { status: 400 })
     }
 
@@ -92,10 +92,13 @@ export async function POST(req: Request) {
       )
     }
 
+    const signInLink = new URL('/auth/callback', new URL(req.url).origin)
+    signInLink.searchParams.set('token_hash', linkData.properties.hashed_token)
+    signInLink.searchParams.set('type', 'email')
     return NextResponse.json({
       ok: true,
       mentorId: provisionResult.data,
-      magicLink: linkData.properties.action_link,
+      magicLink: signInLink.toString(),
     })
   } catch (err) {
     return NextResponse.json(

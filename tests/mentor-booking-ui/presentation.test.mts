@@ -44,11 +44,11 @@ test("mentor availability calendar labels full hours without labeling quarter-ho
   assert.deepEqual([formatter("08:00"), formatter("08:15"), formatter("12:00")], ["8 AM", "", "12 PM"]);
 });
 
-test("pending and upcoming mentorship sessions are displayed before role-specific booking controls", async () => {
+test("pending and upcoming mentorship sessions are displayed before shared booking controls", async () => {
   const source = await readFile(new URL("../../components/mentor-booking/MentorBookingWorkspace.tsx", import.meta.url), "utf8");
-  const pendingSessions = source.indexOf('<PendingSessions requests={meetingSections.pending}');
-  const upcomingSessions = source.indexOf('<UpcomingSessions requests={meetingSections.upcoming}');
-  const availabilityCalendar = source.indexOf("<PerDayCalendar");
+  const pendingSessions = source.indexOf('PendingSessions requests={meetingSections.pending}');
+  const upcomingSessions = source.indexOf('UpcomingSessions requests={meetingSections.upcoming}');
+  const availabilityCalendar = source.indexOf("<CalendarConnectionCard");
   const startupCalendar = source.indexOf("<StartupAvailabilityBrowser");
 
   assert.notEqual(pendingSessions, -1);
@@ -71,20 +71,18 @@ test("booking sections use information-focused headings instead of independent m
   assert.doesNotMatch(source, /Upcoming mentorship sessions/);
 });
 
-test("mentor and startup booking workspaces display the real current calendar week prominently", async () => {
+test("mentor and startup booking workspaces display the cohort-aware booking week prominently", async () => {
   const source = await readFile(new URL("../../components/mentor-booking/MentorBookingWorkspace.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /currentCalendarWeek/u);
-  assert.match(source, />Current week</u);
+  assert.match(source, /bookableCalendarWeek/u);
+  assert.match(source, />Booking week</u);
   assert.match(source, /text-2xl/u);
 });
 
-test("accepted current-week meetings are disabled and color coded in the mentor calendar", async () => {
-  const source = await readFile(new URL("../../components/mentor-booking/MentorBookingWorkspace.tsx", import.meta.url), "utf8");
+test("accepted occupancy is supplied to the shared booking calendar", async () => {
+  const source = await readFile(new URL("../../components/mentor-booking/StartupAvailabilityBrowser.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /bookedCells\.get/u);
-  assert.match(source, /disabled=\{reserved \|\| booked\}/u);
-  assert.match(source, /Booked with startup/u);
-  assert.match(source, /bg-violet-200/u);
+  assert.match(source, /acceptedOccupancy: data\.acceptedOccupancy/u);
+  assert.match(source, /startupBookingSlots/u);
   assert.match(source, /setInterval\(\(\) => setNow\(new Date\(\)\), 60_000\)/u);
 });

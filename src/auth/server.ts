@@ -199,7 +199,7 @@ export function createSuspendOutreachMembershipCommand(
       p_semester_id: input.semesterId,
     });
 
-    if (error?.code === "40001") {
+    if (error !== null && ["PT409", "40001"].includes(error.code ?? "")) {
       return {
         ok: false,
         error: {

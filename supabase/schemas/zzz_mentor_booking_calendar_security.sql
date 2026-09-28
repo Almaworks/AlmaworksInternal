@@ -2,10 +2,10 @@ alter table public.mentor_weekly_availability enable row level security;
 create policy "active participants and admins read mentor weekly availability" on public.mentor_weekly_availability for select to authenticated using (private.can_manage_semester(semester_id,auth.uid()) or exists(select 1 from public.semester_memberships membership where membership.semester_id=mentor_weekly_availability.semester_id and membership.profile_id=private.current_profile_id() and membership.role in ('mentor','startup') and membership.status='active'));
 create policy "owning mentors manage weekly availability" on public.mentor_weekly_availability for all to authenticated using (mentor_semester_id in (select term.id from public.mentor_semesters term join public.semester_memberships membership on membership.id=term.semester_membership_id where term.semester_id=mentor_weekly_availability.semester_id and membership.profile_id=private.current_profile_id() and membership.role='mentor' and membership.status='active')) with check (mentor_semester_id in (select term.id from public.mentor_semesters term join public.semester_memberships membership on membership.id=term.semester_membership_id where term.semester_id=mentor_weekly_availability.semester_id and membership.profile_id=private.current_profile_id() and membership.role='mentor' and membership.status='active'));
 revoke all on table public.mentor_weekly_availability from anon,authenticated;
-grant select,insert,delete on table public.mentor_weekly_availability to authenticated;
+grant select on table public.mentor_weekly_availability to authenticated;
 revoke all on function public.replace_mentor_weekly_availability(uuid,jsonb) from public,anon;
 revoke all on function public.request_mentor_booking(uuid,uuid,timestamptz,timestamptz,text) from public,anon;
-grant execute on function public.replace_mentor_weekly_availability(uuid,jsonb) to authenticated;
+revoke execute on function public.replace_mentor_weekly_availability(uuid,jsonb) from authenticated;
 grant execute on function public.request_mentor_booking(uuid,uuid,timestamptz,timestamptz,text) to authenticated;
 
 alter table public.mentor_booking_accepted_occupancy enable row level security;

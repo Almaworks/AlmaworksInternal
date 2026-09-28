@@ -1,0 +1,47 @@
+.directory { max-width: 1040px; margin: 0 auto; color: #172b3d; }
+.heading { margin-bottom: 24px; }
+.eyebrow { color: #596b7a; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.heading h1 { margin: 6px 0 10px; font-size: clamp(26px, 4vw, 36px); font-weight: 700; letter-spacing: -.04em; }
+.heading > p:last-child { color: #596b7a; font-size: 14px; line-height: 1.6; }
+.search { display: flex; align-items: center; gap: 12px; padding: 13px 16px; border: 1px solid #ccd5de; border-radius: 10px; background: white; color: #596b7a; }
+.search input { min-width: 0; width: 100%; border: 0; outline: none; background: transparent; color: #172b3d; font: inherit; font-size: 14px; }
+.search input::placeholder { color: #637483; }
+.search:focus-within { outline: 2px solid #002147; outline-offset: 2px; }
+.count { margin: 14px 0; font-size: 12px; color: #596b7a; }
+.list { display: grid; gap: 18px; }
+.card { min-width: 0; padding: 26px; border: 1px solid #dce2e8; border-radius: 14px; background: white; overflow-wrap: anywhere; }
+.cardHeading { display: flex; gap: 14px; align-items: center; }
+.cardHeading > div:nth-child(2) { min-width: 0; flex: 1; }
+.card h2 { margin: 0; font-size: 19px; font-weight: 700; color: #002147; }
+.companyIcon { display: grid; place-items: center; width: 48px; height: 48px; flex-shrink: 0; background: #eef2f6; border-radius: 12px; color: #002147; }
+.metadata { margin: 5px 0 0; font-size: 12px; color: #596b7a; line-height: 1.6; }
+.website { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #002147; }
+.description { margin: 20px 0; font-size: 14px; line-height: 1.75; white-space: pre-line; }
+.detail { margin-top: 18px; }
+.card h3 { margin: 0 0 9px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #596b7a; }
+.detail p, .detail li { font-size: 13px; line-height: 1.7; }
+.detail p { white-space: pre-line; }
+.detail ul { padding-left: 18px; list-style: disc; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.tags span { padding: 5px 9px; border-radius: 6px; background: #eef2f6; color: #284359; font-size: 12px; }
+.team { margin-top: 22px; padding-top: 18px; border-top: 1px solid #e5e9ed; }
+.team h3 span { margin-left: 5px; }
+.team ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.team li { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+.personAvatar { display: grid; place-items: center; width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; background: #eef2f6; font-weight: 600; }
+.email { display: inline-flex; align-items: center; gap: 6px; color: #435d73; font-size: 12px; }
+.email svg { flex-shrink: 0; }
+.directory a:hover { text-decoration: underline; }
+.directory a:focus-visible, .empty button:focus-visible { outline: 2px solid #002147; outline-offset: 4px; }
+.empty { display: grid; justify-items: center; gap: 12px; padding: 48px 20px; text-align: center; color: #596b7a; }
+.empty h2 { color: #002147; font-size: 20px; }
+.empty p { font-size: 14px; }
+.empty button { padding: 10px 16px; border: 1px solid #ccd5de; border-radius: 8px; background: white; color: #002147; cursor: pointer; }
+@media (max-width: 600px) {
+  .card { padding: 18px; }
+  .cardHeading { flex-wrap: wrap; gap: 10px; }
+  .website { margin-left: 58px; }
+  .team li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 4px 10px; }
+  .email { grid-column: 2; }
+  .companyIcon { width: 42px; height: 42px; }
+}

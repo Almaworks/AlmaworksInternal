@@ -1,3 +1,8 @@
+.preparation { display: grid; align-content: center; justify-items: start; gap: 1rem; min-height: 60vh; width: min(100%, 46rem); margin: 2rem auto; padding: clamp(1.25rem, 4vw, 2rem); color: #1d2a3b; background: #fffefa; border: 1px solid #deddd7; border-radius: 1rem; overflow-wrap: anywhere; }
+.preparation > * { min-width: 0; max-width: 100%; }
+.preparation p { line-height: 1.6; }
+.preparation h1 { font: 500 clamp(1.8rem, 4vw, 2.8rem)/1.12 Georgia, serif; }
+.preparation button { padding: .75rem 1rem; border-radius: .5rem; background: #06264a; color: white; }
 .shell {
   --navy: #06264a;
   --blue: #2f718f;
@@ -8,7 +13,7 @@
   display: grid;
   grid-template-columns: minmax(18rem, .72fr) minmax(32rem, 1.28fr);
   min-height: calc(100vh - 4rem);
-  margin: -2rem;
+  margin: -2rem 0;
   color: var(--ink);
   background: #f7f6f2;
 }
@@ -47,7 +52,7 @@
 .formTop i { display: block; height: 100%; background: var(--blue); }
 .formTop button { justify-self: end; font-size: .65rem; font-weight: 750; }
 .formBody { display: grid; flex: 1; place-items: center; padding: 2rem clamp(1.4rem, 5vw, 4.5rem); }
-.formBody section { width: min(100%, 38rem); }
+.formBody section { min-width: 0; width: min(100%, 38rem); }
 .formBody h2 { margin: .45rem 0 .6rem; color: var(--navy); font: 500 clamp(1.85rem, 4vw, 2.8rem)/1.08 Georgia, serif; letter-spacing: -.04em; }
 .lede { max-width: 33rem; margin: 0 0 1.7rem; color: var(--muted); font-size: .79rem; line-height: 1.6; }
 .rolePreview { display: flex; align-items: center; gap: .7rem; margin-bottom: 1.2rem; padding: .8rem; border: 1px solid #d8e3e8; border-radius: .75rem; background: #f0f6f8; }
@@ -71,6 +76,16 @@ label .hint { font-weight: 500; }
 .defaultNote strong, .defaultNote p { display: block; margin: 0; }
 .defaultNote strong { font-size: .68rem; }
 .defaultNote p { margin-top: .18rem; color: #617782; font-size: .62rem; line-height: 1.45; }
+
+.availabilityChoice { display: grid; min-width: 0; gap: .55rem; margin: 0; padding: 0; border: 0; }
+.availabilityChoice legend { margin-bottom: .2rem; color: var(--ink); font-size: .67rem; font-weight: 800; }
+.availabilityChoice label { display: flex; align-items: flex-start; gap: .7rem; margin: 0; padding: .8rem; border: 1px solid var(--line); border-radius: .7rem; background: white; cursor: pointer; }
+.availabilityChoice label:has(input:focus-visible) { outline: 3px solid rgba(83,149,178,.34); outline-offset: 2px; }
+.availabilityChoice input { width: 1rem; height: 1rem; margin: .1rem 0 0; padding: 0; accent-color: var(--navy); }
+.availabilityChoice span, .availabilityChoice strong, .availabilityChoice small { display: block; min-width: 0; }
+.availabilityChoice strong { color: var(--navy); font-size: .69rem; }
+.availabilityChoice small { margin-top: .2rem; color: var(--muted); font-size: .61rem; font-weight: 500; line-height: 1.45; }
+.availabilityChoice .choiceSelected { border-color: #74a4ba; background: #f0f6f8; box-shadow: 0 0 0 1px rgba(47,113,143,.08); }
 
 .windowList { display: grid; gap: .55rem; }
 .windowList > button { display: grid; grid-template-columns: 1.4rem 6rem 1fr auto; gap: .7rem; align-items: center; width: 100%; padding: .8rem; border: 1px solid var(--line); border-radius: .7rem; text-align: left; background: white; transition: border .15s ease, transform .15s ease, background .15s ease; }
@@ -116,7 +131,7 @@ label .hint { font-weight: 500; }
 }
 
 @media (max-width: 720px) {
-  .shell { display: block; min-height: calc(100vh - 6.2rem); margin: -1rem; }
+  .shell { display: block; min-height: calc(100vh - 6.2rem); margin: -1rem 0; }
   .contextPanel { min-height: auto; padding: 1.2rem; }
   .contextCopy { margin: 1.5rem 0 1rem; }
   .contextCopy h1 { font-size: 1.7rem; }

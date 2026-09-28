@@ -1,333 +1,52 @@
-'use client'
+"use client";
 
-import { createClient } from '@/utils/supabase/client'
-import { createSessionRequest, loadMentorDirectory } from '@/src/program/canonical-repository'
-import { useEffect, useMemo, useState } from 'react'
+import Link from "next/link";
+import { DataLoading } from "@/components/DataLoading";
+import { loadCanonicalAccess } from "@/src/program/canonical-access";
+import { useEffect, useMemo, useState } from "react";
 
-type MentorCard = {
-  id: string
-  full_name: string
-  company: string | null
-  role_title: string | null
-  linkedin_url: string | null
-  bio: string | null
-  expertise_tags: string[]
-  is_active: boolean
-  photo_url: string | null
-}
+import { ProfileAvatar } from "@/components/profile-photo/ProfileAvatar";
+import { loadMentorDirectory } from "@/src/program/canonical-repository";
+import { createClient } from "@/utils/supabase/client";
 
-type MeetingDate = { id: string; date: string; label: string | null }
+type MentorCard = { id: string; full_name: string; company: string | null; role_title: string | null; linkedin_url: string | null; bio: string | null; expertise_tags: string[]; is_active: boolean; photo_url: string | null };
 
 export default function MentorDirectoryPage() {
-  const supabase = useMemo(() => createClient(), [])
-  const [mentors, setMentors] = useState<MentorCard[]>([])
-  const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
-  const [tagFilter, setTagFilter] = useState('')
-
-  // For request-a-mentor flow
-  const [userRole, setUserRole] = useState<string | null>(null)
-  const [startupId, setStartupId] = useState<string | null>(null)
-  const [activeSemesterId, setActiveSemesterId] = useState<string | null>(null)
-  const [meetingDates, setMeetingDates] = useState<MeetingDate[]>([])
-
-  // Request modal state
-  const [requestMentor, setRequestMentor] = useState<MentorCard | null>(null)
-  const [requestDateId, setRequestDateId] = useState('')
-  const [requestTopic, setRequestTopic] = useState('')
-  const [requestFormat, setRequestFormat] = useState('online')
-  const [requestSlot, setRequestSlot] = useState<1 | 2>(1)
-  const [requesting, setRequesting] = useState(false)
-  const [requestSuccess, setRequestSuccess] = useState(false)
-  const [requestError, setRequestError] = useState<string | null>(null)
+  const supabase = useMemo(() => createClient(), []);
+  const [mentors, setMentors] = useState<MentorCard[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [search, setSearch] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const [userRole, setUserRole] = useState<string | null>(null);
 
   useEffect(() => {
+    let active = true;
     async function init() {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { setLoading(false); return }
-
-      const { data: membership } = await supabase
-        .from('semester_memberships')
-        .select('id, role, semester_id, semester:semesters!inner(is_active)')
-        .eq('profile_id', user.id)
-        .eq('semester.is_active', true)
-        .maybeSingle()
-      setUserRole(membership?.role ?? null)
-
-      // Fetch mentors
-      const mentorData = await loadMentorDirectory(supabase)
-      setMentors(mentorData.filter((mentor) => mentor.is_active))
-      setLoading(false)
-
-      // If startup user, find their startup and load session dates
-      if (membership?.role === 'startup') {
-        setActiveSemesterId(membership.semester_id)
-        if (membership.semester_id) {
-          const { data: dateRows } = await supabase
-            .from('meetings')
-            .select('id, meeting_date, label')
-            .eq('semester_id', membership.semester_id)
-            .order('meeting_date')
-          setMeetingDates((dateRows ?? []).map((row) => ({ id: row.id, date: row.meeting_date, label: row.label })))
-        }
-
-        // Find startup by founder email — use ilike on jsonb cast as text
-        const { data: team } = await supabase
-          .from('startup_team_memberships')
-          .select('startup_semester_id')
-          .eq('semester_membership_id', membership.id)
-          .maybeSingle()
-        if (team) setStartupId(team.startup_semester_id)
-      }
+      setLoading(true); setError(null);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Sign in to view the mentor directory.");
+      const [access, mentorData] = await Promise.all([
+        loadCanonicalAccess(supabase, user.id),
+        loadMentorDirectory(supabase),
+      ]);
+      if (!active) return;
+      setUserRole(access?.role ?? null);
+      setMentors(mentorData.filter((mentor) => mentor.is_active));
+      setLoading(false);
     }
-    void init()
-  }, [supabase])
+    void init().catch((cause: unknown) => { if (active) { setError(cause instanceof Error ? cause.message : "Mentors could not be loaded."); setLoading(false); } });
+    return () => { active = false; };
+  }, [supabase, attempt]);
 
-  const allTags = useMemo(() =>
-    [...new Set(mentors.flatMap(m => m.expertise_tags ?? []))].sort()
-  , [mentors])
-
+  const allTags = useMemo(() => [...new Set(mentors.flatMap((mentor) => mentor.expertise_tags ?? []))].sort(), [mentors]);
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return mentors.filter(m => {
-      if (tagFilter && !(m.expertise_tags ?? []).includes(tagFilter)) return false
-      if (!q) return true
-      return [m.full_name, m.company ?? '', m.role_title ?? '', ...(m.expertise_tags ?? [])].join(' ').toLowerCase().includes(q)
-    })
-  }, [mentors, search, tagFilter])
+    const query = search.trim().toLowerCase();
+    return mentors.filter((mentor) => (!tagFilter || (mentor.expertise_tags ?? []).includes(tagFilter)) && (!query || [mentor.full_name, mentor.company ?? "", mentor.role_title ?? "", ...(mentor.expertise_tags ?? [])].join(" ").toLowerCase().includes(query)));
+  }, [mentors, search, tagFilter]);
 
-  async function submitRequest() {
-    if (!requestMentor || !startupId || !activeSemesterId || !requestDateId) return
-    setRequesting(true)
-    setRequestError(null)
-    let error: Error | null = null
-    try {
-      await createSessionRequest(supabase, {
-        format: requestFormat,
-        meetingId: requestDateId,
-        mentorSemesterId: requestMentor.id,
-        semesterId: activeSemesterId,
-        slot: requestSlot,
-        startupSemesterId: startupId,
-        topic: requestTopic.trim() || null,
-      })
-    } catch (cause) {
-      error = cause instanceof Error ? cause : new Error('Unable to request session')
-    }
-    setRequesting(false)
-    if (error) {
-      setRequestError(error.message)
-    } else {
-      setRequestSuccess(true)
-      setTimeout(() => {
-        setRequestMentor(null)
-        setRequestSuccess(false)
-        setRequestDateId('')
-        setRequestTopic('')
-        setRequestFormat('online')
-        setRequestSlot(1)
-        setRequestError(null)
-      }, 1800)
-    }
-  }
-
-  return (
-    <div className="max-w-4xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-[#002147]">Mentor Directory</h1>
-        <p className="text-sm text-gray-500 mt-1">Browse mentors and their areas of expertise.</p>
-      </div>
-
-      <div className="flex flex-col sm:flex-row gap-3 mb-5">
-        <input
-          type="search"
-          placeholder="Search mentors…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="flex-1 text-sm text-gray-800 placeholder:text-gray-400 border border-gray-300 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
-        />
-        <select
-          value={tagFilter}
-          onChange={e => setTagFilter(e.target.value)}
-          className="text-sm text-gray-700 border border-gray-300 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
-        >
-          <option value="">All expertise</option>
-          {allTags.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
-        <p className="text-xs text-gray-400 self-center shrink-0">{filtered.length} mentor{filtered.length !== 1 ? 's' : ''}</p>
-      </div>
-
-      {loading ? (
-        <div className="flex items-center gap-2 py-8">
-          <div className="w-4 h-4 border-2 border-[#002147] border-t-transparent rounded-full animate-spin" />
-          <span className="text-sm text-gray-400">Loading…</span>
-        </div>
-      ) : filtered.length === 0 ? (
-        <p className="text-sm text-gray-400">No mentors found.</p>
-      ) : (
-        <div className="grid sm:grid-cols-2 gap-4">
-          {filtered.map(m => (
-            <div key={m.id} className="bg-white rounded-2xl border border-gray-100 p-5 flex gap-4">
-              <div className="w-12 h-12 rounded-xl bg-[#002147]/8 flex items-center justify-center shrink-0 overflow-hidden">
-                {m.photo_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={m.photo_url} alt={m.full_name} className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-[#002147] text-lg font-bold">{m.full_name.charAt(0)}</span>
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-[#002147] truncate">{m.full_name}</p>
-                {(m.role_title || m.company) && (
-                  <p className="text-xs text-gray-500 truncate mt-0.5">
-                    {[m.role_title, m.company].filter(Boolean).join(' · ')}
-                  </p>
-                )}
-                {m.bio && (
-                  <p className="text-xs text-gray-500 mt-1.5 line-clamp-2 leading-relaxed">{m.bio}</p>
-                )}
-                {(m.expertise_tags ?? []).length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    {m.expertise_tags.slice(0, 4).map(t => (
-                      <span key={t} className="text-[10px] bg-[#002147]/8 text-[#002147] px-2 py-0.5 rounded-full font-medium">{t}</span>
-                    ))}
-                    {m.expertise_tags.length > 4 && (
-                      <span className="text-[10px] text-gray-400">+{m.expertise_tags.length - 4}</span>
-                    )}
-                  </div>
-                )}
-                <div className="flex items-center gap-3 mt-2.5 flex-wrap">
-                  {m.linkedin_url && (
-                    <a
-                      href={m.linkedin_url.startsWith('http') ? m.linkedin_url : `https://${m.linkedin_url}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-800 font-medium"
-                    >
-                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M19 0h-14c-2.76 0-5 2.24-5 5v14c0 2.76 2.24 5 5 5h14c2.76 0 5-2.24 5-5v-14c0-2.76-2.24-5-5-5zm-11 19h-3v-10h3v10zm-1.5-11.27c-.97 0-1.75-.79-1.75-1.76s.78-1.76 1.75-1.76 1.75.79 1.75 1.76-.78 1.76-1.75 1.76zm13.5 11.27h-3v-5.6c0-1.34-.03-3.07-1.87-3.07-1.87 0-2.16 1.46-2.16 2.97v5.7h-3v-10h2.88v1.36h.04c.4-.76 1.38-1.56 2.84-1.56 3.04 0 3.6 2 3.6 4.59v5.61z" />
-                      </svg>
-                      LinkedIn
-                    </a>
-                  )}
-                  {userRole === 'startup' && startupId && meetingDates.length > 0 && (
-                    <button
-                      onClick={() => { setRequestMentor(m); setRequestError(null); setRequestSuccess(false) }}
-                      className="text-[11px] font-medium px-2.5 py-1 bg-[#002147] text-white rounded-lg hover:bg-[#002147]/90 transition-colors"
-                    >
-                      Request session
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Request-a-mentor modal */}
-      {requestMentor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setRequestMentor(null)} />
-          <div className="relative bg-white rounded-2xl w-full max-w-md shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-semibold text-[#002147]">Request a session</h3>
-                <p className="text-xs text-gray-500 mt-0.5">with {requestMentor.full_name}</p>
-              </div>
-              <button
-                onClick={() => setRequestMentor(null)}
-                className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            {requestSuccess ? (
-              <div className="py-6 text-center">
-                <div className="w-10 h-10 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
-                <p className="text-sm font-medium text-gray-700">Request sent!</p>
-                <p className="text-xs text-gray-400 mt-1">The mentor will confirm shortly.</p>
-              </div>
-            ) : (
-              <>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Session date <span className="text-red-400">*</span></label>
-                    <select
-                      value={requestDateId}
-                      onChange={e => setRequestDateId(e.target.value)}
-                      className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
-                    >
-                      <option value="">Select a date…</option>
-                      {meetingDates.map(d => (
-                        <option key={d.id} value={d.id}>
-                          {d.label ?? d.date} · {d.date}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Slot</label>
-                    <select
-                      value={requestSlot}
-                      onChange={e => setRequestSlot(e.target.value === '2' ? 2 : 1)}
-                      className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
-                    >
-                      <option value={1}>3:30 â€“ 4:15 PM</option>
-                      <option value={2}>4:15 â€“ 5:00 PM</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Format</label>
-                    <select
-                      value={requestFormat}
-                      onChange={e => setRequestFormat(e.target.value)}
-                      className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
-                    >
-                      <option value="online">Online</option>
-                      <option value="in-person">In-person</option>
-                      <option value="no-preference">No preference</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Topic / what you&apos;d like to discuss</label>
-                    <textarea
-                      rows={3}
-                      value={requestTopic}
-                      onChange={e => setRequestTopic(e.target.value)}
-                      placeholder="e.g. Fundraising strategy, GTM planning…"
-                      className="w-full text-sm text-gray-800 placeholder:text-gray-400 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40 resize-none"
-                    />
-                  </div>
-                </div>
-                {requestError && <p className="text-xs text-red-500">{requestError}</p>}
-                <div className="flex items-center gap-2 pt-1">
-                  <button
-                    onClick={() => void submitRequest()}
-                    disabled={requesting || !requestDateId}
-                    className="px-4 py-2 bg-[#002147] text-white text-sm font-medium rounded-lg hover:bg-[#002147]/90 disabled:opacity-50 transition-colors"
-                  >
-                    {requesting ? 'Sending…' : 'Send request'}
-                  </button>
-                  <button
-                    onClick={() => setRequestMentor(null)}
-                    className="px-4 py-2 text-sm font-medium text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  )
+  if (loading) return <DataLoading label="Loading mentors..." />;
+  if (error) return <div role="alert">{error} <button type="button" className="underline" onClick={() => setAttempt(value => value + 1)}>Try again</button></div>;
+  return <div className="max-w-4xl"><div className="mb-6"><h1 className="text-2xl font-semibold text-[#002147]">Mentor Directory</h1><p className="mt-1 text-sm text-gray-500">Browse mentors and their areas of expertise.</p></div><div className="mb-5 flex flex-col gap-3 sm:flex-row"><input type="search" placeholder="Search mentors…" value={search} onChange={(event) => setSearch(event.target.value)} className="flex-1 rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40" /><select value={tagFilter} onChange={(event) => setTagFilter(event.target.value)} className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"><option value="">All expertise</option>{allTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}</select><p className="shrink-0 self-center text-xs text-gray-400">{filtered.length} mentor{filtered.length === 1 ? "" : "s"}</p></div>{loading ? <div className="flex items-center gap-2 py-8"><div className="h-4 w-4 animate-spin rounded-full border-2 border-[#002147] border-t-transparent" /><span className="text-sm text-gray-400">Loading…</span></div> : filtered.length === 0 ? <p className="text-sm text-gray-400">No mentors found.</p> : <div className="grid gap-4 sm:grid-cols-2">{filtered.map((mentor) => <article key={mentor.id} className="flex gap-4 rounded-2xl border border-gray-100 bg-white p-5"><ProfileAvatar name={mentor.full_name} photoUrl={mentor.photo_url} /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-[#002147]">{mentor.full_name}</p>{(mentor.role_title || mentor.company) && <p className="mt-0.5 truncate text-xs text-gray-500">{[mentor.role_title, mentor.company].filter(Boolean).join(" · ")}</p>}{mentor.bio && <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-gray-500">{mentor.bio}</p>}<div className="mt-2 flex flex-wrap gap-1">{(mentor.expertise_tags ?? []).slice(0, 4).map((tag) => <span key={tag} className="rounded-full bg-[#002147]/8 px-2 py-0.5 text-[10px] font-medium text-[#002147]">{tag}</span>)}</div><div className="mt-3 flex flex-wrap items-center gap-3">{mentor.linkedin_url && <a href={mentor.linkedin_url.startsWith("http") ? mentor.linkedin_url : `https://${mentor.linkedin_url}`} target="_blank" rel="noopener noreferrer" className="text-[11px] font-medium text-blue-600 hover:text-blue-800">LinkedIn</a>}{userRole === "startup" && <Link href={`/dashboard/bookings?mentor=${encodeURIComponent(mentor.id)}`} className="rounded-lg bg-[#002147] px-2.5 py-1 text-[11px] font-medium text-white transition-colors hover:bg-[#002147]/90">View booking windows</Link>}</div></div></article>)}</div>}</div>;
 }

@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MembershipReadinessStatus } from "../lifecycle/membership-presentation.ts";
 import type { MembershipStatus } from "../lifecycle/types.ts";
+import { selectWithOptionalProfilePhotoPath } from "../profile-photos/schema-compatibility.ts";
+import { createProfilePhotoUrlResolver } from "../profile-photos/urls.ts";
 
 type ProgramClient = SupabaseClient;
 
@@ -20,6 +22,8 @@ type ProfileRow = {
   email: string | null;
   full_name: string | null;
   is_active: boolean;
+  photo_path?: string | null;
+  status: string | null;
   mentor_profile?: Related<MentorProfileRow>;
 };
 
@@ -139,6 +143,8 @@ const MENTOR_DIRECTORY_SELECT = `
       email,
       full_name,
       is_active,
+      status,
+      photo_path,
       mentor_profile:mentor_profiles(
         biography,
         company,
@@ -151,6 +157,13 @@ const MENTOR_DIRECTORY_SELECT = `
     )
   )
 `;
+
+const MENTOR_DIRECTORY_SELECT_WITHOUT_PHOTO_PATH = MENTOR_DIRECTORY_SELECT.replace("\n      photo_path,", "");
+
+function retainedForDeletedMemberHistory(row: MentorSemesterRow): boolean {
+  const profile = one(one(row.membership)?.profile ?? null);
+  return profile?.is_active === false && profile.status === "rejected";
+}
 
 const STARTUP_DIRECTORY_SELECT = `
   id,
@@ -189,13 +202,27 @@ function failIfError(error: { message: string } | null) {
 }
 
 export async function loadMentorDirectory(client: ProgramClient) {
-  const result = await client
+  const selectMentors = (columns: string) => client
     .from("mentor_semesters")
-    .select(MENTOR_DIRECTORY_SELECT)
+    .select(columns)
     .eq("membership.role", "mentor")
     .order("full_name", { referencedTable: "membership.profile" });
+  const result = await selectWithOptionalProfilePhotoPath(
+    () => selectMentors(MENTOR_DIRECTORY_SELECT),
+    () => selectMentors(MENTOR_DIRECTORY_SELECT_WITHOUT_PHOTO_PATH),
+  );
   failIfError(result.error);
-  return ((result.data ?? []) as unknown as MentorSemesterRow[]).map(mapMentor);
+  const resolvePhoto = createProfilePhotoUrlResolver(client);
+  const rows = ((result.data ?? []) as unknown as MentorSemesterRow[])
+    .filter((row) => !retainedForDeletedMemberHistory(row));
+  const mentors = rows.map(mapMentor);
+  const photoUrls = await resolvePhoto.resolveMany(rows.map((row, index) => ({
+    legacyPhotoUrl: mentors[index]?.photo_url,
+    photoPath: one(one(row.membership)?.profile ?? null)?.photo_path,
+  })));
+  return mentors.map((mentor, index) => {
+    return { ...mentor, photo_url: photoUrls[index] ?? null };
+  });
 }
 
 function mapMentor(row: MentorSemesterRow): MentorView {
@@ -235,14 +262,22 @@ function mapMentor(row: MentorSemesterRow): MentorView {
 }
 
 export async function loadMentorProfile(client: ProgramClient, mentorSemesterId: string) {
-  const result = await client
+  const selectMentor = (columns: string) => client
     .from("mentor_semesters")
-    .select(MENTOR_DIRECTORY_SELECT)
+    .select(columns)
     .eq("id", mentorSemesterId)
     .eq("membership.role", "mentor")
     .maybeSingle();
+  const result = await selectWithOptionalProfilePhotoPath(
+    () => selectMentor(MENTOR_DIRECTORY_SELECT),
+    () => selectMentor(MENTOR_DIRECTORY_SELECT_WITHOUT_PHOTO_PATH),
+  );
   failIfError(result.error);
-  return result.data ? mapMentor(result.data as unknown as MentorSemesterRow) : null;
+  if (!result.data) return null;
+  const row = result.data as unknown as MentorSemesterRow;
+  const mentor = mapMentor(row);
+  const profile = one(one(row.membership)?.profile ?? null);
+  return { ...mentor, photo_url: await createProfilePhotoUrlResolver(client)(profile?.photo_path, mentor.photo_url) };
 }
 
 export async function loadStartupDirectory(client: ProgramClient) {

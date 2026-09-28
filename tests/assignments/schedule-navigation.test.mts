@@ -2,63 +2,69 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  ADMIN_SCHEDULE_HREF,
+  ADMIN_FRIDAY_PROGRAM_HREF,
   adminMemberHref,
   adminDashboardHref,
   isDashboardNavigationActive,
-  mentorDirectoryScheduleEntry,
   resolveAdminDashboardTab,
 } from "../../src/assignments/schedule-navigation.ts";
 
-test("member management links keep the canonical Members tab and encode the email", () => {
+test("participant booking navigation matches the selected URL tab", () => {
+  for (const role of ["mentor", "startup"]) {
+    const path = `/dashboard/${role}`;
+    assert.equal(isDashboardNavigationActive(path, `${path}?tab=bookings`, "bookings"), true);
+    assert.equal(isDashboardNavigationActive(path, path, "bookings"), false);
+    assert.equal(isDashboardNavigationActive(path, `${path}?tab=bookings`, null), false);
+    assert.equal(isDashboardNavigationActive(path, path, null), true);
+  }
+});
+
+test("member management links use the canonical Members module and encode the email", () => {
   assert.equal(
     adminMemberHref("mentor+ops@example.com"),
-    "/dashboard/admin?tab=members&member=mentor%2Bops%40example.com",
+    "/dashboard/admin/members?member=mentor%2Bops%40example.com",
   );
 });
 
 test("historical mentor and startup management links preserve their target semester", () => {
   assert.equal(
     adminMemberHref("mentor@example.com", "fall 2025"),
-    "/dashboard/admin?tab=members&member=mentor%40example.com&semester=fall%202025",
+    "/dashboard/admin/members?member=mentor%40example.com&semester=fall%202025",
   );
   assert.equal(
     adminMemberHref("founder+ops@example.com", "spring-2024"),
-    "/dashboard/admin?tab=members&member=founder%2Bops%40example.com&semester=spring-2024",
+    "/dashboard/admin/members?member=founder%2Bops%40example.com&semester=spring-2024",
   );
 });
 
-test("the first-class admin schedule route resolves the existing Schedule tab", () => {
-  assert.equal(resolveAdminDashboardTab("/dashboard/admin/schedule"), "schedule");
-  assert.equal(resolveAdminDashboardTab("/dashboard/admin"), "users");
+test("admin routes select dedicated modules while retired routes fall back to overview", () => {
+  assert.equal(resolveAdminDashboardTab("/dashboard/admin/schedule"), "overview");
+  assert.equal(resolveAdminDashboardTab("/dashboard/admin/friday-program"), "friday-program");
+  assert.equal(resolveAdminDashboardTab("/dashboard/admin/access"), "access");
+  assert.equal(resolveAdminDashboardTab("/dashboard/admin/members"), "members");
+  assert.equal(resolveAdminDashboardTab("/dashboard/admin/startups"), "startups");
+  assert.equal(resolveAdminDashboardTab("/dashboard/admin"), "overview");
 });
 
-test("admin overview query values restore every non-schedule tab from the URL", () => {
-  assert.equal(resolveAdminDashboardTab("/dashboard/admin", "users"), "users");
+test("legacy overview query values retain their management destination", () => {
+  assert.equal(resolveAdminDashboardTab("/dashboard/admin", "users"), "access");
   assert.equal(resolveAdminDashboardTab("/dashboard/admin", "members"), "members");
   assert.equal(resolveAdminDashboardTab("/dashboard/admin", "startups"), "startups");
-  assert.equal(resolveAdminDashboardTab("/dashboard/admin", "schedule"), "users");
-  assert.equal(resolveAdminDashboardTab("/dashboard/admin", "unknown"), "users");
+  assert.equal(resolveAdminDashboardTab("/dashboard/admin", "friday-program"), "friday-program");
+  assert.equal(resolveAdminDashboardTab("/dashboard/admin", "schedule"), "overview");
+  assert.equal(resolveAdminDashboardTab("/dashboard/admin", "unknown"), "overview");
 });
 
-test("every admin tab has a canonical bookmarkable destination", () => {
-  assert.equal(adminDashboardHref("users"), "/dashboard/admin?tab=users");
-  assert.equal(adminDashboardHref("members"), "/dashboard/admin?tab=members");
-  assert.equal(adminDashboardHref("startups"), "/dashboard/admin?tab=startups");
-  assert.equal(adminDashboardHref("schedule"), "/dashboard/admin/schedule");
+test("every admin module has a canonical bookmarkable destination", () => {
+  assert.equal(adminDashboardHref("overview"), "/dashboard/admin");
+  assert.equal(adminDashboardHref("access"), "/dashboard/admin/access");
+  assert.equal(adminDashboardHref("members"), "/dashboard/admin/members");
+  assert.equal(adminDashboardHref("startups"), "/dashboard/admin/startups");
+  assert.equal(adminDashboardHref("friday-program"), ADMIN_FRIDAY_PROGRAM_HREF);
 });
 
-test("admin sidebar active state distinguishes Overview from Schedule", () => {
-  assert.equal(isDashboardNavigationActive("/dashboard/admin/schedule", ADMIN_SCHEDULE_HREF), true);
+test("admin sidebar active state distinguishes Overview from Friday Program", () => {
+  assert.equal(isDashboardNavigationActive("/dashboard/admin/friday-program", ADMIN_FRIDAY_PROGRAM_HREF), true);
   assert.equal(isDashboardNavigationActive("/dashboard/admin/schedule", "/dashboard/admin"), false);
   assert.equal(isDashboardNavigationActive("/dashboard/admin", "/dashboard/admin"), true);
-  assert.equal(isDashboardNavigationActive("/dashboard/admin", ADMIN_SCHEDULE_HREF), false);
-});
-
-test("only authoritative admin capability receives a Mentor Directory assignment entry", () => {
-  assert.deepEqual(mentorDirectoryScheduleEntry(true), {
-    href: "/dashboard/admin/schedule",
-    label: "Assign mentors",
-  });
-  assert.equal(mentorDirectoryScheduleEntry(false), null);
 });

@@ -50,3 +50,12 @@ next-env.d.ts
 # Obsidian vault: keep shared settings, ignore personal workspace state/plugins
 /docs/.obsidian/workspace*.json
 /docs/.obsidian/plugins/
+
+# Local Supabase credential (never commit)
+/supabase/Supabase Codex CLI Token.txt
+/supabase/sequenzy_api_key.txt
+
+# Local QA artifacts and credentials (not deployment source)
+/work/
+/outputs/
+/supabase/COMS6998 PAT.txt

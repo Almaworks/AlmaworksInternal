@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
-import { AuthorizationError, requireAuthenticatedUser, requireSemesterAdmin } from '@/src/auth/server'
+import { AuthorizationError, requireAuthenticatedUser } from '@/src/auth/server'
+import { legacyAssignmentRetiredResponse } from '@/src/assignments/retired'
 
 import { SessionFormatError, sessionFormatSource, validateSessionMeetingFormat } from '@/src/sessions/meeting-format'
 
@@ -28,33 +29,8 @@ async function authorizeExisting(request: Request, sessionId: string) {
   return { ...context, session: session.data }
 }
 
-export async function POST(request: Request) {
-  try {
-    const body = (await request.json()) as SessionWrite & { semesterId: string }
-    if (!body.semesterId || !body.meetingId || !body.mentorSemesterId || !body.startupSemesterId || !body.slot) {
-      return NextResponse.json({ error: 'semesterId, meetingId, mentorSemesterId, startupSemesterId, and slot are required.' }, { status: 400 })
-    }
-    const { userClient } = await requireSemesterAdmin(request, body.semesterId)
-    const format = await validateSessionMeetingFormat({ ...body, format: body.format, semesterId: body.semesterId, meetingId: body.meetingId, mentorSemesterId: body.mentorSemesterId, slot: body.slot }, sessionFormatSource(userClient))
-    const result = await userClient.from('sessions').insert({
-      format,
-      meeting_id: body.meetingId,
-      mentor_semester_id: body.mentorSemesterId,
-      semester_id: body.semesterId,
-      slot: body.slot,
-      startup_absent: body.startupAbsent ?? false,
-      startup_semester_id: body.startupSemesterId,
-      status: 'confirmed',
-      substitute_name: body.substituteName ?? null,
-      topic: body.topic ?? null,
-    })
-    if (result.error) throw new Error(result.error.message)
-    return NextResponse.json({ ok: true })
-  } catch (error) {
-    if (error instanceof SessionFormatError) return NextResponse.json({ error: error.message }, { status: 400 })
-    if (error instanceof AuthorizationError) return NextResponse.json({ error: error.message }, { status: error.status })
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to create session.' }, { status: 500 })
-  }
+export async function POST() {
+  return legacyAssignmentRetiredResponse()
 }
 
 export async function PATCH(request: Request) {

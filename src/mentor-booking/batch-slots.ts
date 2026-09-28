@@ -41,6 +41,10 @@ export interface WeeklyPlanner {
 const WEEKDAYS: readonly BatchWeekday[] = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/u;
 const TIME_PATTERN = /^(\d{2}):(\d{2})$/u;
+const DAY_MILLISECONDS = 86_400_000;
+const offsetFormatters = new Map<string, Intl.DateTimeFormat>();
+const localPartsFormatters = new Map<string, Intl.DateTimeFormat>();
+const validatedZones = new Set<string>();
 
 function error(message: string): never { throw new Error(message); }
 
@@ -78,11 +82,33 @@ export function buildWeeklyPlanner(input: Pick<MentorBookingBatchInput, "bufferM
 }
 
 function validZone(timeZone: string): void {
-  try { new Intl.DateTimeFormat("en-US", { timeZone }).format(); } catch { error("Semester timezone is invalid."); }
+  if (validatedZones.has(timeZone)) return;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format();
+    validatedZones.add(timeZone);
+  } catch { error("Semester timezone is invalid."); }
+}
+
+function offsetFormatter(timeZone: string): Intl.DateTimeFormat {
+  let formatter = offsetFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "longOffset" });
+    offsetFormatters.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
+function localPartsFormatter(timeZone: string): Intl.DateTimeFormat {
+  let formatter = localPartsFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+    localPartsFormatters.set(timeZone, formatter);
+  }
+  return formatter;
 }
 
 function offsetAt(instant: number, timeZone: string): number {
-  const part = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "longOffset" }).formatToParts(new Date(instant)).find((item) => item.type === "timeZoneName")?.value;
+  const part = offsetFormatter(timeZone).formatToParts(new Date(instant)).find((item) => item.type === "timeZoneName")?.value;
   if (!part || part === "GMT") return 0;
   const match = /^GMT([+-])(\d{2}):(\d{2})$/u.exec(part);
   if (!match) return error("Semester timezone offset could not be resolved.");
@@ -91,7 +117,7 @@ function offsetAt(instant: number, timeZone: string): number {
 }
 
 function localParts(instant: number, timeZone: string): { day: number; hour: number; minute: number; month: number; year: number } {
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(instant));
+  const parts = localPartsFormatter(timeZone).formatToParts(new Date(instant));
   const number = (type: Intl.DateTimeFormatPartTypes): number => Number(parts.find((part) => part.type === type)?.value);
   return { year: number("year"), month: number("month"), day: number("day"), hour: number("hour"), minute: number("minute") };
 }
@@ -100,8 +126,11 @@ function zonedInstant(date: { day: number; month: number; year: number }, minute
   const hour = Math.floor(minuteOfDay / 60);
   const minute = minuteOfDay % 60;
   const localMs = Date.UTC(date.year, date.month - 1, date.day, hour, minute);
-  const offsets = new Set<number>();
-  for (let offset = -14 * 60; offset <= 14 * 60; offset += 30) offsets.add(offsetAt(localMs + offset * 60_000, timeZone));
+  const offsets = new Set([
+    offsetAt(localMs - DAY_MILLISECONDS, timeZone),
+    offsetAt(localMs, timeZone),
+    offsetAt(localMs + DAY_MILLISECONDS, timeZone),
+  ]);
   const candidates = [...offsets].map((zoneOffset) => localMs - zoneOffset).filter((candidate) => {
     const resolved = localParts(candidate, timeZone);
     return resolved.year === date.year && resolved.month === date.month && resolved.day === date.day && resolved.hour === hour && resolved.minute === minute;
@@ -127,7 +156,7 @@ export function buildMentorBookingBatch(input: MentorBookingBatchInput): MentorB
   const duplicateKeys = new Set(input.existingWindows.map((window) => `${window.startsAt}/${window.endsAt}`));
   const slots: MentorBookingBatchSlot[] = [];
   let invalidCount = 0;
-  for (let day = startDay; day <= endDay; day += 86_400_000) {
+  for (let day = startDay; day <= endDay; day += DAY_MILLISECONDS) {
     const current = new Date(day);
     const date = { year: current.getUTCFullYear(), month: current.getUTCMonth() + 1, day: current.getUTCDate() };
     if (!selected.has(WEEKDAYS[current.getUTCDay()]!)) continue;

@@ -149,7 +149,7 @@ export async function createStartupRecords(client: AdminClient, input: CreateSta
   const semesterResult = await client
     .from("startup_semesters")
     .insert({
-      readiness_status: "ready",
+      readiness_status: "not_started",
       semester_id: input.semesterId,
       stage: input.stage,
       startup_organization_id: organization.id,
@@ -177,7 +177,7 @@ export async function assignFounderMembership(
       profile_id: input.profileId,
       role: "startup",
       semester_id: term.semester_id,
-      status: "active",
+      status: "onboarding",
     }, { ignoreDuplicates: true, onConflict: "semester_id,profile_id" })
     .select("id")
     .maybeSingle();
@@ -187,10 +187,9 @@ export async function assignFounderMembership(
     ? membershipInsertResult
     : await client
       .from("semester_memberships")
-      .update({ status: "active" })
+      .select("id")
       .eq("semester_id", term.semester_id)
       .eq("profile_id", input.profileId)
-      .select("id")
       .single();
   const membership = requireData(membershipResult.data, membershipResult.error, "Unable to create startup membership.");
 

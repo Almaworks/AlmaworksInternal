@@ -7,31 +7,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       expertise_tag_aliases: {
@@ -224,6 +199,110 @@ export type Database = {
           },
         ]
       }
+      friday_speakers: {
+        Row: {
+          bio: string
+          contact_email: string
+          contact_phone: string | null
+          expertise: string
+          linkedin_url: string | null
+          meeting_id: string
+          name: string
+          semester_id: string
+          topic: string
+          updated_at: string
+          website_url: string | null
+        }
+        Insert: {
+          bio: string
+          contact_email: string
+          contact_phone?: string | null
+          expertise: string
+          linkedin_url?: string | null
+          meeting_id: string
+          name: string
+          semester_id: string
+          topic: string
+          updated_at?: string
+          website_url?: string | null
+        }
+        Update: {
+          bio?: string
+          contact_email?: string
+          contact_phone?: string | null
+          expertise?: string
+          linkedin_url?: string | null
+          meeting_id?: string
+          name?: string
+          semester_id?: string
+          topic?: string
+          updated_at?: string
+          website_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "friday_speakers_meeting_fkey"
+            columns: ["semester_id", "meeting_id"]
+            isOneToOne: false
+            referencedRelation: "meetings"
+            referencedColumns: ["semester_id", "id"]
+          },
+          {
+            foreignKeyName: "friday_speakers_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      google_calendar_connections: {
+        Row: {
+          account_email: string
+          calendar_id: string
+          connected_at: string
+          disconnect_cleanup_incomplete: boolean
+          disconnected_at: string | null
+          id: string
+          profile_id: string
+          provider_subject: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          account_email: string
+          calendar_id?: string
+          connected_at?: string
+          disconnect_cleanup_incomplete?: boolean
+          disconnected_at?: string | null
+          id?: string
+          profile_id: string
+          provider_subject: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          account_email?: string
+          calendar_id?: string
+          connected_at?: string
+          disconnect_cleanup_incomplete?: boolean
+          disconnected_at?: string | null
+          id?: string
+          profile_id?: string
+          provider_subject?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "google_calendar_connections_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       invitations: {
         Row: {
           accepted_at: string | null
@@ -316,70 +395,11 @@ export type Database = {
           },
         ]
       }
-      meeting_availability: {
-        Row: {
-          created_at: string
-          format: string | null
-          id: string
-          is_available: boolean
-          meeting_id: string
-          semester_id: string
-          semester_membership_id: string
-          slot: number
-          source: string
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          format?: string | null
-          id?: string
-          is_available?: boolean
-          meeting_id: string
-          semester_id: string
-          semester_membership_id: string
-          slot: number
-          source?: string
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          format?: string | null
-          id?: string
-          is_available?: boolean
-          meeting_id?: string
-          semester_id?: string
-          semester_membership_id?: string
-          slot?: number
-          source?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "meeting_availability_semester_id_fkey"
-            columns: ["semester_id"]
-            isOneToOne: false
-            referencedRelation: "semesters"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "meeting_availability_semester_id_meeting_id_fkey"
-            columns: ["semester_id", "meeting_id"]
-            isOneToOne: false
-            referencedRelation: "meetings"
-            referencedColumns: ["semester_id", "id"]
-          },
-          {
-            foreignKeyName: "meeting_availability_semester_id_semester_membership_id_fkey"
-            columns: ["semester_id", "semester_membership_id"]
-            isOneToOne: false
-            referencedRelation: "semester_memberships"
-            referencedColumns: ["semester_id", "id"]
-          },
-        ]
-      }
       meetings: {
         Row: {
           created_at: string
+          friday_canceled_at: string | null
+          friday_canceled_by_profile_id: string | null
           id: string
           label: string | null
           meeting_date: string
@@ -392,6 +412,8 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          friday_canceled_at?: string | null
+          friday_canceled_by_profile_id?: string | null
           id?: string
           label?: string | null
           meeting_date: string
@@ -404,6 +426,8 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          friday_canceled_at?: string | null
+          friday_canceled_by_profile_id?: string | null
           id?: string
           label?: string | null
           meeting_date?: string
@@ -416,10 +440,77 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "meetings_friday_canceled_by_profile_id_fkey"
+            columns: ["friday_canceled_by_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "meetings_semester_id_fkey"
             columns: ["semester_id"]
             isOneToOne: false
             referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      member_deletion_operations: {
+        Row: {
+          actor_profile_id: string
+          auth_user_id: string | null
+          completed_at: string | null
+          counts: Json
+          id: string
+          impact: Json
+          prepared_at: string
+          profile_id: string
+          source_email: string | null
+          source_name: string | null
+          status: string
+          version: string
+        }
+        Insert: {
+          actor_profile_id: string
+          auth_user_id?: string | null
+          completed_at?: string | null
+          counts?: Json
+          id?: string
+          impact?: Json
+          prepared_at?: string
+          profile_id: string
+          source_email?: string | null
+          source_name?: string | null
+          status: string
+          version: string
+        }
+        Update: {
+          actor_profile_id?: string
+          auth_user_id?: string | null
+          completed_at?: string | null
+          counts?: Json
+          id?: string
+          impact?: Json
+          prepared_at?: string
+          profile_id?: string
+          source_email?: string | null
+          source_name?: string | null
+          status?: string
+          version?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "member_deletion_operations_actor_profile_id_fkey"
+            columns: ["actor_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "member_deletion_operations_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -474,6 +565,171 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "mentor_booking_requests"
             referencedColumns: ["semester_id", "id"]
+          },
+        ]
+      }
+      mentor_booking_decision_notes: {
+        Row: {
+          alternative_text: string | null
+          author_profile_id: string
+          created_at: string
+          id: string
+          kind: string
+          note: string
+          request_id: string
+          semester_id: string
+        }
+        Insert: {
+          alternative_text?: string | null
+          author_profile_id: string
+          created_at?: string
+          id?: string
+          kind: string
+          note: string
+          request_id: string
+          semester_id: string
+        }
+        Update: {
+          alternative_text?: string | null
+          author_profile_id?: string
+          created_at?: string
+          id?: string
+          kind?: string
+          note?: string
+          request_id?: string
+          semester_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mentor_booking_decision_notes_author_profile_id_fkey"
+            columns: ["author_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mentor_booking_decision_notes_request_fkey"
+            columns: ["semester_id", "request_id"]
+            isOneToOne: true
+            referencedRelation: "mentor_booking_requests"
+            referencedColumns: ["semester_id", "id"]
+          },
+          {
+            foreignKeyName: "mentor_booking_decision_notes_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mentor_booking_meeting_details: {
+        Row: {
+          created_at: string
+          id: string
+          location: string | null
+          request_id: string
+          semester_id: string
+          updated_at: string
+          updated_by_profile_id: string
+          video_url: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          location?: string | null
+          request_id: string
+          semester_id: string
+          updated_at?: string
+          updated_by_profile_id: string
+          video_url?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          location?: string | null
+          request_id?: string
+          semester_id?: string
+          updated_at?: string
+          updated_by_profile_id?: string
+          video_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mentor_booking_meeting_details_request_fkey"
+            columns: ["semester_id", "request_id"]
+            isOneToOne: true
+            referencedRelation: "mentor_booking_requests"
+            referencedColumns: ["semester_id", "id"]
+          },
+          {
+            foreignKeyName: "mentor_booking_meeting_details_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mentor_booking_meeting_details_updated_by_profile_id_fkey"
+            columns: ["updated_by_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mentor_booking_outcomes: {
+        Row: {
+          attendance: string
+          created_at: string
+          feedback: string | null
+          id: string
+          reporter_profile_id: string
+          request_id: string
+          semester_id: string
+          updated_at: string
+        }
+        Insert: {
+          attendance: string
+          created_at?: string
+          feedback?: string | null
+          id?: string
+          reporter_profile_id: string
+          request_id: string
+          semester_id: string
+          updated_at?: string
+        }
+        Update: {
+          attendance?: string
+          created_at?: string
+          feedback?: string | null
+          id?: string
+          reporter_profile_id?: string
+          request_id?: string
+          semester_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mentor_booking_outcomes_reporter_profile_id_fkey"
+            columns: ["reporter_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mentor_booking_outcomes_request_fkey"
+            columns: ["semester_id", "request_id"]
+            isOneToOne: false
+            referencedRelation: "mentor_booking_requests"
+            referencedColumns: ["semester_id", "id"]
+          },
+          {
+            foreignKeyName: "mentor_booking_outcomes_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -639,6 +895,151 @@ export type Database = {
             foreignKeyName: "mentor_booking_windows_semester_mentor_fkey"
             columns: ["semester_id", "mentor_semester_id"]
             isOneToOne: false
+            referencedRelation: "mentor_semesters"
+            referencedColumns: ["semester_id", "id"]
+          },
+        ]
+      }
+      mentor_calendar_manual_slots: {
+        Row: {
+          created_at: string
+          ends_at: string
+          id: string
+          mentor_semester_id: string
+          semester_id: string
+          starts_at: string
+        }
+        Insert: {
+          created_at?: string
+          ends_at: string
+          id?: string
+          mentor_semester_id: string
+          semester_id: string
+          starts_at: string
+        }
+        Update: {
+          created_at?: string
+          ends_at?: string
+          id?: string
+          mentor_semester_id?: string
+          semester_id?: string
+          starts_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mentor_calendar_manual_slots_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mentor_calendar_manual_slots_semester_id_mentor_semester_i_fkey"
+            columns: ["semester_id", "mentor_semester_id"]
+            isOneToOne: false
+            referencedRelation: "mentor_semesters"
+            referencedColumns: ["semester_id", "id"]
+          },
+        ]
+      }
+      mentor_calendar_overrides: {
+        Row: {
+          available: boolean
+          created_at: string
+          ends_at: string
+          id: string
+          mentor_semester_id: string
+          semester_id: string
+          starts_at: string
+        }
+        Insert: {
+          available: boolean
+          created_at?: string
+          ends_at: string
+          id?: string
+          mentor_semester_id: string
+          semester_id: string
+          starts_at: string
+        }
+        Update: {
+          available?: boolean
+          created_at?: string
+          ends_at?: string
+          id?: string
+          mentor_semester_id?: string
+          semester_id?: string
+          starts_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mentor_calendar_overrides_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mentor_calendar_overrides_semester_id_mentor_semester_id_fkey"
+            columns: ["semester_id", "mentor_semester_id"]
+            isOneToOne: false
+            referencedRelation: "mentor_semesters"
+            referencedColumns: ["semester_id", "id"]
+          },
+        ]
+      }
+      mentor_calendar_settings: {
+        Row: {
+          connection_id: string | null
+          last_error_at: string | null
+          last_success_at: string | null
+          mentor_semester_id: string
+          mode: string
+          semester_id: string
+          sync_unavailable: boolean
+          time_zone: string
+          updated_at: string
+        }
+        Insert: {
+          connection_id?: string | null
+          last_error_at?: string | null
+          last_success_at?: string | null
+          mentor_semester_id: string
+          mode: string
+          semester_id: string
+          sync_unavailable?: boolean
+          time_zone: string
+          updated_at?: string
+        }
+        Update: {
+          connection_id?: string | null
+          last_error_at?: string | null
+          last_success_at?: string | null
+          mentor_semester_id?: string
+          mode?: string
+          semester_id?: string
+          sync_unavailable?: boolean
+          time_zone?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mentor_calendar_settings_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "google_calendar_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mentor_calendar_settings_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mentor_calendar_settings_semester_id_mentor_semester_id_fkey"
+            columns: ["semester_id", "mentor_semester_id"]
+            isOneToOne: true
             referencedRelation: "mentor_semesters"
             referencedColumns: ["semester_id", "id"]
           },
@@ -829,6 +1230,69 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "mentor_semesters"
             referencedColumns: ["semester_id", "id"]
+          },
+        ]
+      }
+      notification_deliveries: {
+        Row: {
+          created_at: string
+          due_at: string
+          event_kind: string
+          id: string
+          last_error: string | null
+          provider_id: string | null
+          recipient_email: string
+          recipient_profile_id: string
+          semester_id: string
+          source_id: string
+          source_version: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          due_at?: string
+          event_kind: string
+          id?: string
+          last_error?: string | null
+          provider_id?: string | null
+          recipient_email: string
+          recipient_profile_id: string
+          semester_id: string
+          source_id: string
+          source_version: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          due_at?: string
+          event_kind?: string
+          id?: string
+          last_error?: string | null
+          provider_id?: string | null
+          recipient_email?: string
+          recipient_profile_id?: string
+          semester_id?: string
+          source_id?: string
+          source_version?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_deliveries_recipient_profile_id_fkey"
+            columns: ["recipient_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notification_deliveries_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1320,6 +1784,163 @@ export type Database = {
           },
           {
             foreignKeyName: "outreach_email_templates_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      outreach_gmail_accounts: {
+        Row: {
+          connected_at: string
+          connection_id: string
+          email: string
+          encrypted_token: Json
+          profile_id: string
+          provider_subject: string
+        }
+        Insert: {
+          connected_at?: string
+          connection_id: string
+          email: string
+          encrypted_token: Json
+          profile_id: string
+          provider_subject: string
+        }
+        Update: {
+          connected_at?: string
+          connection_id?: string
+          email?: string
+          encrypted_token?: Json
+          profile_id?: string
+          provider_subject?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outreach_gmail_accounts_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      outreach_gmail_messages: {
+        Row: {
+          body: string
+          created_at: string
+          google_message_id: string | null
+          google_thread_id: string | null
+          id: string
+          opportunity_id: string
+          profile_id: string
+          recipient: string
+          request_digest: string
+          request_key: string
+          semester_id: string
+          sender: string
+          status: string
+          subject: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          google_message_id?: string | null
+          google_thread_id?: string | null
+          id: string
+          opportunity_id: string
+          profile_id: string
+          recipient: string
+          request_digest: string
+          request_key: string
+          semester_id: string
+          sender: string
+          status: string
+          subject: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          google_message_id?: string | null
+          google_thread_id?: string | null
+          id?: string
+          opportunity_id?: string
+          profile_id?: string
+          recipient?: string
+          request_digest?: string
+          request_key?: string
+          semester_id?: string
+          sender?: string
+          status?: string
+          subject?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outreach_gmail_messages_opportunity_id_fkey"
+            columns: ["opportunity_id"]
+            isOneToOne: false
+            referencedRelation: "outreach_opportunities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_gmail_messages_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_gmail_messages_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_gmail_messages_semester_id_opportunity_id_fkey"
+            columns: ["semester_id", "opportunity_id"]
+            isOneToOne: false
+            referencedRelation: "outreach_opportunities"
+            referencedColumns: ["semester_id", "id"]
+          },
+        ]
+      }
+      outreach_gmail_oauth: {
+        Row: {
+          consumed_at: string | null
+          encrypted_verifier: Json
+          expires_at: string
+          profile_id: string
+          semester_id: string
+          state_hash: string
+        }
+        Insert: {
+          consumed_at?: string | null
+          encrypted_verifier: Json
+          expires_at: string
+          profile_id: string
+          semester_id: string
+          state_hash: string
+        }
+        Update: {
+          consumed_at?: string | null
+          encrypted_verifier?: Json
+          expires_at?: string
+          profile_id?: string
+          semester_id?: string
+          state_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outreach_gmail_oauth_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_gmail_oauth_semester_id_fkey"
             columns: ["semester_id"]
             isOneToOne: false
             referencedRelation: "semesters"
@@ -2037,7 +2658,7 @@ export type Database = {
           preferred_expertise_tags: string[]
           readiness_status: string
           semester_id: string
-          stage: Database["public"]["Enums"]["startup_stage"] | null
+          stage: string | null
           startup_organization_id: string
           updated_at: string
         }
@@ -2052,7 +2673,7 @@ export type Database = {
           preferred_expertise_tags?: string[]
           readiness_status?: string
           semester_id: string
-          stage?: Database["public"]["Enums"]["startup_stage"] | null
+          stage?: string | null
           startup_organization_id: string
           updated_at?: string
         }
@@ -2067,7 +2688,7 @@ export type Database = {
           preferred_expertise_tags?: string[]
           readiness_status?: string
           semester_id?: string
-          stage?: Database["public"]["Enums"]["startup_stage"] | null
+          stage?: string | null
           startup_organization_id?: string
           updated_at?: string
         }
@@ -2170,6 +2791,248 @@ export type Database = {
         }
         Returns: number
       }
+      calendar_abort_oauth: {
+        Args: { p_transaction_id: string }
+        Returns: boolean
+      }
+      calendar_apply_sync_result: {
+        Args: {
+          p_access_expires_at?: string
+          p_access_token_ciphertext?: string
+          p_busy: Json
+          p_coverage_end: string
+          p_coverage_start: string
+          p_credential_generation?: number
+          p_job_id: string
+          p_lease_token: string
+          p_refresh_token_ciphertext?: string
+        }
+        Returns: boolean
+      }
+      calendar_begin_oauth: {
+        Args: {
+          p_expires_at: string
+          p_profile_id: string
+          p_semester_id: string
+          p_state_hash: string
+          p_verifier_ciphertext: string
+        }
+        Returns: {
+          connection_id: string
+          transaction_id: string
+        }[]
+      }
+      calendar_booking_refresh_required: {
+        Args: { p_mentor_semester_id: string; p_semester_id: string }
+        Returns: boolean
+      }
+      calendar_complete_oauth: {
+        Args: {
+          p_access_expires_at: string
+          p_access_token_ciphertext: string
+          p_account_email: string
+          p_calendar_id: string
+          p_provider_subject: string
+          p_refresh_token_ciphertext: string
+          p_transaction_id: string
+        }
+        Returns: string
+      }
+      calendar_consume_oauth: {
+        Args: {
+          p_profile_id: string
+          p_semester_id: string
+          p_state_hash: string
+        }
+        Returns: {
+          connection_id: string
+          transaction_id: string
+          verifier_ciphertext: string
+        }[]
+      }
+      calendar_disconnect: {
+        Args: { p_connection_id: string; p_keep_manual?: boolean }
+        Returns: boolean
+      }
+      calendar_effective_slots: {
+        Args: {
+          p_from: string
+          p_mentor_semester_id: string
+          p_semester_id: string
+          p_until: string
+        }
+        Returns: {
+          ends_at: string
+          starts_at: string
+        }[]
+      }
+      calendar_finish_disconnect_job: {
+        Args: {
+          p_connection_id: string
+          p_credential_generation: number
+          p_lease_token: string
+        }
+        Returns: boolean
+      }
+      calendar_finish_hold_job: {
+        Args: {
+          p_access_expires_at?: string
+          p_access_token_ciphertext?: string
+          p_credential_generation?: number
+          p_error: string
+          p_generation: number
+          p_job_id: string
+          p_lease_token: string
+          p_refresh_token_ciphertext?: string
+          p_success: boolean
+        }
+        Returns: boolean
+      }
+      calendar_finish_sync_job: {
+        Args: {
+          p_access_expires_at?: string
+          p_access_token_ciphertext?: string
+          p_credential_generation?: number
+          p_error: string
+          p_job_id: string
+          p_lease_token: string
+          p_refresh_token_ciphertext?: string
+          p_success: boolean
+        }
+        Returns: boolean
+      }
+      calendar_hold_status: {
+        Args: { p_request_id: string; p_semester_id: string }
+        Returns: {
+          applied_state: string
+          connection_id: string
+          desired_state: string
+          last_error: string
+        }[]
+      }
+      calendar_hold_statuses: {
+        Args: { p_request_ids: string[]; p_semester_id: string }
+        Returns: {
+          applied_state: string
+          desired_state: string
+          last_error: string
+          request_id: string
+        }[]
+      }
+      calendar_import_snapshot: {
+        Args: {
+          p_from: string
+          p_mentor_semester_id: string
+          p_semester_id: string
+          p_until: string
+        }
+        Returns: number
+      }
+      calendar_lease_booking_sync: {
+        Args: { p_mentor_semester_id: string; p_semester_id: string }
+        Returns: {
+          access_expires_at: string
+          access_token_ciphertext: string
+          calendar_id: string
+          connection_id: string
+          credential_generation: number
+          job_id: string
+          lease_token: string
+          profile_id: string
+          refresh_token_ciphertext: string
+        }[]
+      }
+      calendar_lease_disconnect_jobs: {
+        Args: { p_limit?: number }
+        Returns: {
+          connection_id: string
+          credential_generation: number
+          lease_token: string
+        }[]
+      }
+      calendar_lease_hold_jobs: {
+        Args: { p_limit?: number }
+        Returns: {
+          access_expires_at: string
+          access_token_ciphertext: string
+          calendar_id: string
+          connection_id: string
+          credential_generation: number
+          desired_state: string
+          ends_at: string
+          event_id: string
+          generation: number
+          job_id: string
+          lease_token: string
+          profile_id: string
+          refresh_token_ciphertext: string
+          request_id: string
+          semester_id: string
+          starts_at: string
+        }[]
+      }
+      calendar_lease_sync_jobs: {
+        Args: { p_limit?: number }
+        Returns: {
+          access_expires_at: string
+          access_token_ciphertext: string
+          calendar_id: string
+          connection_id: string
+          credential_generation: number
+          job_id: string
+          lease_token: string
+          mentor_semester_id: string
+          profile_id: string
+          program_time_zone: string
+          refresh_token_ciphertext: string
+          semester_end_date: string
+          semester_id: string
+          semester_start_date: string
+        }[]
+      }
+      calendar_owner_week: {
+        Args: {
+          p_mentor_semester_id: string
+          p_semester_id: string
+          p_week_start?: string
+        }
+        Returns: Json
+      }
+      calendar_request_sync: {
+        Args: { p_mentor_semester_id: string; p_semester_id: string }
+        Returns: boolean
+      }
+      calendar_save_settings: {
+        Args: {
+          p_connection_id?: string
+          p_mentor_semester_id: string
+          p_mode: string
+          p_semester_id: string
+          p_time_zone: string
+          p_working_hours: Json
+        }
+        Returns: boolean
+      }
+      calendar_set_override: {
+        Args: {
+          p_available: boolean
+          p_ends_at: string
+          p_mentor_semester_id: string
+          p_semester_id: string
+          p_starts_at: string
+        }
+        Returns: boolean
+      }
+      calendar_slot_available: {
+        Args: {
+          p_ends_at: string
+          p_exclude_request_id?: string
+          p_mentor_semester_id: string
+          p_semester_id: string
+          p_starts_at: string
+        }
+        Returns: boolean
+      }
       can_manage_any_outreach: {
         Args: { candidate_id?: string }
         Returns: boolean
@@ -2249,6 +3112,13 @@ export type Database = {
           profile_id: string
         }[]
       }
+      finalize_member_deletion: {
+        Args: { p_operation_id: string; p_profile_id: string }
+        Returns: {
+          profile_id: string
+          status: string
+        }[]
+      }
       generate_friday_program: {
         Args: {
           p_meeting_id: string
@@ -2317,6 +3187,20 @@ export type Database = {
         }
         Returns: string
       }
+      prepare_member_deletion: {
+        Args: {
+          p_confirmation_email: string
+          p_profile_id: string
+          p_reason: string
+          p_version: string
+        }
+        Returns: {
+          auth_user_id: string
+          operation_id: string
+          profile_id: string
+          status: string
+        }[]
+      }
       prepare_member_login_removal: {
         Args: { p_profile_id: string; p_reason: string }
         Returns: {
@@ -2324,6 +3208,19 @@ export type Database = {
           profile_id: string
           profile_is_active: boolean
           suspended_membership_ids: string[]
+        }[]
+      }
+      preview_member_deletion: {
+        Args: { p_profile_id: string }
+        Returns: {
+          blockers: string[]
+          counts: Json
+          email: string
+          full_name: string
+          impact: Json
+          profile_id: string
+          status: string
+          version: string
         }[]
       }
       preview_member_login_removal: {
@@ -2423,6 +3320,31 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      reserve_personal_gmail: {
+        Args: { p_connection_id: string; p_message: Json }
+        Returns: {
+          body: string
+          created_at: string
+          google_message_id: string | null
+          google_thread_id: string | null
+          id: string
+          opportunity_id: string
+          profile_id: string
+          recipient: string
+          request_digest: string
+          request_key: string
+          semester_id: string
+          sender: string
+          status: string
+          subject: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "outreach_gmail_messages"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       reset_outreach_opportunities: {
         Args: { p_opportunity_ids: string[]; p_semester_id: string }
         Returns: number
@@ -2434,6 +3356,14 @@ export type Database = {
           p_semester_id: string
         }
         Returns: string
+      }
+      set_friday_week_canceled: {
+        Args: {
+          p_canceled: boolean
+          p_meeting_id: string
+          p_semester_id: string
+        }
+        Returns: boolean
       }
       set_mentor_account_access: {
         Args: { p_enabled: boolean; p_mentor_semester_id: string }
@@ -2598,6 +3528,16 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      transition_mentor_booking_with_note: {
+        Args: {
+          p_alternative_text?: string
+          p_note: string
+          p_request_id: string
+          p_semester_id: string
+          p_transition: string
+        }
+        Returns: string
+      }
       update_mentor_records: {
         Args: {
           p_actor_profile_id: string
@@ -2730,7 +3670,7 @@ export type Database = {
         | "declined"
       platform_role: "super_admin"
       semester_lifecycle_status: "draft" | "active" | "closed" | "archived"
-      startup_stage: "idea" | "mvp" | "growth"
+      startup_stage: "idea" | "mvp" | "pilot" | "growth" | "fundraising"
       user_role: "mentor" | "startup" | "admin"
     }
     CompositeTypes: {
@@ -2857,9 +3797,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       invitation_lifecycle_status: [
@@ -2917,7 +3854,7 @@ export const Constants = {
       ],
       platform_role: ["super_admin"],
       semester_lifecycle_status: ["draft", "active", "closed", "archived"],
-      startup_stage: ["idea", "mvp", "growth"],
+      startup_stage: ["idea", "mvp", "pilot", "growth", "fundraising"],
       user_role: ["mentor", "startup", "admin"],
     },
   },

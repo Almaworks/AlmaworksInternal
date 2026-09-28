@@ -13,7 +13,7 @@ const requestId = "33333333-3333-4333-8333-333333333333";
 const semesterDates = { semesterStartDate: "2026-09-01", semesterEndDate: "2099-12-31" };
 
 test("commands validate identifiers, topics, and future window ordering", () => {
-  assert.deepEqual(parseMentorBookingQuery(`https://example.test/api/mentor-booking?semesterId=${semesterId}`), { semesterId });
+  assert.deepEqual(parseMentorBookingQuery(`https://example.test/api/mentor-booking?semesterId=${semesterId}`), { semesterId, weekOffset: 0 });
   assert.deepEqual(parseMentorBookingCommand({ action: "request_window", semesterId, windowId, topic: "  Pricing strategy  " }), {
     action: "request_window", semesterId, windowId, topic: "Pricing strategy",
   });
@@ -58,14 +58,29 @@ test("commands accept a calendar-first availability replacement and startup-sele
     endsAt: "2099-01-05T14:15:00.000Z",
     topic: "Fundraising strategy",
   });
-  assert.throws(() => parseMentorBookingCommand({
+  assert.deepEqual(parseMentorBookingCommand({
     action: "request_booking",
     semesterId,
     mentorSemesterId: "22222222-2222-4222-8222-222222222223",
     startsAt: "2099-01-05T14:00:00Z",
     endsAt: "2099-01-05T14:30:00Z",
     topic: "Fundraising strategy",
-  }), /15 minutes/u);
+  }), {
+    action: "request_booking",
+    semesterId,
+    mentorSemesterId: "22222222-2222-4222-8222-222222222223",
+    startsAt: "2099-01-05T14:00:00.000Z",
+    endsAt: "2099-01-05T14:30:00.000Z",
+    topic: "Fundraising strategy",
+  });
+  assert.throws(() => parseMentorBookingCommand({
+    action: "request_booking",
+    semesterId,
+    mentorSemesterId: "22222222-2222-4222-8222-222222222223",
+    startsAt: "2099-01-05T14:00:00Z",
+    endsAt: "2099-01-05T14:45:00Z",
+    topic: "Fundraising strategy",
+  }), /15 or 30 minutes/u);
 });
 
 test("workspace derives actionable flags while retaining authorized terminal history", () => {
@@ -180,4 +195,15 @@ test("workspace rejects malformed or reversed accepted occupancy intervals", () 
 
   assert.throws(() => buildMentorBookingWorkspace({ ...base, acceptedOccupancy: [{ semesterId, mentorSemesterId: "m1", startsAt: "bad", endsAt: "2099-01-01T15:15:00Z" }] }), /invalid interval/u);
   assert.throws(() => buildMentorBookingWorkspace({ ...base, acceptedOccupancy: [{ semesterId, mentorSemesterId: "m1", startsAt: "2099-01-01T15:15:00Z", endsAt: "2099-01-01T15:00:00Z" }] }), /invalid interval/u);
+});
+
+test("weekly roster projection does not expose other startups to participants", () => {
+  const startupRoster = [{ startupSemesterId: "own", name: "Own" }, { startupSemesterId: "other", name: "Other" }];
+  const base = { ...semesterDates, semesterId, timeZone: "UTC", requests: [], startupRoster };
+  const startup = buildMentorBookingWorkspace({ ...base, viewer: { profileId: "p", role: "startup", mentorSemesterId: null, startupSemesterId: "own" } });
+  assert.deepEqual(startup.startupRoster, [startupRoster[0]]);
+  const mentor = buildMentorBookingWorkspace({ ...base, viewer: { profileId: "p", role: "mentor", mentorSemesterId: "m", startupSemesterId: null } });
+  assert.deepEqual(mentor.startupRoster, []);
+  const admin = buildMentorBookingWorkspace({ ...base, viewer: { profileId: "p", role: "admin", mentorSemesterId: null, startupSemesterId: null } });
+  assert.deepEqual(admin.startupRoster, startupRoster);
 });

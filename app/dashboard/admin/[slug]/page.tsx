@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/utils/supabase/client'
 import { loadStartupDirectory } from '@/src/program/canonical-repository'
+import { formatEnumLabel } from '@/src/presentation/display-labels'
 
 type Founder = {
   name: string
@@ -104,7 +105,7 @@ export default function StartupProfilePage() {
           <h1 className="text-2xl font-bold text-[#002147]">{startup.name}</h1>
           {[startup.industry, startup.stage].filter(Boolean).length > 0 && (
             <p className="text-sm text-gray-500 mt-0.5">
-              {[startup.industry, startup.stage].filter(Boolean).join(' · ')}
+              {[startup.industry, startup.stage && formatEnumLabel(startup.stage)].filter(Boolean).join(' · ')}
             </p>
           )}
         </div>

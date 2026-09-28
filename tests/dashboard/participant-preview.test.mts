@@ -89,11 +89,17 @@ test("startup preview is fictional and includes interactive dashboard content", 
   assert.equal(preview.identity.fullName, "Nadia Rahman");
   assert.equal(preview.identity.email, "nadia@northstar.demo");
   assert.equal(preview.semester.name, "Demo Semester");
-  assert.equal(preview.sessions.some((session) => session.timing === "upcoming"), true);
-  assert.equal(preview.sessions.some((session) => session.timing === "past"), true);
+  assert.equal("sessions" in preview, false);
+  assert.equal(preview.notifications.some((notice) => notice.kind === "session"), false);
   assert.equal(preview.network.some((entry) => entry.kind === "mentor"), true);
   assert.equal(preview.network.some((entry) => entry.kind === "startup"), true);
   assert.equal(preview.network.every((entry) => Boolean(entry.email)), true);
+  assert.deepEqual(preview.upcomingMeetings, [{
+    startsAt: "2026-10-12T15:00:00Z",
+    endsAt: "2026-10-12T15:30:00Z",
+    counterpartName: "Maya Chen",
+    topic: "Pricing strategy",
+  }]);
 });
 
 test("mentor preview switches identity and participant perspective", async () => {

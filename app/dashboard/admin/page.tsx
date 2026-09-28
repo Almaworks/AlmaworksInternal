@@ -4,23 +4,17 @@ import { createClient } from '@/utils/supabase/client'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { ShieldCheck } from 'lucide-react'
-import { Suspense, useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { MemberLoginAccountControl } from '@/components/MemberLoginAccountControl'
+import { MemberDeletionControl } from '@/components/MemberDeletionControl'
+import { DataLoading } from '@/components/DataLoading'
 import TagInput from '@/components/TagInput'
 import StartupModal from '@/components/StartupModal'
-import { CohortScreenControls, useCohortScreen } from '@/components/CohortScreenControls'
+import { CohortScreenControls, useCohortScreen, invalidateCohortReads } from '@/components/CohortScreenControls'
 import { MembershipVisibilitySwitch } from '@/components/MembershipVisibilitySwitch'
-import MentorAssignmentPicker, {
-  type AssignmentCommitResult,
-  type AssignmentPickerTarget,
-} from '@/components/assignments/MentorAssignmentPicker'
-import { assignmentRefreshFeedback, buildScheduleRows, sessionFormatPresentation } from '@/src/assignments/picker'
-import { adminDashboardHref, adminMemberHref, resolveAdminDashboardTab } from '@/src/assignments/schedule-navigation'
+import { adminDashboardHref, adminMemberHref, resolveAdminDashboardTab, type AdminDashboardTab } from '@/src/assignments/schedule-navigation'
 import { memberLoginPresentation } from '@/src/auth/member-login-account'
 import { filterSemesterRecords, type CohortRecordReference } from '@/src/lifecycle/cohort-screen'
-import {
-  ACTIVATION_TAB_LABEL,
-} from '@/src/lifecycle/admin-activation'
 import { activationWorkspaceState, memberDeepLinkState } from '@/src/lifecycle/admin-membership-ui-state'
 import {
   filterMembershipsByVisibility,
@@ -30,10 +24,13 @@ import {
 } from '@/src/lifecycle/membership-presentation'
 import type { MembershipStatus } from '@/src/lifecycle/types'
 import { persistAndRefreshMembership, refreshMembershipReadModels } from '@/src/lifecycle/membership-mutation'
-import { loadMentorDirectory, loadStartupDirectory } from '@/src/program/canonical-repository'
-import { normalizeAvailabilityFormat } from '@/src/program/availability-windows'
-import type { SessionAttendanceView, SessionRsvpCoverageState, SessionRsvpIssue } from '@/src/sessions/attendance'
+import { loadStartupDirectory } from '@/src/program/canonical-repository'
+import { formatEnumLabel } from '@/src/presentation/display-labels'
+import { StartupStagePicker } from '@/components/StartupStagePicker'
 import { memberDirectorySelect } from '@/src/dashboard/admin-members-query'
+import { loadAdminOverview, type AdminOverview } from '@/src/dashboard/admin-overview'
+import { adminModuleLoads, type AdminModuleLoad } from '@/src/dashboard/admin-module-loads'
+import { FridayProgramPanel } from '@/components/friday-program/FridayProgramPanel'
 
 type PendingUser = {
   id: string
@@ -55,27 +52,6 @@ type Member = {
   membership_id: string | null
   semester_id: string | null
   created_at: string
-}
-
-type Mentor = {
-  id: string
-  full_name: string
-  company: string | null
-  role_title: string | null
-  linkedin_url: string | null
-  bio: string | null
-  expertise_tags: string[]
-  is_active: boolean
-  slug: string | null
-  email: string | null
-  general_availability: string | null
-  preferred_format: string | null
-  membership_id: string
-  opening_talk: string | null
-  membership_status: MembershipStatus
-  readiness_status: MembershipReadinessStatus
-  semester_id: string | null
-  semester_name: string | null
 }
 
 type Founder = {
@@ -102,97 +78,18 @@ type Startup = {
   readiness_status: MembershipReadinessStatus
 }
 
-type Session = {
-  id: string
-  mentor_id: string
-  startup_id: string | null
-  status: string
-  topic: string | null
-  slot_label: string | null
-  format: string | null
-  startup_absent: boolean
-  substitute_name: string | null
-  is_confirmed: boolean
-  meeting: { id: string; date: string; label: string | null; semester_id?: string | null; semester_name?: string | null; semesters?: { name: string } | { name: string }[] | null } | null
-  mentors: { full_name: string; slug: string | null } | null
-  startups: { name: string; slug: string | null } | null
-}
-
-type CanonicalSessionRow = {
-  id: string
-  mentor_semester_id: string
-  startup_semester_id: string
-  status: string
-  topic: string | null
-  slot: number
-  format: string | null
-  startup_absent: boolean
-  substitute_name: string | null
-  meeting: { id: string; meeting_date: string; label: string | null; semester_id: string; semester: { name: string } | null } | null
-  mentor: { membership: { profile: { full_name: string | null } | null } | null } | null
-  startup: { organization: { name: string; slug: string } | null } | null
-}
-
-function mapSession(row: CanonicalSessionRow): Session {
-  return {
-    id: row.id,
-    mentor_id: row.mentor_semester_id,
-    startup_id: row.startup_semester_id,
-    status: row.status,
-    topic: row.topic,
-    slot_label: row.slot === 1 ? '3:30-4:15' : '4:15-5:00',
-    format: row.format,
-    startup_absent: row.startup_absent,
-    substitute_name: row.substitute_name,
-    is_confirmed: row.status === 'confirmed',
-    meeting: row.meeting ? {
-      id: row.meeting.id,
-      date: row.meeting.meeting_date,
-      label: row.meeting.label,
-      semester_id: row.meeting.semester_id,
-      semester_name: row.meeting.semester?.name ?? null,
-    } : null,
-    mentors: row.mentor?.membership?.profile ? { full_name: row.mentor.membership.profile.full_name ?? 'Unnamed mentor', slug: null } : null,
-    startups: row.startup?.organization ? { name: row.startup.organization.name, slug: row.startup.organization.slug } : null,
-  }
-}
-
-type MeetingDate = {
-  id: string
-  date: string
-  label: string | null
-}
-
-type ConcreteMeetingFormat = 'online' | 'in_person'
-type MentorSlotPreference = { isAvailable: boolean; format: string | null }
-
-function concreteMeetingFormat(value: string | null | undefined): ConcreteMeetingFormat | null {
-  if (value === 'online' || value === 'remote') return 'online'
-  if (value === 'in_person' || value === 'in-person') return 'in_person'
-  return null
-}
-
-function mentorSupportsMeetingFormat(
-  mentor: Mentor,
-  format: ConcreteMeetingFormat | '',
-  meetingId: string | null,
-  timeSlot: string,
-  slotPreferences: Readonly<Record<string, MentorSlotPreference>>,
-): boolean {
-  if (format === '') return false
-  const slot = timeSlot === '4:15-5:00' ? 2 : 1
-  const preference = meetingId === null ? undefined : slotPreferences[`${mentor.membership_id}:${meetingId}:${slot}`]
-  const preferredFormat = preference?.format ?? mentor.preferred_format
-  const normalizedPreference = normalizeAvailabilityFormat(preferredFormat)
-  return normalizedPreference === 'hybrid' || normalizedPreference === (format === 'online' ? 'remote' : 'in_person')
-}
-
 type SortDir = 'asc' | 'desc'
 type MemberSortKey = 'full_name' | 'email' | 'role' | 'membership_is_active'
 
-type Tab = 'users' | 'members' | 'schedule' | 'startups'
+type Tab = AdminDashboardTab
 
 const MEMBER_LOGIN_AUDIT_ACTIONS = ['member.login_removal_prepared', 'member.login_restored']
+
+async function adminFetch(url: string, init?: RequestInit): Promise<Response> {
+  if ((init?.method ?? 'GET') === 'GET') return fetch(url, init)
+  invalidateCohortReads()
+  try { return await fetch(url, init) } finally { invalidateCohortReads() }
+}
 
 async function loadAdminCapabilities(accessToken: string | null): Promise<{ canRemoveMemberLogin: boolean; isSuperAdmin: boolean }> {
   if (!accessToken) return { canRemoveMemberLogin: false, isSuperAdmin: false }
@@ -211,22 +108,14 @@ async function loadAdminCapabilities(accessToken: string | null): Promise<{ canR
   }
 }
 
-type SessionAttendanceResponse = SessionAttendanceView & { rsvpState: SessionRsvpCoverageState }
-
-const rsvpIssuePresentation: Record<SessionRsvpIssue, { label: string; tone: string }> = {
-  replace_mentor: { label: 'Replace mentor', tone: 'bg-rose-100 text-rose-800' },
-  startup_coverage_needed: { label: 'Startup coverage needed', tone: 'bg-amber-100 text-amber-800' },
-  rsvp_pending: { label: 'RSVPs pending', tone: 'bg-sky-100 text-sky-800' },
-}
-
-
 function AdminDashboardContent() {
   const supabase = createClient()
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
   const tab = resolveAdminDashboardTab(pathname, searchParams.get('tab'))
-  const setTab = (nextTab: Tab) => router.push(adminDashboardHref(nextTab))
+  const [modulePending, startModuleTransition] = useTransition()
+  const setTab = (nextTab: Tab) => startModuleTransition(() => router.push(adminDashboardHref(nextTab)))
 
   // Pending users
   const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([])
@@ -246,6 +135,12 @@ function AdminDashboardContent() {
   const [membershipRefreshRetrying, setMembershipRefreshRetrying] = useState(false)
   const [canRemoveMemberLogin, setCanRemoveMemberLogin] = useState(false)
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+  const [deletionLockedIds, setDeletionLockedIds] = useState<Set<string>>(() => new Set())
+  const [completedDeletionId, setCompletedDeletionId] = useState<string | null>(null)
+  const deletionNotice = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (completedDeletionId && !members.some(member => member.id === completedDeletionId)) deletionNotice.current?.focus()
+  }, [completedDeletionId, members])
   const [currentAuthUserId, setCurrentAuthUserId] = useState<string | null>(null)
   const [platformAccessUpdatingProfileId, setPlatformAccessUpdatingProfileId] = useState<string | null>(null)
 
@@ -314,7 +209,7 @@ function AdminDashboardContent() {
     setEsSaving(true)
     setEsError(null)
     const { data: { session } } = await supabase.auth.getSession()
-    const response = await fetch('/api/admin/startups/update', {
+    const response = await adminFetch('/api/admin/startups/update', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}) },
       body: JSON.stringify({
@@ -334,265 +229,124 @@ function AdminDashboardContent() {
     await loadAll()
   }
 
-  // Schedule add session popup
-  const [showAddSession, setShowAddSession] = useState(false)
-
   // Schedule / other tabs
-  const [mentors, setMentors] = useState<Mentor[]>([])
   const [startups, setStartups] = useState<Startup[]>([])
-  const [sessions, setSessions] = useState<Session[]>([])
-  const [meetingDates, setMeetingDates] = useState<MeetingDate[]>([])
-  const [mentorSlotPreferences, setMentorSlotPreferences] = useState<Record<string, MentorSlotPreference>>({})
   const [activeSemesterId, setActiveSemesterId] = useState<string | null>(null)
   const [activeSemesterName, setActiveSemesterName] = useState<string | null>(null)
-  const [assignmentPickerTarget, setAssignmentPickerTarget] = useState<AssignmentPickerTarget | null>(null)
-  const [assignmentFeedback, setAssignmentFeedback] = useState<string | null>(null)
-  const [assignmentRefreshRetryRequired, setAssignmentRefreshRetryRequired] = useState(false)
-  const [assignmentRefreshRetrying, setAssignmentRefreshRetrying] = useState(false)
-  const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null)
-  const [assignMentorId, setAssignMentorId] = useState<string>('')
-  const [assignStartupId, setAssignStartupId] = useState<string>('')
-  const [assignTopic, setAssignTopic] = useState<string>('')
-  const [assignTimeSlot, setAssignTimeSlot] = useState<string>('3:30-4:15')
-  const [assignFormat, setAssignFormat] = useState<ConcreteMeetingFormat>('online')
-  const [assignStartupAbsent, setAssignStartupAbsent] = useState<boolean>(false)
-  const [assignSubstituteName, setAssignSubstituteName] = useState<string>('')
-  const [assigning, setAssigning] = useState<boolean>(false)
 
-  // Session date wizard
-  const [showDateWizard, setShowDateWizard] = useState(false)
-  const [wizardStartDate, setWizardStartDate] = useState('')
-  const [wizardWeeks, setWizardWeeks] = useState(10)
-  const [wizardSaving, setWizardSaving] = useState(false)
-  const [wizardDone, setWizardDone] = useState(false)
-
-  function wizardPreviewDates(): { date: string; label: string }[] {
-    if (!wizardStartDate) return []
-    const out: { date: string; label: string }[] = []
-    const base = new Date(wizardStartDate + 'T00:00:00')
-    for (let i = 0; i < wizardWeeks; i++) {
-      const d = new Date(base)
-      d.setDate(base.getDate() + i * 7)
-      const iso = d.toISOString().slice(0, 10)
-      const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-      out.push({ date: iso, label })
-    }
-    return out
-  }
-
-  async function createWizardDates() {
-    if (!activeSemesterId || !wizardStartDate) return
-    setWizardSaving(true)
-    const { data: { session } } = await supabase.auth.getSession()
-    const response = await fetch('/api/admin/lifecycle/semesters/meetings/append', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
-      body: JSON.stringify({ semesterId: activeSemesterId, dates: wizardPreviewDates() }),
-    })
-    setWizardSaving(false)
-    if (!response.ok) {
-      const payload = await response.json() as { error?: string }
-      alert(payload.error ?? 'Unable to add meeting dates.')
-      return
-    }
-    setWizardDone(true)
-    setTimeout(() => { setWizardDone(false); setShowDateWizard(false) }, 1500)
-    await loadAll()
-  }
-
-  // Edit session
-  const [editingSession, setEditingSession] = useState<Session | null>(null)
-  const [editMentorId, setEditMentorId] = useState<string>('')
-  const [editStartupId, setEditStartupId] = useState<string>('')
-  const [editTimeSlot, setEditTimeSlot] = useState<string>('3:30-4:15')
-  const [editFormat, setEditFormat] = useState<ConcreteMeetingFormat | ''>('online')
-  const [editTopic, setEditTopic] = useState<string>('')
-  const [editStartupAbsent, setEditStartupAbsent] = useState<boolean>(false)
-  const [editSubstituteName, setEditSubstituteName] = useState<string>('')
-  const [editSaving, setEditSaving] = useState<boolean>(false)
-  const [editAttendance, setEditAttendance] = useState<SessionAttendanceView | null>(null)
-  const [editAttendanceError, setEditAttendanceError] = useState<string | null>(null)
-  const [editAttendanceLoading, setEditAttendanceLoading] = useState(false)
-  const [sessionRsvpStates, setSessionRsvpStates] = useState<Record<string, SessionRsvpCoverageState>>({})
-
-  const selectedAssignmentMeeting = useMemo(
-    () => meetingDates.find((meeting) => meeting.id === selectedMeetingId) ?? null,
-    [meetingDates, selectedMeetingId],
-  )
-  const assignmentMentors = useMemo(() => mentors.filter((mentor) => (
-    mentor.is_active
-    && mentor.semester_id === activeSemesterId
-    && mentorSupportsMeetingFormat(mentor, assignFormat, selectedAssignmentMeeting?.id ?? null, assignTimeSlot, mentorSlotPreferences)
-  )), [activeSemesterId, assignFormat, assignTimeSlot, mentorSlotPreferences, mentors, selectedAssignmentMeeting])
-  const editMentors = useMemo(() => mentors.filter((mentor) => (
-    mentor.is_active
-    && mentor.semester_id === editingSession?.meeting?.semester_id
-    && mentorSupportsMeetingFormat(mentor, editFormat, editingSession?.meeting?.id ?? null, editTimeSlot, mentorSlotPreferences)
-  )), [editFormat, editTimeSlot, editingSession?.meeting?.id, editingSession?.meeting?.semester_id, mentorSlotPreferences, mentors])
-
-  useEffect(() => {
-    if (assignMentorId && !assignmentMentors.some((mentor) => mentor.id === assignMentorId)) setAssignMentorId('')
-  }, [assignMentorId, assignmentMentors])
-  useEffect(() => {
-    if (editMentorId && !editMentors.some((mentor) => mentor.id === editMentorId)) setEditMentorId('')
-  }, [editMentorId, editMentors])
-
-  async function loadSessionAttendance(session: Session) {
-    if (!session.meeting?.semester_id) return
-    setEditAttendance(null)
-    setEditAttendanceError(null)
-    setEditAttendanceLoading(true)
-    try {
-      const { data: { session: authSession } } = await supabase.auth.getSession()
-      const response = await fetch(`/api/admin/session-attendance?semesterId=${encodeURIComponent(session.meeting.semester_id)}&sessionId=${encodeURIComponent(session.id)}`, {
-        headers: authSession?.access_token ? { Authorization: `Bearer ${authSession.access_token}` } : {},
-      })
-      const payload = await response.json() as { data?: SessionAttendanceResponse; error?: string }
-      if (!response.ok || !payload.data) throw new Error(payload.error ?? 'Attendance could not be loaded.')
-      setEditAttendance(payload.data)
-    } catch (cause) {
-      setEditAttendanceError(cause instanceof Error ? cause.message : 'Attendance could not be loaded.')
-    } finally {
-      setEditAttendanceLoading(false)
-    }
-  }
-
-  async function loadSessionRsvpStates(sessionRows: Session[], accessToken: string | null) {
-    try {
-      const entries = await Promise.all(sessionRows
-        .filter((session) => session.status === 'confirmed' && session.meeting?.semester_id)
-        .map(async (session) => {
-          const response = await fetch(`/api/admin/session-attendance?semesterId=${encodeURIComponent(session.meeting?.semester_id ?? '')}&sessionId=${encodeURIComponent(session.id)}`, {
-            headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
-          })
-          const payload = await response.json() as { data?: SessionAttendanceResponse }
-          return response.ok && payload.data ? [session.id, payload.data.rsvpState] as const : null
-        }))
-      setSessionRsvpStates(Object.fromEntries(entries.filter((entry): entry is readonly [string, SessionRsvpCoverageState] => entry !== null)))
-    } catch {
-      setSessionRsvpStates({})
-    }
-  }
+  const [overview, setOverview] = useState<AdminOverview | null>(null)
+  const [errorTab, setErrorTab] = useState<Tab | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadedTab, setLoadedTab] = useState<Tab | null>(null)
+  const loadSequence = useRef(0)
 
   async function loadAll() {
-    const { data: { session: authSession } } = await supabase.auth.getSession()
-    const [usersRes, membersRes, mentorsRes, startupsRes, sessionsRes, semesterRes, adminCapabilities] = await Promise.all([
-      supabase.from('profiles').select('id, email, full_name, created_at').eq('status', 'pending').order('created_at'),
-      supabase.from('profiles').select(memberDirectorySelect).eq('status', 'approved').order('full_name'),
-      loadMentorDirectory(supabase),
-      loadStartupDirectory(supabase),
-      supabase.from('sessions').select('id, mentor_semester_id, startup_semester_id, status, topic, slot, format, startup_absent, substitute_name, meeting:meetings(id, meeting_date, label, semester_id, semester:semesters(name)), mentor:mentor_semesters(membership:semester_memberships(profile:profiles(full_name))), startup:startup_semesters(organization:startup_organizations(name,slug))').order('slot'),
-      supabase.from('semesters').select('id, name').eq('is_active', true).maybeSingle(),
-      loadAdminCapabilities(authSession?.access_token ?? null),
-    ])
-    const loadError = usersRes.error ?? membersRes.error ?? sessionsRes.error ?? semesterRes.error
-    if (loadError) throw new Error(loadError.message)
-    setPendingUsers((usersRes.data as PendingUser[]) ?? [])
-    setCanRemoveMemberLogin(adminCapabilities.canRemoveMemberLogin)
-    setIsSuperAdmin(adminCapabilities.isSuperAdmin)
-    setCurrentAuthUserId(authSession?.user.id ?? null)
-    type MemberRow = {
-      id: string
-      email: string
-      full_name: string | null
-      auth_user_id: string | null
-      is_active: boolean
-      created_at: string
-      memberships: { id: string; role: string; status: string; semester_id: string; semester: { is_active: boolean } | null }[] | null
-      platform_roles: { role: string }[] | null
-    }
-    type MemberLoginAuditRow = { subject_id: string | null; action: string; created_at: string }
-    const memberRows = (membersRes.data ?? []) as unknown as MemberRow[]
-    const memberProfileIds = memberRows.map(member => member.id)
-    let accountAuditRows: MemberLoginAuditRow[] = []
-    if (memberProfileIds.length > 0) {
-      const auditRes = await supabase
-        .from('program_audit_events')
-        .select('subject_id, action, created_at')
-        .eq('subject_type', 'profile')
-        .in('subject_id', memberProfileIds)
-        .in('action', MEMBER_LOGIN_AUDIT_ACTIONS)
-        .order('created_at', { ascending: false })
-      if (auditRes.error) throw new Error(auditRes.error.message)
-      accountAuditRows = (auditRes.data ?? []) as MemberLoginAuditRow[]
-    }
-    const latestAccountActionByProfile = new Map<string, Member['latest_removal_audit_action']>()
-    for (const audit of accountAuditRows) {
-      if (!audit.subject_id || latestAccountActionByProfile.has(audit.subject_id)) continue
-      if (audit.action === 'member.login_removal_prepared' || audit.action === 'member.login_restored') {
-        latestAccountActionByProfile.set(audit.subject_id, audit.action)
+    const sequence = ++loadSequence.current
+    try {
+      setLoadError(null)
+      setOverview(null)
+      const { data: { session: authSession } } = await supabase.auth.getSession()
+      const loads: readonly AdminModuleLoad[] = adminModuleLoads[tab]
+      const needs = (name: (typeof loads)[number]) => loads.includes(name)
+      const semesterRead = Promise.resolve(supabase.from('semesters').select('id, name').eq('is_active', true).maybeSingle())
+      const [usersRes, membersRes, startupsRes, semesterRes, adminCapabilities, summary] = await Promise.all([
+        needs('pending-users') ? supabase.from('profiles').select('id, email, full_name, created_at').eq('status', 'pending').order('created_at') : Promise.resolve({ data: [], error: null }),
+        needs('members') ? supabase.from('profiles').select(memberDirectorySelect).eq('status', 'approved').order('full_name') : Promise.resolve({ data: [], error: null }),
+        needs('startups') ? loadStartupDirectory(supabase) : Promise.resolve([]),
+        semesterRead,
+        needs('capabilities') ? loadAdminCapabilities(authSession?.access_token ?? null) : Promise.resolve({ canRemoveMemberLogin: false, isSuperAdmin: false }),
+        tab === 'overview' ? semesterRead.then(result => {
+          if (result.error) throw new Error(result.error.message)
+          return loadAdminOverview(supabase, result.data?.id ?? null)
+        }) : Promise.resolve(null),
+      ])
+      const loadError = usersRes.error ?? membersRes.error ?? semesterRes.error
+      if (loadError) throw new Error(loadError.message)
+      if (sequence !== loadSequence.current) return
+      setOverview(summary)
+      setPendingUsers((usersRes.data as PendingUser[]) ?? [])
+      setCanRemoveMemberLogin(adminCapabilities.canRemoveMemberLogin)
+      setIsSuperAdmin(adminCapabilities.isSuperAdmin)
+      setCurrentAuthUserId(authSession?.user.id ?? null)
+      type MemberRow = {
+        id: string
+        email: string
+        full_name: string | null
+        auth_user_id: string | null
+        is_active: boolean
+        created_at: string
+        memberships: { id: string; role: string; status: string; semester_id: string; semester: { is_active: boolean } | null }[] | null
+        platform_roles: { role: string }[] | null
       }
-    }
-    setMembers(memberRows.map((member) => {
-      const membership = member.memberships?.find((item) => item.semester?.is_active) ?? member.memberships?.[0] ?? null
-      return {
-        id: member.id,
-        email: member.email,
-        full_name: member.full_name,
-        auth_user_id: member.auth_user_id,
-        profile_is_active: member.is_active,
-        is_super_admin: member.platform_roles?.some((role) => role.role === 'super_admin') === true,
-        membership_is_active: membership?.status === 'active',
-        latest_removal_audit_action: latestAccountActionByProfile.get(member.id) ?? null,
-        membership_id: membership?.id ?? null,
-        role: membership?.role ?? 'startup',
-        semester_id: membership?.semester_id ?? null,
-        created_at: member.created_at,
+      type MemberLoginAuditRow = { subject_id: string | null; action: string; created_at: string }
+      const memberRows = (membersRes.data ?? []) as unknown as MemberRow[]
+      const memberProfileIds = memberRows.map(member => member.id)
+      let accountAuditRows: MemberLoginAuditRow[] = []
+      if (needs('member-audit') && memberProfileIds.length > 0) {
+        const auditRes = await supabase
+          .from('program_audit_events')
+          .select('subject_id, action, created_at')
+          .eq('subject_type', 'profile')
+          .in('subject_id', memberProfileIds)
+          .in('action', [...MEMBER_LOGIN_AUDIT_ACTIONS, 'member.personal_deletion_prepared', 'member.personal_deletion_completed'])
+          .order('created_at', { ascending: false })
+        if (auditRes.error) throw new Error(auditRes.error.message)
+        accountAuditRows = (auditRes.data ?? []) as MemberLoginAuditRow[]
       }
-    }))
-    setMentors(mentorsRes as unknown as Mentor[])
-    setStartups((startupsRes as unknown as Startup[]).map((startup) => ({
-      ...startup,
-      founder_name: startup.founders[0]?.name ?? null,
-    })))
-    const loadedSessions = ((sessionsRes.data ?? []) as unknown as CanonicalSessionRow[]).map(mapSession)
-    setSessions(loadedSessions)
-    void loadSessionRsvpStates(loadedSessions, authSession?.access_token ?? null)
-
-    const semData = semesterRes.data as { id: string; name: string } | null
-    const semId = semData?.id ?? null
-    setActiveSemesterId(semId)
-    setActiveSemesterName(semData?.name ?? null)
-    const mentorSemesterIds = [...new Set((mentorsRes as unknown as Mentor[])
-      .map((mentor) => mentor.semester_id)
-      .filter((semesterId): semesterId is string => semesterId !== null))]
-    if (mentorSemesterIds.length > 0) {
-      const { data: availabilityRows, error: availabilityError } = await supabase
-        .from('meeting_availability')
-        .select('*')
-        .in('semester_id', mentorSemesterIds)
-      if (availabilityError) {
-        setMentorSlotPreferences({})
-        throw new Error(availabilityError.message)
+      const latestAccountActionByProfile = new Map<string, Member['latest_removal_audit_action']>()
+      for (const audit of accountAuditRows) {
+        if (!audit.subject_id || latestAccountActionByProfile.has(audit.subject_id)) continue
+        if (audit.action === 'member.login_removal_prepared' || audit.action === 'member.login_restored') {
+          latestAccountActionByProfile.set(audit.subject_id, audit.action)
+        }
       }
-      setMentorSlotPreferences(Object.fromEntries((availabilityRows ?? []).flatMap((availability) => {
-        const format = 'format' in availability && typeof availability.format === 'string' ? availability.format : null
-        return availability.slot === 1 || availability.slot === 2
-          ? [[`${availability.semester_membership_id}:${availability.meeting_id}:${availability.slot}`, { isAvailable: availability.is_available, format }]]
-          : []
+      if (sequence !== loadSequence.current) return
+      setDeletionLockedIds(current => new Set([...current, ...accountAuditRows.filter(audit => audit.action === 'member.personal_deletion_prepared' || audit.action === 'member.personal_deletion_completed').flatMap(audit => audit.subject_id ? [audit.subject_id] : [])]))
+      setMembers(memberRows.map((member) => {
+        const membership = member.memberships?.find((item) => item.semester?.is_active) ?? member.memberships?.[0] ?? null
+        return {
+          id: member.id,
+          email: member.email,
+          full_name: member.full_name,
+          auth_user_id: member.auth_user_id,
+          profile_is_active: member.is_active,
+          is_super_admin: member.platform_roles?.some((role) => role.role === 'super_admin') === true,
+          membership_is_active: membership?.status === 'active',
+          latest_removal_audit_action: latestAccountActionByProfile.get(member.id) ?? null,
+          membership_id: membership?.id ?? null,
+          role: membership?.role ?? 'startup',
+          semester_id: membership?.semester_id ?? null,
+          created_at: member.created_at,
+        }
+      }))
+      setStartups((startupsRes as unknown as Startup[]).map((startup) => ({
+        ...startup,
+        founder_name: startup.founders[0]?.name ?? null,
       })))
-    } else {
-      setMentorSlotPreferences({})
-    }
-    if (semId) {
-      const { data: dateRows, error: dateError } = await supabase
-        .from('meetings')
-        .select('id, meeting_date, label')
-        .eq('semester_id', semId)
-        .order('meeting_date')
-      if (dateError) throw new Error(dateError.message)
-      const dates = (dateRows ?? []).map((row) => ({ id: row.id, date: row.meeting_date, label: row.label }))
-      setMeetingDates(dates)
-      setSelectedMeetingId(prev => prev ?? (dates[0]?.id ?? null))
-    } else {
-      setMeetingDates([])
-      setSelectedMeetingId(null)
+      const semData = semesterRes.data as { id: string; name: string } | null
+      const semId = semData?.id ?? null
+      setActiveSemesterId(semId)
+      setActiveSemesterName(semData?.name ?? null)
+      setLoadedTab(tab)
+      setLoading(false)
+    } catch (cause) {
+      if (sequence !== loadSequence.current) return
+      throw cause
     }
   }
 
   useEffect(() => {
-    loadAll()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    let active = true
+    setLoading(true)
+    void loadAll().catch((cause: unknown) => {
+      if (!active) return
+      setErrorTab(tab)
+      setLoadError(cause instanceof Error ? cause.message : 'Unable to load admin workspace.')
+      setLoading(false)
+    })
+    return () => { active = false; loadSequence.current += 1 }
+  }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Pending users ──────────────────────────────────────────────────────────
 
@@ -604,7 +358,7 @@ function AdminDashboardContent() {
     const { data: { session } } = await supabase.auth.getSession()
     const token = session?.access_token
     if (token) {
-      await fetch('/api/admin/users/approve', {
+      await adminFetch('/api/admin/users/approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
@@ -622,7 +376,7 @@ function AdminDashboardContent() {
   async function rejectUser(userId: string) {
     if (!confirm('Reject this user?')) return
     const { data: { session } } = await supabase.auth.getSession()
-    const response = await fetch('/api/admin/users/reject', {
+    const response = await adminFetch('/api/admin/users/reject', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
       body: JSON.stringify({ userId }),
@@ -646,7 +400,7 @@ function AdminDashboardContent() {
       throw new Error('This person has no semester membership to update.')
     }
     const { data: { session } } = await supabase.auth.getSession()
-    const response = await fetch('/api/admin/lifecycle/memberships/activity', {
+    const response = await adminFetch('/api/admin/lifecycle/memberships/activity', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
       body: JSON.stringify({ semesterId, membershipIds: [membershipId], activity: current ? 'inactive' : 'active' }),
@@ -672,7 +426,7 @@ function AdminDashboardContent() {
       return
     }
 
-    const res = await fetch('/api/admin/users/create', {
+    const res = await adminFetch('/api/admin/users/create', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -727,7 +481,7 @@ function AdminDashboardContent() {
       return
     }
 
-    const res = await fetch('/api/admin/users/update', {
+    const res = await adminFetch('/api/admin/users/update', {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -771,7 +525,7 @@ function AdminDashboardContent() {
 
     const slug = csName.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
 
-    const res = await fetch('/api/admin/startups/create', {
+    const res = await adminFetch('/api/admin/startups/create', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
@@ -802,7 +556,7 @@ function AdminDashboardContent() {
     const { data: { session } } = await supabase.auth.getSession()
     const token = session?.access_token
     if (!token) { setDeletingStartupId(null); return }
-    const response = await fetch(`/api/admin/startups/${encodeURIComponent(startup.organization_id)}`, {
+    const response = await adminFetch(`/api/admin/startups/${encodeURIComponent(startup.organization_id)}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ startupOrganizationId: startup.organization_id, confirmationName }),
@@ -826,7 +580,7 @@ function AdminDashboardContent() {
     const token = session?.access_token
     if (!token) { setAssignFounderError('Not authenticated.'); setAssigningFounder(null); return }
 
-    const res = await fetch('/api/admin/startups/assign-founder', {
+    const res = await adminFetch('/api/admin/startups/assign-founder', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ userId, startupId }),
@@ -850,69 +604,6 @@ function AdminDashboardContent() {
     })))
   }
 
-  async function refreshSessions() {
-    const { data, error } = await supabase
-      .from('sessions')
-      .select('id, mentor_semester_id, startup_semester_id, status, topic, slot, format, startup_absent, substitute_name, meeting:meetings(id, meeting_date, label, semester_id, semester:semesters(name)), mentor:mentor_semesters(membership:semester_memberships(profile:profiles(full_name))), startup:startup_semesters(organization:startup_organizations(name,slug))')
-      .order('slot')
-    if (error) throw error
-    const refreshedSessions = ((data ?? []) as unknown as CanonicalSessionRow[]).map(mapSession)
-    setSessions(refreshedSessions)
-    const { data: { session } } = await supabase.auth.getSession()
-    void loadSessionRsvpStates(refreshedSessions, session?.access_token ?? null)
-  }
-
-  function openAssignmentPicker(startup: Startup, meeting: MeetingDate, timeSlot: '3:30-4:15' | '4:15-5:00') {
-    if (!activeSemesterId || startup.semester_id !== activeSemesterId) {
-      setAssignmentFeedback(`${startup.name} is not linked to the active semester.`)
-      setAssignmentRefreshRetryRequired(false)
-      return
-    }
-    setAssignmentFeedback(null)
-    setAssignmentRefreshRetryRequired(false)
-    setAssignmentPickerTarget({
-      semesterId: activeSemesterId,
-      startupSemesterId: startup.id,
-      startupName: startup.name,
-      meetingId: meeting.id,
-      date: meeting.date,
-      timeSlot,
-    })
-  }
-
-  async function handleAssignmentCommitted(result: AssignmentCommitResult, target: AssignmentPickerTarget) {
-    let refreshSucceeded = false
-    try {
-      await refreshSessions()
-      refreshSucceeded = true
-    } catch {
-      refreshSucceeded = false
-    }
-    const feedback = assignmentRefreshFeedback({
-      startupName: target.startupName,
-      date: target.date,
-      timeSlot: target.timeSlot,
-      replayed: result.replayed,
-      refreshSucceeded,
-    })
-    setAssignmentFeedback(feedback.message)
-    setAssignmentRefreshRetryRequired(feedback.retryRequired)
-  }
-
-  async function retryAssignmentRefresh() {
-    setAssignmentRefreshRetrying(true)
-    try {
-      await refreshSessions()
-      setAssignmentFeedback('The schedule is up to date.')
-      setAssignmentRefreshRetryRequired(false)
-    } catch {
-      setAssignmentFeedback('The schedule refresh failed again. Please retry.')
-      setAssignmentRefreshRetryRequired(true)
-    } finally {
-      setAssignmentRefreshRetrying(false)
-    }
-  }
-
   async function removeFounder(email: string, startupId: string) {
     const key = `${startupId}:${email}`
     setFounderActionKey(key)
@@ -920,7 +611,7 @@ function AdminDashboardContent() {
     const token = session?.access_token
     if (!token) { setFounderActionKey(null); return }
 
-    await fetch('/api/admin/startups/remove-founder', {
+    await adminFetch('/api/admin/startups/remove-founder', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ startupId, email }),
@@ -937,7 +628,7 @@ function AdminDashboardContent() {
     const token = session?.access_token
     if (!token) { setFounderActionKey(null); return }
 
-    await fetch('/api/admin/startups/move-founder', {
+    await adminFetch('/api/admin/startups/move-founder', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ email, fromStartupId, toStartupId }),
@@ -963,7 +654,7 @@ function AdminDashboardContent() {
   const memberReferences = useMemo<CohortRecordReference[]>(() => members.map(member => ({
     recordId: member.id, profileId: member.id, email: member.email,
   })), [members])
-  const cohort = useCohortScreen(memberReferences, 'all', searchParams.get('semester') ?? undefined)
+  const cohort = useCohortScreen(memberReferences, 'all', searchParams.get('semester') ?? undefined, tab !== 'overview' && tab !== 'friday-program')
   const setCohortSelected = cohort.setSelected
   const memberParam = searchParams.get('member')
 
@@ -993,7 +684,6 @@ function AdminDashboardContent() {
   const activationMutationEnabled = cohort.cohorts.current !== null
   const activationWorkspace = activationWorkspaceState(cohort.currentMembers, cohort.cohorts.current?.id ?? null, pendingUsers.length)
   const readyMembers = activationWorkspace.readyMembers
-  const activationAttention = activationWorkspace.attentionCount
 
   const membershipRefreshes = () => [loadAll, cohort.reload, cohort.reloadCurrent] as const
 
@@ -1051,10 +741,6 @@ function AdminDashboardContent() {
       setActivationError,
     )
   }
-
-  const activeMembershipProfiles = new Set(scopedCohortMembers
-    .filter(member => member.status === 'active')
-    .map(member => member.profileId))
 
   const filteredMembers = filterMembershipsByVisibility(scopedCohortMembers, memberVisibility)
     .flatMap(membership => {
@@ -1120,7 +806,7 @@ function AdminDashboardContent() {
     setEditError(null)
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      const response = await fetch('/api/admin/platform-access', {
+      const response = await adminFetch('/api/admin/platform-access', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
         body: JSON.stringify({ profileId: member.id, enabled }),
@@ -1137,124 +823,6 @@ function AdminDashboardContent() {
 
   // ── Schedule ───────────────────────────────────────────────────────────────
 
-  async function assignForWeek() {
-    if (!activeSemesterId || !selectedMeetingId) {
-      alert('No active semester or session date configured.')
-      return
-    }
-    if (!assignMentorId) {
-      alert('Pick a mentor.')
-      return
-    }
-    if (!assignStartupId) {
-      alert('Pick a startup for this session.')
-      return
-    }
-    setAssigning(true)
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const response = await fetch('/api/admin/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}) },
-        body: JSON.stringify({
-        mentorSemesterId: assignMentorId,
-        startupSemesterId: assignStartupId,
-        meetingId: selectedMeetingId,
-        semesterId: activeSemesterId,
-        slot: assignTimeSlot === '4:15-5:00' ? 2 : 1,
-        format: assignFormat,
-        startupAbsent: assignStartupAbsent,
-        substituteName: assignStartupAbsent && assignSubstituteName.trim() ? assignSubstituteName.trim() : null,
-        topic: assignTopic.trim() ? assignTopic.trim() : null,
-        }),
-      })
-      if (!response.ok) throw new Error(((await response.json()) as { error?: string }).error ?? 'Assignment failed.')
-      await refreshSessions()
-      setAssignTopic('')
-      setAssignSubstituteName('')
-      setAssignStartupAbsent(false)
-      setAssignStartupId('')
-      setAssignMentorId('')
-      setShowAddSession(false)
-    } catch (e) {
-      console.error(e)
-      alert(`Assignment failed: ${e instanceof Error ? e.message : String(e)}`)
-    } finally {
-      setAssigning(false)
-    }
-  }
-
-  function openEditSession(s: Session) {
-    setEditingSession(s)
-    setEditMentorId(s.mentor_id)
-    setEditStartupId(s.startup_id ?? '')
-    setEditTimeSlot(s.slot_label ?? '3:30-4:15')
-    setEditFormat(concreteMeetingFormat(s.format) ?? '')
-    setEditTopic(s.topic ?? '')
-    setEditStartupAbsent(s.startup_absent)
-    setEditSubstituteName(s.substitute_name ?? '')
-    void loadSessionAttendance(s)
-  }
-
-  async function updateSession() {
-    if (!editingSession) return
-    setEditSaving(true)
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const response = await fetch('/api/admin/sessions', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}) },
-        body: JSON.stringify({
-        sessionId: editingSession.id,
-        mentorSemesterId: editMentorId,
-        startupSemesterId: editStartupId,
-        slot: editTimeSlot === '4:15-5:00' ? 2 : 1,
-        format: editFormat,
-        topic: editTopic.trim() || null,
-        status: 'confirmed',
-        startupAbsent: editStartupAbsent,
-        substituteName: editStartupAbsent && editSubstituteName.trim() ? editSubstituteName.trim() : null,
-        }),
-      })
-      if (!response.ok) throw new Error(((await response.json()) as { error?: string }).error ?? 'Update failed.')
-      await refreshSessions()
-      setEditingSession(null)
-    } catch (e) {
-      alert(`Update failed: ${e instanceof Error ? e.message : String(e)}`)
-    } finally {
-      setEditSaving(false)
-    }
-  }
-
-  async function deleteSession() {
-    if (!editingSession) return
-    if (!confirm('Delete this session?')) return
-    setEditSaving(true)
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const response = await fetch(`/api/admin/sessions?sessionId=${encodeURIComponent(editingSession.id)}`, {
-        method: 'DELETE',
-        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
-      })
-      if (!response.ok) throw new Error(((await response.json()) as { error?: string }).error ?? 'Delete failed.')
-      setSessions(prev => prev.filter(s => s.id !== editingSession.id))
-      setEditingSession(null)
-    } catch (e) {
-      alert(`Delete failed: ${e instanceof Error ? e.message : String(e)}`)
-    } finally {
-      setEditSaving(false)
-    }
-  }
-
-  // ── Tabs ───────────────────────────────────────────────────────────────────
-
-  const tabs: { id: Tab; label: string; badge?: number }[] = [
-    { id: 'users', label: ACTIVATION_TAB_LABEL, badge: activationAttention },
-    { id: 'members', label: 'Members' },
-    { id: 'schedule', label: 'Schedule' },
-    { id: 'startups', label: 'Startups' },
-  ]
-
   function SortIcon({ field }: { field: MemberSortKey }) {
     if (memberSortKey !== field) return <span className="text-gray-300 ml-1">↕</span>
     return <span className="text-[#002147] ml-1">{memberSortDir === 'asc' ? '↑' : '↓'}</span>
@@ -1266,8 +834,18 @@ function AdminDashboardContent() {
     startup: 'bg-green-50 text-green-700',
   }
 
+  if (modulePending) return <DataLoading label="Loading admin workspace..." />
+  if (loadError && errorTab === tab) return <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">{loadError} <button type="button" className="underline" onClick={() => { setLoading(true); void loadAll().catch((cause: unknown) => { setLoadError(cause instanceof Error ? cause.message : 'Unable to load admin workspace.'); setLoading(false) }) }}>Try again</button></div>
+  if (loading || loadedTab !== tab) return <DataLoading label="Loading admin workspace…" />
+  if (tab !== 'overview' && tab !== 'friday-program') {
+    if (cohort.loadError) return <div className="max-w-5xl"><CohortScreenControls controller={cohort} visibleRecords={[]} /></div>
+    if (!cohort.ready || cohort.loading) return <DataLoading label="Loading cohort data…" />
+  }
+
   return (
     <div className="max-w-5xl">
+      {tab === 'overview' && !loading && !loadError && !activeSemesterId && <p role="status">No active semester is configured.</p>}
+      {tab === 'overview' && overview && !loading && !loadError && activeSemesterId && <>
       <div className="rounded-2xl bg-[#002147] text-white p-6 md:p-7 mb-6 shadow-sm">
         <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5">
           <div>
@@ -1276,19 +854,20 @@ function AdminDashboardContent() {
               <h1 className="text-2xl md:text-3xl font-semibold">{activeSemesterName ?? 'Almaworks program'}</h1>
               <span className="rounded-full border border-white/20 px-2.5 py-1 text-[10px] uppercase tracking-wider text-white/70">Active semester</span>
             </div>
-            <p className="text-sm text-white/65 mt-2">One operating view for roster health, scheduling, and follow-up.</p>
+            <p className="text-sm text-white/65 mt-2">The operational signals that need attention right now.</p>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => setTab('schedule')} className="rounded-lg border border-white/25 px-3 py-2 text-xs font-medium text-white/85 hover:bg-white/10">Review schedule</button>
-            <button onClick={() => setTab('users')} className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-[#002147] hover:bg-[#e7f2f9]">Review requests{pendingUsers.length > 0 ? ` (${pendingUsers.length})` : ''}</button>
+            <button onClick={() => setTab('friday-program')} className="rounded-lg border border-white/25 px-3 py-2 text-xs font-medium text-white/85 hover:bg-white/10">Manage Friday program</button>
+            {isSuperAdmin && <button onClick={() => setTab('access')} className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-[#002147] hover:bg-[#e7f2f9]">Review access{pendingUsers.length > 0 ? ` (${pendingUsers.length})` : ''}</button>}
           </div>
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-6">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-6">
           {[
-            { label: 'People', value: filteredMembers.length, note: `${cohort.scope === 'all' ? 'All cohorts' : cohort.cohorts.all.find(item => item.id === cohort.semesterId)?.name ?? 'Selected cohort'}` },
-            { label: 'Ready', value: filteredMembers.length ? `${Math.round((filteredMembers.filter(member => activeMembershipProfiles.has(member.id)).length / filteredMembers.length) * 100)}%` : '—', note: 'Active memberships' },
-            { label: 'Sessions', value: sessions.length, note: `${sessions.filter(session => session.is_confirmed).length} confirmed` },
-            { label: 'Needs attention', value: pendingUsers.length, note: 'Pending approvals' },
+            { label: 'Startups', value: overview?.startups ?? 0, note: 'Signed up for mentorship' },
+            { label: 'Mentors', value: (overview?.mentors ?? 0), note: 'Available this semester' },
+            { label: 'Open needs', value: (overview?.openNeeds ?? 0), note: 'Startups requesting guidance' },
+            { label: 'Friday sessions', value: (overview?.confirmedSessions ?? 0), note: `${(overview?.unconfirmedSessions ?? 0)} awaiting confirmation` },
+            { label: 'Mentorship bookings', value: (overview?.acceptedMentorshipBookings ?? 0), note: `${(overview?.pendingMentorshipBookings ?? 0)} pending` },
           ].map(metric => (
             <div key={metric.label} className="rounded-xl border border-white/10 bg-white/[0.08] px-4 py-3">
               <p className="text-[11px] uppercase tracking-wider text-white/55">{metric.label}</p>
@@ -1298,8 +877,10 @@ function AdminDashboardContent() {
           ))}
         </div>
       </div>
+      </>}
 
-      <CohortScreenControls controller={cohort} visibleRecords={filteredMembers.map(member => ({ recordId: member.id, profileId: member.id, email: member.email }))} />
+      {tab !== 'overview' && tab !== 'friday-program' && <CohortScreenControls controller={cohort} visibleRecords={filteredMembers.map(member => ({ recordId: member.id, profileId: member.id, email: member.email }))} />}
+      {completedDeletionId && <div ref={deletionNotice} tabIndex={-1} role="status" className="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-900">Account and personal data deleted. Historical activity has been anonymized.</div>}
       {membershipRefreshFeedback && (
         <div role="status" className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <span>{membershipRefreshFeedback}</span>
@@ -1314,60 +895,36 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      <div className="grid lg:grid-cols-[1.3fr_1fr] gap-4 mb-6">
+      {tab === 'overview' && overview && !loading && !loadError && activeSemesterId && <div className="grid lg:grid-cols-[1.3fr_1fr] gap-4 mb-6" aria-label="Operational signals">
         <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between mb-4">
-            <div><p className="text-[10px] uppercase tracking-[0.18em] text-[#75AADB] font-semibold">Launch sequence</p><h2 className="text-base font-semibold text-[#002147] mt-1">Keep the semester moving</h2></div>
-            <span className="text-xs text-gray-400">{[activeSemesterName, members.length > 0, meetingDates.length > 0, pendingUsers.length === 0].filter(Boolean).length}/4 complete</span>
+            <div><p className="text-[10px] uppercase tracking-[0.18em] text-[#75AADB] font-semibold">Mentorship health</p><h2 className="text-base font-semibold text-[#002147] mt-1">Where support is needed</h2></div>
+            <Link href="/dashboard/admin/mentor-needs" className="text-xs font-semibold text-[#0066a1] hover:underline">Review needs</Link>
           </div>
-          <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden mb-4"><span className="block h-full bg-[#75AADB]" style={{ width: `${([activeSemesterName, members.length > 0, meetingDates.length > 0, pendingUsers.length === 0].filter(Boolean).length / 4) * 100}%` }} /></div>
           <div className="space-y-2 text-sm">
-            {[{ label: 'Active semester configured', done: Boolean(activeSemesterName), tab: 'schedule' as Tab }, { label: 'Roster reviewed', done: members.length > 0, tab: 'members' as Tab }, { label: 'Meeting dates generated', done: meetingDates.length > 0, tab: 'schedule' as Tab }, { label: 'Pending access requests resolved', done: pendingUsers.length === 0, tab: 'users' as Tab }].map(item => (
+            {[{ label: 'Startups with identified needs', value: (overview?.openNeeds ?? 0), tab: 'startups' as Tab }, { label: 'Available mentors', value: (overview?.mentors ?? 0), tab: 'members' as Tab }, { label: 'Friday sessions awaiting confirmation', value: (overview?.unconfirmedSessions ?? 0), tab: 'friday-program' as Tab }].map(item => (
               <button key={item.label} onClick={() => setTab(item.tab)} className="w-full flex items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-gray-50">
-                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] ${item.done ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-400'}`}>{item.done ? '✓' : '·'}</span>
-                <span className={item.done ? 'text-gray-500' : 'font-medium text-[#002147]'}>{item.label}</span>
+                <span className="flex-1 font-medium text-[#002147]">{item.label}</span><span className="rounded-full bg-[#e7f2f9] px-2 py-0.5 text-xs font-semibold text-[#0066a1]">{item.value}</span>
               </button>
             ))}
+            <Link href="/dashboard/bookings" className="w-full flex items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-gray-50">
+              <span className="flex-1 font-medium text-[#002147]">Mentorship bookings pending</span><span className="rounded-full bg-[#e7f2f9] px-2 py-0.5 text-xs font-semibold text-[#0066a1]">{overview?.pendingMentorshipBookings ?? 0}</span>
+            </Link>
           </div>
         </section>
         <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
           <p className="text-[10px] uppercase tracking-[0.18em] text-[#75AADB] font-semibold">Quick actions</p>
           <h2 className="text-base font-semibold text-[#002147] mt-1 mb-4">What needs your attention</h2>
           <div className="space-y-2">
-            <button onClick={() => setTab('users')} className="w-full flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2.5 text-left hover:border-[#75AADB]/50"><span><strong className="block text-sm text-[#002147]">Approve registrations</strong><small className="text-xs text-gray-400">{pendingUsers.length} waiting for a role</small></span><span className="text-[#75AADB]">→</span></button>
-            <button onClick={() => setTab('schedule')} className="w-full flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2.5 text-left hover:border-[#75AADB]/50"><span><strong className="block text-sm text-[#002147]">Check session coverage</strong><small className="text-xs text-gray-400">{sessions.length} sessions in the active semester</small></span><span className="text-[#75AADB]">→</span></button>
+            {isSuperAdmin && <button onClick={() => setTab('access')} className="w-full flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2.5 text-left hover:border-[#75AADB]/50"><span><strong className="block text-sm text-[#002147]">Review access queue</strong><small className="text-xs text-gray-400">Review registrations and activation</small></span><span className="text-[#75AADB]">→</span></button>}
+            <button onClick={() => setTab('friday-program')} className="w-full flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2.5 text-left hover:border-[#75AADB]/50"><span><strong className="block text-sm text-[#002147]">Manage Friday Program</strong><small className="text-xs text-gray-400">Plan speaker and startup-group rotations</small></span><span className="text-[#75AADB]">→</span></button>
             <Link href="/dashboard/admin/outreach" className="w-full flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2.5 text-left hover:border-[#75AADB]/50"><span><strong className="block text-sm text-[#002147]">Open outreach queue</strong><small className="text-xs text-gray-400">Follow up with prospective members</small></span><span className="text-[#75AADB]">→</span></Link>
           </div>
         </section>
-      </div>
-
-      <div className="mb-4">
-        <h2 className="text-lg font-semibold text-[#002147]">Admin workspace</h2>
-        <p className="text-sm text-gray-500 mt-1">Open a focused workflow without leaving the operating view.</p>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-gray-100 rounded-xl p-1 w-fit flex-wrap">
-        {tabs.map(t => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              tab === t.id ? 'bg-white text-[#002147] shadow-sm' : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            {t.label}
-            {t.badge != null && t.badge > 0 && (
-              <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
-                {t.badge}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
+      </div>}
 
       {/* ── Pending Users ── */}
-      {tab === 'users' && (
+      {tab === 'access' && (
         <div className="space-y-8">
           <section>
             <div className="mb-4">
@@ -1631,7 +1188,8 @@ function AdminDashboardContent() {
 
                       return filteredMembers.flatMap(m => {
                         const memberSemesters = getMemberSemesters(m)
-                        const isEditing = editingMember?.id === m.id
+                        const deletionLocked = deletionLockedIds.has(m.id)
+                        const isEditing = editingMember?.id === m.id && !deletionLocked
                         const rows = [
                           <tr key={m.membership.membershipId} className={`transition-colors ${isEditing ? 'bg-[#002147]/3' : 'hover:bg-gray-50/60 border-b border-gray-50'}`}>
                             <td className="px-5 py-3.5 font-medium text-[#002147] truncate" title={m.full_name ?? undefined}>
@@ -1665,7 +1223,7 @@ function AdminDashboardContent() {
                               )}
                             </td>
                             <td className="px-5 py-3.5 whitespace-nowrap">
-                              <MemberLoginAccountControl
+                              {!deletionLocked && <MemberLoginAccountControl
                                 profileId={m.id}
                                 name={m.full_name ?? m.email}
                                 email={m.email}
@@ -1674,13 +1232,24 @@ function AdminDashboardContent() {
                                 canRemoveMemberLogin={canRemoveMemberLogin}
                                 accountPresentation={m.accountPresentation}
                                 onChanged={refreshMemberLoginReadModels}
-                              />
+                              />}
+                              {deletionLocked && <span className="text-xs text-gray-500">Deletion requires review · account changes locked</span>}
+                              {isSuperAdmin && !m.is_super_admin && m.role !== 'admin' && m.auth_user_id !== currentAuthUserId && (
+                                <MemberDeletionControl
+                                  key={m.id}
+                                  profileId={m.id}
+                                  onLocked={() => { setCompletedDeletionId(null); setDeletionLockedIds(current => new Set(current).add(m.id)) }}
+                                  onReady={() => setDeletionLockedIds(current => { const next = new Set(current); next.delete(m.id); return next })}
+                                  onCompleted={() => setCompletedDeletionId(m.id)}
+                                  onChanged={refreshMemberLoginReadModels}
+                                />
+                              )}
                             </td>
                             <td className="px-5 py-3.5 text-right whitespace-nowrap">
                               <div className="flex items-center justify-end gap-2">
                                 <button
                                   onClick={() => isEditing ? cancelEdit() : openEdit(m)}
-                                  disabled={!lifecycleMutationEnabled}
+                                  disabled={!lifecycleMutationEnabled || deletionLocked}
                                   className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
                                     isEditing
                                       ? 'bg-[#002147] text-white border-[#002147]'
@@ -1692,7 +1261,7 @@ function AdminDashboardContent() {
                                 {m.presentation.action !== null && (
                                 <button
                                   onClick={() => void applyMemberLifecycleAction(m)}
-                                  disabled={togglingActive === m.id || !lifecycleMutationEnabled}
+                                  disabled={togglingActive === m.id || !lifecycleMutationEnabled || deletionLocked}
                                   className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors disabled:opacity-50 ${m.presentation.action === 'suspend' ? 'border-red-200 text-red-600 hover:bg-red-50' : 'border-green-200 text-green-700 hover:bg-green-50'}`}
                                 >
                                   {togglingActive === m.id ? '…' : m.presentation.action === 'activate' ? 'Activate' : m.presentation.action === 'suspend' ? 'Suspend' : 'Restore to active'}
@@ -1787,299 +1356,9 @@ function AdminDashboardContent() {
       )}
 
       {/* ── Schedule ── */}
-      {tab === 'schedule' && (() => {
-        // Build matrix: rows = meeting date and slot, columns = startups
-        // Unique row keys sorted by date then time slot
-        const rowKeys = buildScheduleRows(meetingDates)
-
-        // Unique startup columns — only startups that appear in sessions
-        const colStartups = startups.filter(st => st.semester_id === activeSemesterId)
-
-        // Build lookup: `date__slot__startupName` -> session
-        const cellMap = new Map<string, Session>()
-        for (const s of sessions) {
-          if (!s.meeting || s.startup_absent) continue
-          const slot = s.slot_label ?? 'TBD'
-          const key = `${s.meeting.date}__${slot}__${s.startup_id ?? ''}`
-          cellMap.set(key, s)
-        }
-        const rsvpIssues = sessions.flatMap((session) => (
-          session.status === 'confirmed' && !session.startup_absent && session.meeting?.semester_id === activeSemesterId
-            ? (sessionRsvpStates[session.id]?.issues ?? []).map((issue) => ({ session, issue }))
-            : []
-        ))
-
-        return (
-          <div className="space-y-4">
-            {/* Header row */}
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 flex-wrap">
-                <p className="text-sm text-gray-500">Session grid — click any cell to edit.</p>
-                <div className="flex items-center gap-2 text-[10px] font-medium">
-                  <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">Online</span>
-                  <span className="px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">In-person</span>
-                  <span className="px-2 py-0.5 rounded-full border border-gray-200 text-gray-500"
-                    style={{ backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(0,0,0,0.06) 4px, rgba(0,0,0,0.06) 8px)' }}>
-                    Unconfirmed
-                  </span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  onClick={() => { setShowDateWizard(v => !v); setWizardDone(false) }}
-                  className="flex items-center gap-1.5 px-4 py-2 border border-[#002147] text-[#002147] text-sm font-medium rounded-xl hover:bg-[#002147]/5 transition-colors"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  Setup dates
-                </button>
-                <button
-                  onClick={() => { setShowAddSession(v => !v) }}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-[#002147] text-white text-sm font-medium rounded-xl hover:bg-[#002147]/90 transition-colors"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                  </svg>
-                  Add session
-                </button>
-              </div>
-            </div>
-
-            {assignmentFeedback && (
-              <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-                <p>{assignmentFeedback}</p>
-                {assignmentRefreshRetryRequired && (
-                  <button
-                    type="button"
-                    onClick={retryAssignmentRefresh}
-                    disabled={assignmentRefreshRetrying}
-                    className="rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60"
-                  >
-                    {assignmentRefreshRetrying ? 'Refreshing...' : 'Retry refresh'}
-                  </button>
-                )}
-              </div>
-            )}
-
-            {rsvpIssues.length > 0 && (
-              <section className="rounded-xl border border-amber-200 bg-amber-50 p-4" aria-labelledby="rsvp-attention-title">
-                <div className="flex items-baseline justify-between gap-3">
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-800">Attendance</p>
-                    <h2 id="rsvp-attention-title" className="mt-1 text-sm font-semibold text-[#002147]">Needs attention</h2>
-                  </div>
-                  <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-900">{rsvpIssues.length}</span>
-                </div>
-                <div className="mt-3 space-y-2">
-                  {rsvpIssues.map(({ session, issue }) => (
-                    <button key={`${session.id}:${issue}`} type="button" onClick={() => openEditSession(session)} className="flex w-full items-center justify-between gap-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-left text-xs hover:border-amber-400">
-                      <span><strong className="text-[#002147]">{session.startups?.name ?? 'Startup'} with {session.mentors?.full_name ?? 'mentor'}</strong><small className="ml-2 text-gray-500">{session.meeting?.label ?? session.meeting?.date}</small></span>
-                      <span className={`shrink-0 rounded-full px-2 py-0.5 font-semibold ${rsvpIssuePresentation[issue].tone}`}>{rsvpIssuePresentation[issue].label}</span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {/* Session dates wizard */}
-            {showDateWizard && (
-              <div className="bg-white border border-[#002147]/20 rounded-xl p-5 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-[#002147]">Session Date Wizard</p>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      Generate weekly session dates for <span className="font-medium">{activeSemesterId ? 'the active semester' : 'no active semester'}</span>.
-                    </p>
-                  </div>
-                  <button onClick={() => setShowDateWizard(false)} className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-                <div className="grid sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Start date</label>
-                    <input
-                      type="date"
-                      value={wizardStartDate}
-                      onChange={e => setWizardStartDate(e.target.value)}
-                      className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                      Number of weekly sessions: <span className="text-[#002147] font-semibold">{wizardWeeks}</span>
-                    </label>
-                    <input
-                      type="range"
-                      min={1} max={20}
-                      value={wizardWeeks}
-                      onChange={e => setWizardWeeks(Number(e.target.value))}
-                      className="w-full accent-[#002147]"
-                    />
-                    <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
-                      <span>1</span><span>20</span>
-                    </div>
-                  </div>
-                </div>
-
-                {wizardStartDate && (() => {
-                  const preview = wizardPreviewDates()
-                  return (
-                    <div>
-                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                        Preview — {preview.length} dates
-                      </p>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-1.5 max-h-48 overflow-y-auto pr-1">
-                        {preview.map(({ date, label }) => {
-                          const existing = meetingDates.some(d => d.date === date)
-                          return (
-                            <div
-                              key={date}
-                              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs ${
-                                existing
-                                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                  : 'bg-gray-50 text-gray-700 border border-gray-200'
-                              }`}
-                            >
-                              <span className="font-semibold">{label}</span>
-                              {existing && <span className="text-[9px] text-amber-500">exists</span>}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )
-                })()}
-
-                {!activeSemesterId && (
-                  <p className="text-xs text-red-500">No active semester found. Set one before creating dates.</p>
-                )}
-
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={createWizardDates}
-                    disabled={wizardSaving || !wizardStartDate || !activeSemesterId}
-                    className="px-4 py-2 bg-[#002147] text-white text-sm font-medium rounded-lg hover:bg-[#002147]/90 disabled:opacity-60 transition-colors"
-                  >
-                    {wizardSaving ? 'Creating…' : `Create ${wizardWeeks} session date${wizardWeeks !== 1 ? 's' : ''}`}
-                  </button>
-                  {wizardDone && <p className="text-sm text-green-600">Done! Dates created.</p>}
-                </div>
-              </div>
-            )}
-
-            {/* Matrix grid */}
-            {rowKeys.length === 0 ? (
-              <p className="text-sm text-gray-400">No sessions scheduled yet.</p>
-            ) : (
-              <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
-                <table className="text-xs border-collapse min-w-full">
-                  <thead>
-                    <tr className="bg-gray-50">
-                      <th className="sticky left-0 z-10 bg-gray-50 px-4 py-3 text-left font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap border-b border-r border-gray-200 min-w-[160px]">
-                        Date / Time
-                      </th>
-                      {colStartups.map(st => (
-                        <th key={st.id} className="px-3 py-3 text-center font-semibold text-[#002147] whitespace-nowrap border-b border-r border-gray-200 min-w-[120px]">
-                          {st.name}
-                          {st.semester_name && (
-                            <span className="block text-[10px] font-normal text-gray-400 mt-0.5">{st.semester_name}</span>
-                          )}
-                        </th>
-                      ))}
-                      {/* Absent/sub column */}
-                      <th className="px-3 py-3 text-center font-semibold text-gray-400 whitespace-nowrap border-b border-gray-200 min-w-[110px]">
-                        Absent / Sub
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rowKeys.map((row, ri) => {
-                      const absentSessions = sessions.filter(s =>
-                        s.meeting?.date === row.date && (s.slot_label ?? 'TBD') === row.slot && s.startup_absent
-                      )
-                      return (
-                        <tr key={row.dateId} className={ri % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
-                          <td className="sticky left-0 z-10 bg-inherit px-4 py-2.5 font-semibold text-[#002147] whitespace-nowrap border-r border-gray-200">
-                            <span className="block">{row.label ?? new Date(row.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                            <span className="block text-[10px] font-normal text-gray-400">{row.slot}</span>
-                          </td>
-                          {colStartups.map(st => {
-                            const cellKey = `${row.date}__${row.slot}__${st.id}`
-                            const cell = cellMap.get(cellKey)
-                            const rsvpState = cell ? sessionRsvpStates[cell.id] : undefined
-                            const formatPresentation = sessionFormatPresentation(cell?.format ?? null)
-                            const formatBg =
-                              formatPresentation.tone === 'in_person' ? 'bg-green-50 text-green-800 border border-green-200 hover:bg-green-100' :
-                              formatPresentation.tone === 'online' ? 'bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100' :
-                              'bg-gray-50 text-gray-700 border border-gray-200 hover:bg-gray-100'
-                            return (
-                              <td key={st.id} className="px-2 py-2 text-center border-r border-gray-100 align-top">
-                                {cell ? (
-                                  <button
-                                    onClick={() => openEditSession(cell)}
-                                    className={`w-full px-2 py-1.5 rounded-lg text-[11px] font-medium text-left transition-colors ${formatBg}`}
-                                    style={!cell.is_confirmed ? {
-                                      backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(0,0,0,0.05) 5px, rgba(0,0,0,0.05) 10px)',
-                                    } : undefined}
-                                  >
-                                    {cell.mentors?.full_name ?? '—'}
-                                    {formatPresentation.label && (
-                                      <span className="block text-[9px] font-normal opacity-60">{formatPresentation.label}</span>
-                                    )}
-                                    {!cell.is_confirmed && (
-                                      <span className="block text-[9px] font-normal opacity-70">unconfirmed</span>
-                                    )}
-                                    {rsvpState?.issues.map((issue) => (
-                                      <span key={issue} className={`mt-1 block w-fit rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${rsvpIssuePresentation[issue].tone}`}>{rsvpIssuePresentation[issue].label}</span>
-                                    ))}
-                                  </button>
-                                ) : (
-                                  <button
-                                    onClick={() => {
-                                      const meeting = meetingDates.find(d => d.id === row.meetingId)
-                                      if (meeting) openAssignmentPicker(st, meeting, row.slot)
-                                    }}
-                                    className="w-full min-h-10 rounded-lg border border-dashed border-gray-200 text-gray-400 hover:border-[#75AADB] hover:text-[#00689d] hover:bg-blue-50/50 focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40 transition-colors text-[10px] font-semibold"
-                                    aria-label={`Assign a mentor to ${st.name} on ${row.label ?? row.date}, ${row.slot}`}
-                                  >
-                                    + Assign
-                                  </button>
-                                )}
-                              </td>
-                            )
-                          })}
-                          <td className="px-3 py-2.5 text-center align-top">
-                            {absentSessions.length > 0 ? (
-                              <div className="space-y-1">
-                                {absentSessions.map(s => (
-                                  <span key={s.id} className="inline-block bg-red-50 text-red-600 px-2 py-1 rounded-lg text-[11px] font-medium">
-                                    {s.mentors?.full_name ?? '—'}
-                                    {s.substitute_name && <span className="block text-[9px] font-normal opacity-70">Sub: {s.substitute_name}</span>}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : (
-                              <span className="text-gray-200">—</span>
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {sessions.length === 0 && meetingDates.length === 0 && (
-              <p className="text-sm text-gray-400">No session dates found for the active semester.</p>
-            )}
-          </div>
-        )
-      })()}
+      {tab === 'friday-program' && (
+        <FridayProgramPanel semesterId={activeSemesterId} canGenerate heading="Friday program groups" />
+      )}
 
       {/* ── Startups ── */}
       {tab === 'startups' && (
@@ -2192,16 +1471,7 @@ function AdminDashboardContent() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Stage</label>
-                    <select value={csStage} onChange={e => setCsStage(e.target.value)}
-                      className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
-                    >
-                      <option value="">Select stage…</option>
-                      <option value="idea">Idea</option>
-                      <option value="mvp">MVP</option>
-                      <option value="seed">Seed</option>
-                      <option value="series_a">Series A</option>
-                      <option value="growth">Growth</option>
-                    </select>
+                    <StartupStagePicker value={csStage} onChange={setCsStage} />
                   </div>
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
@@ -2287,7 +1557,7 @@ function AdminDashboardContent() {
                             <span className="text-[10px] font-semibold bg-[#75AADB]/20 text-[#002147] px-1.5 py-0.5 rounded-full">{s.semester_name}</span>
                           )}
                         </div>
-                        <p className="text-xs text-gray-500 mt-0.5">{[s.industry, s.stage].filter(Boolean).join(' · ')}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">{[s.industry, s.stage && formatEnumLabel(s.stage)].filter(Boolean).join(' · ')}</p>
                         {s.mentorship_needs && s.mentorship_needs.length > 0 && (
                           <div className="mt-1.5">
                             <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mr-1">Mentorship Needs:</span>
@@ -2358,107 +1628,6 @@ function AdminDashboardContent() {
 
       <StartupModal startupId={selectedStartupId} onClose={() => setSelectedStartupId(null)} />
 
-      <MentorAssignmentPicker
-        open={assignmentPickerTarget !== null}
-        target={assignmentPickerTarget}
-        onClose={() => setAssignmentPickerTarget(null)}
-        onCommitted={handleAssignmentCommitted}
-      />
-
-      {/* ── Add Session Lightbox ── */}
-      {showAddSession && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowAddSession(false)} />
-          <div className="relative bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-[#002147]">Add Session</h3>
-              <button onClick={() => setShowAddSession(false)} className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-700">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Session date</label>
-                <select value={selectedMeetingId ?? ''} onChange={e => setSelectedMeetingId(e.target.value)}
-                  className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
-                  <option value="">Select date…</option>
-                  {meetingDates.map(d => (
-                    <option key={d.id} value={d.id}>{d.label ?? d.date} · {d.date}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Time slot</label>
-                <select value={assignTimeSlot} onChange={e => setAssignTimeSlot(e.target.value)}
-                  className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
-                  <option value="3:30-4:15">3:30 – 4:15 PM</option>
-                  <option value="4:15-5:00">4:15 – 5:00 PM</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Format</label>
-                <select value={assignFormat} onChange={e => { setAssignFormat(e.target.value as ConcreteMeetingFormat); setAssignMentorId('') }}
-                  className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
-                  <option value="online">Online</option>
-                  <option value="in_person">In person</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Mentor <span className="text-red-400">*</span></label>
-                <select value={assignMentorId} onChange={e => setAssignMentorId(e.target.value)}
-                  className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
-                  <option value="">Select mentor…</option>
-                  {assignmentMentors.map(m => (
-                    <option key={m.id} value={m.id}>{m.full_name}{m.company ? ` · ${m.company}` : ''}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Startup</label>
-                <select value={assignStartupId} onChange={e => setAssignStartupId(e.target.value)}
-                  disabled={assignStartupAbsent}
-                  className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40 disabled:opacity-40">
-                  <option value="">Select startup…</option>
-                  {startups.filter(s => s.semester_id === activeSemesterId).map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Topic</label>
-                <input value={assignTopic} onChange={e => setAssignTopic(e.target.value)} placeholder="Optional"
-                  className="w-full text-sm text-gray-800 placeholder:text-gray-400 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40" />
-              </div>
-              <div className="flex flex-col gap-2">
-                <label className="flex items-center gap-2 cursor-pointer select-none mt-5">
-                  <input type="checkbox" checked={assignStartupAbsent}
-                    onChange={e => { setAssignStartupAbsent(e.target.checked); if (!e.target.checked) setAssignSubstituteName('') }}
-                    className="w-4 h-4 rounded accent-[#002147]" />
-                  <span className="text-sm text-gray-700">Startup absent</span>
-                </label>
-                {assignStartupAbsent && (
-                  <input value={assignSubstituteName} onChange={e => setAssignSubstituteName(e.target.value)}
-                    placeholder="Substitute name…"
-                    className="w-full text-sm text-gray-800 placeholder:text-gray-400 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40" />
-                )}
-              </div>
-            </div>
-            <div className="flex items-center gap-2 pt-1">
-              <button onClick={assignForWeek} disabled={assigning || !assignMentorId}
-                className="px-4 py-2 bg-[#002147] text-white text-sm font-medium rounded-lg hover:bg-[#002147]/90 disabled:opacity-50 transition-colors">
-                {assigning ? 'Adding…' : 'Add session'}
-              </button>
-              <button onClick={() => setShowAddSession(false)}
-                className="px-4 py-2 text-sm font-medium text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ── Edit Startup Lightbox ── */}
       {editingStartup && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -2493,15 +1662,7 @@ function AdminDashboardContent() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Stage</label>
-                    <select value={esStage} onChange={e => setEsStage(e.target.value)}
-                      className="w-full text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
-                      <option value="">Select stage…</option>
-                      <option value="idea">Idea</option>
-                      <option value="mvp">MVP</option>
-                      <option value="seed">Seed</option>
-                      <option value="series_a">Series A</option>
-                      <option value="growth">Growth</option>
-                    </select>
+                    <StartupStagePicker value={esStage} onChange={setEsStage} />
                   </div>
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-medium text-gray-600 mb-1">Mentorship needs</label>
@@ -2532,126 +1693,13 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      {/* ── Edit Session Modal ── */}
-      {editingSession && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setEditingSession(null)} />
-          <div className="relative bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-[#002147]">Edit Session</h3>
-              <button onClick={() => setEditingSession(null)} className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-700">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Mentor</label>
-                <select value={editMentorId} onChange={e => setEditMentorId(e.target.value)}
-                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
-                  <option value="">Select mentor…</option>
-                  {editMentors.map(m => (
-                    <option key={m.id} value={m.id}>{m.full_name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Startup</label>
-                <select value={editStartupId} onChange={e => setEditStartupId(e.target.value)}
-                  disabled={editStartupAbsent}
-                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40 disabled:opacity-40">
-                  <option value="">None</option>
-                  {startups.filter(s => s.semester_id === editingSession.meeting?.semester_id).map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Time slot</label>
-                <select value={editTimeSlot} onChange={e => setEditTimeSlot(e.target.value)}
-                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
-                  <option value="3:30-4:15">3:30 – 4:15 PM</option>
-                  <option value="4:15-5:00">4:15 – 5:00 PM</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Format</label>
-                <select value={editFormat} onChange={e => { setEditFormat(e.target.value as ConcreteMeetingFormat | ''); setEditMentorId('') }}
-                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40">
-                  <option value="">Choose a format…</option>
-                  <option value="online">Online</option>
-                  <option value="in_person">In person</option>
-                </select>
-              </div>
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-medium text-gray-600 mb-1">Topic</label>
-                <input value={editTopic} onChange={e => setEditTopic(e.target.value)} placeholder="Optional"
-                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40" />
-              </div>
-              <div className="flex flex-col gap-2 sm:col-span-2">
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input type="checkbox" checked={editStartupAbsent} onChange={e => setEditStartupAbsent(e.target.checked)}
-                    className="w-4 h-4 rounded accent-[#002147]" />
-                  <span className="text-sm text-gray-700">Startup absent / add fill-in</span>
-                </label>
-                {editStartupAbsent && (
-                  <input value={editSubstituteName} onChange={e => setEditSubstituteName(e.target.value)}
-                    placeholder="Substitute name…"
-                    className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40" />
-                )}
-              </div>
-            </div>
-            <section className="rounded-xl border border-gray-200 bg-gray-50 p-4" aria-labelledby="session-attendance-title">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#0066a1]">Participant responses</p>
-                  <h4 id="session-attendance-title" className="mt-1 text-sm font-semibold text-[#002147]">Session attendance</h4>
-                </div>
-                {editAttendance && <div className="flex gap-1.5 text-[11px] font-semibold">
-                  <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-emerald-800">{editAttendance.counts.attending} attending</span>
-                  <span className="rounded-full bg-rose-100 px-2.5 py-1 text-rose-800">{editAttendance.counts.notAttending} not attending</span>
-                  <span className="rounded-full bg-gray-200 px-2.5 py-1 text-gray-700">{editAttendance.counts.noResponse} pending</span>
-                </div>}
-              </div>
-              {editAttendanceLoading && <p role="status" className="mt-3 text-xs text-gray-500">Loading responses…</p>}
-              {editAttendanceError && <p role="alert" className="mt-3 text-xs text-red-600">{editAttendanceError}</p>}
-              {editAttendance && <div className="mt-3 divide-y divide-gray-200 rounded-lg border border-gray-200 bg-white">
-                {editAttendance.attendees.map(attendee => <div key={attendee.semesterMembershipId} className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
-                  <span><strong className="block text-[#002147]">{attendee.fullName}</strong><small className="capitalize text-gray-400">{attendee.role}</small></span>
-                  <span className={attendee.response === 'attending' ? 'font-semibold text-emerald-700' : attendee.response === 'not_attending' ? 'font-semibold text-rose-700' : 'font-semibold text-gray-500'}>
-                    {attendee.response === 'attending' ? 'Attending' : attendee.response === 'not_attending' ? 'Not attending' : 'No response'}
-                  </span>
-                </div>)}
-                {editAttendance.attendees.length === 0 && <p className="px-3 py-3 text-xs text-gray-500">No eligible participants are assigned.</p>}
-              </div>}
-            </section>
-            <div className="flex items-center justify-between pt-1">
-              <button onClick={deleteSession} disabled={editSaving}
-                className="px-3 py-2 text-xs font-medium text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50">
-                Delete
-              </button>
-              <div className="flex gap-2">
-                <button onClick={() => setEditingSession(null)}
-                  className="px-4 py-2 text-sm font-medium text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">
-                  Cancel
-                </button>
-                <button onClick={updateSession} disabled={editSaving || !editMentorId || !editFormat}
-                  className="px-4 py-2 bg-[#002147] text-white text-sm font-medium rounded-lg hover:bg-[#002147]/90 disabled:opacity-50 transition-colors">
-                  {editSaving ? 'Saving…' : 'Save'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
 
 export default function AdminDashboard() {
   return (
-    <Suspense fallback={<p role="status" className="text-sm text-gray-500">Loading admin workspace...</p>}>
+    <Suspense fallback={<DataLoading label="Loading admin workspace…" />}>
       <AdminDashboardContent />
     </Suspense>
   )

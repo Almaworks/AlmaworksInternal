@@ -94,6 +94,8 @@ test("route maps authentication and operation failures to stable statuses", asyn
     { error: new MemberLoginAccountError("Platform super-administrator access required", "42501"), status: 403 },
     { error: new MemberLoginAccountError("Member profile not found", "P0002"), status: 404 },
     { error: new MemberLoginAccountError("Retained profile must be unlinked and disabled", "55000"), status: 409 },
+    { error: new MemberLoginAccountError("Replacement placeholder changed", "PT409"), status: 409 },
+    { error: new MemberLoginAccountError("Legacy serialization conflict", "40001"), status: 409 },
     {
       error: new MemberLoginReconciliationError("Auth deletion failed", "disabled"),
       status: 502,

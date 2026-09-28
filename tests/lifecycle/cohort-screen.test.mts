@@ -7,6 +7,7 @@ import {
   membershipsForRecord,
   membershipIdsForRecords,
   roleForProfileInSemester,
+  selectedVisibleMembershipIds,
   type CohortRecordReference,
 } from "../../src/lifecycle/cohort-screen.ts";
 import type { CohortMember } from "../../src/lifecycle/cohort-management.ts";
@@ -60,6 +61,14 @@ test("filtered multi-select resolves only memberships represented by visible rec
     membershipIdsForRecords([records[1], records[0]], memberships, { semesterId: "fall-2025", role: "mentor" }),
     ["prior-mentor"],
   );
+});
+
+test("mentor import selection excludes hidden memberships and keeps visible row order", () => {
+  assert.deepEqual(
+    selectedVisibleMembershipIds(["mentor-hidden", "mentor-b", "mentor-a", "mentor-b"], ["mentor-a", "mentor-b"]),
+    ["mentor-a", "mentor-b"],
+  );
+  assert.deepEqual(selectedVisibleMembershipIds(["mentor-hidden"], ["mentor-a"]), []);
 });
 
 test("a screen row resolves the membership status for its exact cohort", () => {

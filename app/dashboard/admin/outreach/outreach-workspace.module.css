@@ -25,3 +25,26 @@
 @media (max-width: 759px) { .header { display:block; }.headerControls { justify-content:flex-start; margin-top:17px; }.search { width:100%; }.health { margin-top:14px; }.table { display:none; }.cards { display:grid; gap:0; }.card { background:#fff; border:0; border-bottom:1px solid #e5ebf2; color:#526176; cursor:pointer; display:grid; font:inherit; gap:7px; padding:14px; text-align:left; }.card:last-child { border:0; }.cardTop,.cardMeta { align-items:center; display:flex; justify-content:space-between; gap:10px; }.cardTop strong { color:#243b5b; }.cardMeta { color:#68788d; font-size:.78rem; }.drawer { max-width:none; padding:23px 18px; }.companyModal { padding:23px 18px; }.companyDetails { grid-template-columns:repeat(2,minmax(0,1fr)); }.companyPeopleHeading { align-items:stretch; flex-direction:column; }.companyPeopleSearch { width:100%; }.importLead,.resolution { align-items:flex-start; flex-direction:column; }.importLead .primaryButton { width:100%; }.importSummary { grid-template-columns:repeat(2,1fr); }.resolution fieldset { flex-wrap:wrap; }.controlRow,.composerFields { align-items:stretch; flex-wrap:wrap; }.controlRow label,.composerFields input { flex:1 1 180px; }.detailGrid { gap:10px; }.tabs { margin:0 -4px; }.tabs button { padding-left:10px; padding-right:10px; } }
 @media (max-width: 759px) { .contactModalBackdrop { align-items:flex-end; padding:0; }.contactModal { border-radius:16px 16px 0 0; max-height:92vh; padding:23px 18px; }.contactModalIdentity { align-items:stretch; flex-direction:column; gap:12px; padding-right:32px; }.contactModalIdentity .secondaryButton { align-self:flex-start; }.contactEditor form { grid-template-columns:1fr; }.contactEditor label:nth-of-type(6),.contactEditor label:nth-of-type(7),.contactEditor form p { grid-column:auto; }.detailGrid { grid-template-columns:repeat(2,1fr); } }
 @media (max-width: 430px) { .headerControls .secondaryButton,.headerControls .primaryButton { flex:1; }.health>div { min-width:132px; }.titleLine h1 { font-size:1.75rem; }.drawer { padding:20px 15px; }.importReview { padding:15px; } }
+
+.carryPanel { background:#f7f9fc; border:1px solid #dce4ed; border-radius:12px; color:#263b58; margin-bottom:16px; padding:18px; }
+.carryPanel h2 { color:#132d52; font-size:1rem; margin:0 0 7px; }
+.carryPanel p { font-size:.86rem; line-height:1.5; margin:0; max-width:780px; }
+.carryActions { align-items:center; display:flex; flex-wrap:wrap; gap:12px; margin-top:16px; }
+.carryActions>span { color:#526176; font-size:.82rem; }
+.contactSelection { align-items:center; color:#263b58; cursor:pointer; display:inline-flex; font-size:.82rem; gap:8px; min-height:44px; }
+.contactSelection input,.selectionCell input { accent-color:#102e5c; cursor:pointer; height:18px; width:18px; }
+.contactSelection input:focus-visible,.selectionCell input:focus-visible { outline:2px solid #265e99; outline-offset:3px; }
+.contactSelection input:disabled,.selectionCell input:disabled { cursor:not-allowed; }
+.table .selectionCell { width:44px; }
+.carryPanel .carryHint { color:#627085; font-size:.76rem; margin-top:10px; }
+.carryResult { align-items:center; border-top:1px solid #dce4ed; display:flex; flex-wrap:wrap; gap:12px; margin-top:14px; padding-top:14px; }
+.carryResult p { color:#276544; }
+@media (max-width:759px) {
+  .selectableCard { border-bottom:1px solid #e5ebf2; min-width:0; }
+  .selectableCard:last-child { border-bottom:0; }
+  .selectableCard>.contactSelection { padding:5px 14px 0; }
+  .selectableCard>.card { width:100%; }
+  .cardTop strong { overflow-wrap:anywhere; }
+  .carryPanel { padding:14px; }
+  .carryActions .primaryButton { width:100%; }
+}

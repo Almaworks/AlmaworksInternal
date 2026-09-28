@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 
 import type { MentorNeedsBoardRow } from "@/src/mentor-needs/domain";
 import { getMentorNeedsDisplayState } from "@/src/mentor-needs/ui-state";
+import { authenticatedFetch } from "@/src/auth/authenticated-fetch";
 import { createClient } from "@/utils/supabase/client";
 
 type Cohort = { id: string; name: string; isActive: boolean };
@@ -29,26 +30,26 @@ export default function MentorNeedsBoard() {
 
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
     async function load() {
       setIsLoading(true);
       setError(null);
       const client = createClient();
-      const { data } = await client.auth.getSession();
-      if (!data.session?.access_token) throw new Error("Your session has expired.");
       let selected = semesterId;
       if (!selected) {
         const semesters = await client.from("semesters").select("id").eq("is_active", true).maybeSingle();
         selected = semesters.data?.id ?? "";
       }
       if (!selected) throw new Error("No active semester is configured.");
-      const response = await fetch(`/api/admin/mentor-needs?semesterId=${encodeURIComponent(selected)}&scope=${scope}`, { headers: { Authorization: `Bearer ${data.session.access_token}` } });
+      if (!active) return;
+      const response = await authenticatedFetch(`/api/admin/mentor-needs?semesterId=${encodeURIComponent(selected)}&scope=${scope}`, { signal: controller.signal });
       const payload = await response.json() as { rows?: MentorNeedsBoardRow[]; cohorts?: Cohort[]; summary?: Summary; error?: string };
       if (!response.ok) throw new Error(payload.error ?? "Unable to load mentor needs.");
       if (!active) return;
       setRows(payload.rows ?? []); setCohorts(payload.cohorts ?? []); setSummary(payload.summary ?? { activeMentorCount: 0, activeOutreachContactCount: 0 }); setSemesterId(selected); setHasLoaded(true);
     }
     load().catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : "Unable to load mentor needs."); }).finally(() => { if (active) setIsLoading(false); });
-    return () => { active = false; };
+    return () => { active = false; controller.abort(); };
   }, [scope, semesterId]);
 
   const displayState = getMentorNeedsDisplayState({ isLoading, hasLoaded, hasError: Boolean(error), rowCount: rows.length });

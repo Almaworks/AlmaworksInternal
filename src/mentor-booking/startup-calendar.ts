@@ -37,3 +37,11 @@ export function rankAvailableMentors({ mentors, startupNeeds }: { mentors: reado
   return mentors.map((mentor) => ({ ...mentor, matchCount: (mentor.expertiseTags ?? []).filter((tag) => needs.has(normalize(tag))).length }))
     .sort((left, right) => right.matchCount - left.matchCount || left.name.localeCompare(right.name));
 }
+
+/** Preserve the explicit choice when live availability or rankings change. */
+export function resolveCalendarSelection(input: { cells: readonly StartupCalendarCell[]; startsAt: string | null; profileId: string | null; startupNeeds: readonly string[]; query: string }) {
+  const cell = input.cells.find(value => value.startsAt === input.startsAt);
+  const mentors = rankAvailableMentors({ mentors: cell?.mentors ?? [], startupNeeds: input.startupNeeds })
+    .filter(mentor => normalize(mentor.name).includes(normalize(input.query)));
+  return { mentors, selectedMentor: mentors.find(mentor => mentor.profileId === input.profileId) ?? null };
+}

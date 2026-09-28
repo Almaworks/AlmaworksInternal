@@ -5,6 +5,7 @@ import {
   buildActivationSteps,
   buildParticipantDashboard,
   buildProfileUpdate,
+  buildStartupProfileUpdate,
   selectParticipantContext,
   scopeParticipantDashboard,
   unreadNotificationCount,
@@ -13,218 +14,170 @@ import {
 
 const source: ParticipantDashboardSource = {
   notifications: [
-    { id: "mine", semesterId: "current", recipientProfileIds: ["mentor-me"], startupSemesterId: null, title: "Session confirmed", body: "You are confirmed with Northstar.", createdAt: "2026-09-01T14:00:00Z", read: false },
-    { id: "team", semesterId: "current", recipientProfileIds: [], startupSemesterId: "startup-me", title: "Mentor matched", body: "A mentor was matched to your team.", createdAt: "2026-09-01T13:00:00Z", read: false },
-    { id: "other", semesterId: "current", recipientProfileIds: ["someone-else"], startupSemesterId: null, title: "Private alert", body: "Not visible.", createdAt: "2026-09-01T12:00:00Z", read: false },
-    { id: "prior", semesterId: "prior", recipientProfileIds: ["mentor-me"], startupSemesterId: null, title: "Old semester", body: "Not visible.", createdAt: "2026-01-01T12:00:00Z", read: true },
-  ],
-  sessions: [
-    { id: "mentor-own", semesterId: "current", mentorProfileId: "mentor-me", startupSemesterId: "startup-other", partnerName: "Northstar Labs", date: "2026-09-11", topic: "Enterprise sales", format: "In person", status: "confirmed" },
-    { id: "startup-own", semesterId: "current", mentorProfileId: "mentor-other", startupSemesterId: "startup-me", partnerName: "Avery Morgan", date: "2026-09-04", topic: "Fundraising", format: "Online", status: "completed" },
-    { id: "other-session", semesterId: "current", mentorProfileId: "mentor-other", startupSemesterId: "startup-other", partnerName: "Private", date: "2026-09-04", topic: "Private", format: "Online", status: "completed" },
-    { id: "prior-own", semesterId: "prior", mentorProfileId: "mentor-me", startupSemesterId: "startup-old", partnerName: "Prior cohort", date: "2026-01-09", topic: "Old", format: "Online", status: "completed" },
+    { id: "mine", semesterId: "current", recipientProfileIds: ["mentor-me"], startupSemesterId: null, title: "Welcome", body: "Visible.", createdAt: "2026-09-01T14:00:00Z", read: false },
+    { id: "team", semesterId: "current", recipientProfileIds: [], startupSemesterId: "startup-me", title: "Team update", body: "Visible.", createdAt: "2026-09-01T13:00:00Z", read: false },
+    { id: "other", semesterId: "current", recipientProfileIds: ["someone-else"], startupSemesterId: null, title: "Private", body: "Hidden.", createdAt: "2026-09-01T12:00:00Z", read: false },
   ],
   network: [
-    { id: "mentor-current", semesterId: "current", kind: "mentor", name: "Avery Morgan", headline: "Revenue leader", tags: ["Sales"], summary: "Helps teams build repeatable sales systems." },
-    { id: "startup-current", semesterId: "current", kind: "startup", name: "Northstar Labs", headline: "Climate intelligence", tags: ["Climate"], summary: "Decision tools for climate operations." },
-    { id: "mentor-prior", semesterId: "prior", kind: "mentor", name: "Prior Mentor", headline: "Hidden", tags: [], summary: "Hidden" },
+    { id: "mentor-current", semesterId: "current", kind: "mentor", name: "Avery Morgan", headline: "Revenue leader", tags: ["Sales"], summary: "Helps teams." },
+    { id: "startup-current", semesterId: "current", kind: "startup", name: "Northstar Labs", headline: "Climate intelligence", tags: ["Climate"], summary: "Decision tools." },
   ],
 };
 
-test("mentor dashboard exposes only the mentor's current-semester records and active startups", () => {
-  const dashboard = scopeParticipantDashboard({ role: "mentor", profileId: "mentor-me", startupSemesterId: null, activeSemesterId: "current", source });
+test("participant dashboard scopes notifications and cohort network without session data", () => {
+  const mentor = scopeParticipantDashboard({ role: "mentor", profileId: "mentor-me", startupSemesterId: null, activeSemesterId: "current", source });
+  const startup = scopeParticipantDashboard({ role: "startup", profileId: "founder-me", startupSemesterId: "startup-me", activeSemesterId: "current", source });
 
-  assert.deepEqual(dashboard.notifications.map((item) => item.id), ["mine"]);
-  assert.deepEqual(dashboard.sessions.map((item) => item.id), ["mentor-own"]);
-  assert.deepEqual(dashboard.network.map((item) => item.id), ["startup-current"]);
-});
-
-test("startup dashboard exposes team notifications, its own current-semester sessions, and cohort people", () => {
-  const dashboard = scopeParticipantDashboard({ role: "startup", profileId: "founder-me", startupSemesterId: "startup-me", activeSemesterId: "current", source });
-
-  assert.deepEqual(dashboard.notifications.map((item) => item.id), ["team"]);
-  assert.deepEqual(dashboard.sessions.map((item) => item.id), ["startup-own"]);
-  assert.deepEqual(dashboard.network.map((item) => item.id), ["mentor-current", "startup-current"]);
+  assert.deepEqual(mentor.notifications.map((item) => item.id), ["mine"]);
+  assert.deepEqual(mentor.network.map((item) => item.id), ["startup-current"]);
+  assert.deepEqual(startup.notifications.map((item) => item.id), ["team"]);
+  assert.deepEqual(startup.network.map((item) => item.id), ["mentor-current", "startup-current"]);
+  assert.equal("sessions" in mentor, false);
 });
 
 test("activation checklist derives role-specific readiness after account creation", () => {
   const mentor = buildActivationSteps("mentor", { emailVerified: true, profileComplete: true, semesterActive: true, roleSetupComplete: false });
   const startup = buildActivationSteps("startup", { emailVerified: true, profileComplete: false, semesterActive: false, roleSetupComplete: false });
 
-  assert.deepEqual(mentor.map((step) => [step.id, step.status]), [
-    ["email", "complete"],
-    ["profile", "complete"],
-    ["semester", "complete"],
-    ["availability", "current"],
-  ]);
-  assert.deepEqual(startup.map((step) => [step.id, step.status]), [
-    ["email", "complete"],
-    ["profile", "current"],
-    ["semester", "locked"],
-    ["mentor-needs", "locked"],
-  ]);
+  assert.deepEqual(mentor.map((step) => [step.id, step.status]), [["email", "complete"], ["profile", "complete"], ["semester", "complete"]]);
+  assert.deepEqual(startup.map((step) => [step.id, step.status]), [["email", "complete"], ["profile", "current"], ["semester", "locked"], ["mentor-needs", "locked"]]);
 });
 
 test("selects only a supported membership in the active semester", () => {
   assert.deepEqual(selectParticipantContext({
     activeSemester: { id: "fall", name: "Fall 2026" },
+    memberships: [{ id: "active", semesterId: "fall", profileId: "person", role: "startup", status: "onboarding" }],
+  }), { kind: "participant", semesterId: "fall", semesterName: "Fall 2026", membershipId: "active", role: "startup", status: "onboarding" });
+});
+
+test("prefers an active mentor membership when a profile is also an active startup", () => {
+  assert.deepEqual(selectParticipantContext({
+    activeSemester: { id: "fall", name: "Fall 2026" },
     memberships: [
-      { id: "old", semesterId: "spring", profileId: "person", role: "mentor", status: "alumni" },
-      { id: "active", semesterId: "fall", profileId: "person", role: "startup", status: "onboarding" },
+      { id: "startup", semesterId: "fall", profileId: "person", role: "startup", status: "active" },
+      { id: "mentor", semesterId: "fall", profileId: "person", role: "mentor", status: "active" },
     ],
-  }), {
-    kind: "participant",
-    semesterId: "fall",
-    semesterName: "Fall 2026",
-    membershipId: "active",
-    role: "startup",
-    status: "onboarding",
-  });
-
-  assert.deepEqual(selectParticipantContext({ activeSemester: { id: "fall", name: "Fall 2026" }, memberships: [] }), {
-    kind: "pending",
-    semesterId: "fall",
-    semesterName: "Fall 2026",
-  });
+  }), { kind: "participant", semesterId: "fall", semesterName: "Fall 2026", membershipId: "mentor", role: "mentor", status: "active" });
 });
 
-test("builds a startup dashboard from only owned active-semester sessions", () => {
+test("participant dashboards do not expose legacy mentorship sessions or session notifications", () => {
   const dashboard = buildParticipantDashboard({
     now: "2026-09-05T12:00:00Z",
     context: { kind: "participant", semesterId: "fall", semesterName: "Fall 2026", membershipId: "member", role: "startup", status: "active" },
-    identity: { profileId: "founder", fullName: "Nadia Rahman", email: "nadia@example.com", emailVerified: true },
+    identity: { profileId: "founder", fullName: "Nadia Rahman", email: "nadia@example.com", emailVerified: true, photoUrl: null },
     startupSemesterId: "startup-me",
     mentorSemesterId: null,
     profileComplete: true,
     roleSetupComplete: true,
-    sessions: [
-      { id: "mine-past", semesterId: "fall", mentorSemesterId: "mentor-a", startupSemesterId: "startup-me", partnerName: "Maya Chen", meetingDate: "2026-08-28", startsAt: "15:30", endsAt: "16:15", topic: "Pricing", format: "Online", status: "confirmed" },
-      { id: "other", semesterId: "fall", mentorSemesterId: "mentor-b", startupSemesterId: "startup-other", partnerName: "Private", meetingDate: "2026-09-11", startsAt: "15:30", endsAt: "16:15", topic: null, format: null, status: "confirmed" },
-      { id: "prior", semesterId: "spring", mentorSemesterId: "mentor-a", startupSemesterId: "startup-me", partnerName: "Prior", meetingDate: "2026-03-01", startsAt: "15:30", endsAt: "16:15", topic: null, format: null, status: "confirmed" },
-    ],
-    network: [{ id: "mentor-card", semesterId: "fall", kind: "mentor", name: "Maya Chen", headline: "VP Revenue", tags: ["Sales"], summary: "Revenue leader", websiteUrl: null, photoUrl: null }],
-  });
-
-  assert.deepEqual(dashboard.sessions.map((session) => [session.id, session.timing]), [["mine-past", "past"]]);
-  assert.deepEqual(dashboard.network.map((entry) => entry.id), ["mentor-card"]);
-  assert.equal(dashboard.notifications.some((notice) => notice.kind === "session"), true);
-  assert.equal(dashboard.activation.every((step) => step.status === "complete"), true);
-});
-
-test("projects exact session timing, own RSVP, visible attendees, and startup Mentor Needs", () => {
-  const dashboard = buildParticipantDashboard({
-    now: "2026-09-04T19:00:00.000Z",
-    context: { kind: "participant", semesterId: "fall", semesterName: "Fall 2026", membershipId: "founder-member", role: "startup", status: "active" },
-    identity: { profileId: "founder", fullName: "Nadia Rahman", email: "nadia@example.com", emailVerified: true },
-    startupSemesterId: "startup-me",
-    mentorSemesterId: null,
-    profileComplete: true,
-    roleSetupComplete: true,
-    mentorNeeds: { needs: ["Enterprise sales", "Pricing"], context: "Prepare for our first enterprise pilot.", noPreference: false },
-    sessions: [{
-      id: "next-session",
-      semesterId: "fall",
-      mentorSemesterId: "mentor-a",
-      startupSemesterId: "startup-me",
-      partnerName: "Maya Chen",
-      meetingDate: "2026-09-04",
-      startsAt: "15:30",
-      endsAt: "16:15",
-      timezone: "America/New_York",
-      topic: "Enterprise sales",
-      format: "In person",
-      status: "confirmed",
-      attendees: [
-        { semesterMembershipId: "mentor-member", profileId: "mentor", fullName: "Maya Chen", role: "mentor", response: "attending", respondedAt: "2026-09-01T12:00:00Z", updatedAt: "2026-09-01T12:00:00Z" },
-        { semesterMembershipId: "founder-member", profileId: "founder", fullName: "Nadia Rahman", role: "startup", response: "no_response", respondedAt: null, updatedAt: null },
-      ],
-    }],
     network: [],
   });
 
-  assert.deepEqual(dashboard.mentorNeeds, { needs: ["Enterprise sales", "Pricing"], context: "Prepare for our first enterprise pilot.", noPreference: false });
-  assert.equal(dashboard.sessions[0]?.sessionStartsAt, "2026-09-04T19:30:00.000Z");
-  assert.equal(dashboard.sessions[0]?.timing, "upcoming");
-  assert.equal(dashboard.sessions[0]?.rsvpOpen, true);
-  assert.equal(dashboard.sessions[0]?.ownRsvp, "no_response");
-  assert.deepEqual(dashboard.sessions[0]?.attendees.map((attendee) => attendee.fullName), ["Maya Chen", "Nadia Rahman"]);
-});
-
-test("locks a session at its exact start and does not expose Mentor Needs to mentors", () => {
-  const dashboard = buildParticipantDashboard({
-    now: "2026-09-04T19:30:00.000Z",
-    context: { kind: "participant", semesterId: "fall", semesterName: "Fall 2026", membershipId: "mentor-member", role: "mentor", status: "active" },
-    identity: { profileId: "mentor", fullName: "Maya Chen", email: "maya@example.com", emailVerified: true },
-    startupSemesterId: null,
-    mentorSemesterId: "mentor-a",
-    profileComplete: true,
-    roleSetupComplete: true,
-    mentorNeeds: { needs: ["Hidden"], context: null, noPreference: false },
-    sessions: [{
-      id: "starting-session", semesterId: "fall", mentorSemesterId: "mentor-a", startupSemesterId: "startup-me", partnerName: "Northstar",
-      meetingDate: "2026-09-04", startsAt: "15:30", endsAt: "16:15", timezone: "America/New_York", topic: null, format: null, status: "confirmed",
-    }],
-    network: [],
-  });
-
-  assert.equal(dashboard.mentorNeeds, null);
-  assert.equal(dashboard.sessions[0]?.timing, "past");
-  assert.equal(dashboard.sessions[0]?.rsvpOpen, false);
-});
-
-test("notification receipts use lifecycle keys", () => {
-  const dashboard = buildParticipantDashboard({
-    now: "2026-09-05T12:00:00Z",
-    context: { kind: "participant", semesterId: "fall", semesterName: "Fall 2026", membershipId: "member", role: "startup", status: "active" },
-    identity: { profileId: "founder", fullName: "Nadia Rahman", email: "nadia@example.com", emailVerified: true },
-    startupSemesterId: "startup-me",
-    mentorSemesterId: null,
-    profileComplete: true,
-    roleSetupComplete: true,
-    readNotificationKeys: ["session-session-1-confirmed"],
-    sessions: [{ id: "session-1", semesterId: "fall", mentorSemesterId: "mentor-a", startupSemesterId: "startup-me", partnerName: "Maya Chen", meetingDate: "2026-09-11", startsAt: "15:30", endsAt: "16:15", topic: "Pricing", format: "Online", status: "confirmed" }],
-    network: [],
-  });
-
-  assert.deepEqual(dashboard.notifications.map((notice) => [notice.key, notice.read]), [
-    ["session-session-1-confirmed", true],
-  ]);
+  assert.equal("sessions" in dashboard, false);
+  assert.equal(dashboard.notifications.some((notice) => notice.kind === "session"), false);
   assert.equal(unreadNotificationCount(dashboard), 0);
 });
 
-test("safe profile payloads never include role, membership, or sign-in email", () => {
-  assert.deepEqual(buildProfileUpdate("mentor", {
-    fullName: " Maya Chen ",
-    headline: " VP Revenue ",
-    summary: " Helps founders grow. ",
-    tags: "Sales, Growth, sales",
-    websiteUrl: " https://example.com ",
-    linkedinUrl: " linkedin.com/in/maya ",
-  }), {
-    profile: { full_name: "Maya Chen" },
-    mentorProfile: {
-      title: "VP Revenue",
-      biography: "Helps founders grow.",
-      expertise_tags: ["Sales", "Growth"],
-      website_url: "https://example.com",
-      linkedin_url: "linkedin.com/in/maya",
-    },
+test("mentor and startup booking lifecycle notices are derived for the correct booking state", () => {
+  const mentor = buildParticipantDashboard({
+    now: "2026-09-11T12:00:00Z",
+    context: { kind: "participant", semesterId: "fall", semesterName: "Fall 2026", membershipId: "mentor-member", role: "mentor", status: "active" },
+    identity: { profileId: "mentor", fullName: "Maya Chen", email: "maya@example.com", emailVerified: true, photoUrl: null },
+    startupSemesterId: null,
+    mentorSemesterId: "mentor-semester",
+    bookingNotifications: [{ requestId: "request-1", status: "pending", counterpartName: "Northstar Labs", topic: "Pricing strategy", createdAt: "2026-09-11T11:00:00Z", durationMinutes: 30 }],
+    profileComplete: true,
+    roleSetupComplete: true,
+    network: [],
   });
+  const startup = buildParticipantDashboard({
+    now: "2026-09-11T12:00:00Z",
+    context: { kind: "participant", semesterId: "fall", semesterName: "Fall 2026", membershipId: "startup-member", role: "startup", status: "active" },
+    identity: { profileId: "founder", fullName: "Nadia Rahman", email: "nadia@example.com", emailVerified: true, photoUrl: null },
+    startupSemesterId: "northstar",
+    mentorSemesterId: null,
+    bookingNotifications: [{ requestId: "request-1", status: "accepted", counterpartName: "Maya Chen", topic: "Pricing strategy", createdAt: "2026-09-11T11:30:00Z" }],
+    profileComplete: true,
+    roleSetupComplete: true,
+    network: [],
+  });
+
+  assert.deepEqual(mentor.notifications.map(({ key, kind, title, body, destination }) => [key, kind, title, body, destination]), [[
+    "mentor-booking-request-1-pending", "session", "New meeting request", "Northstar Labs requested a 30-minute meeting about Pricing strategy.", "bookings",
+  ]]);
+  assert.deepEqual(startup.notifications.map(({ key, kind, title, body, destination }) => [key, kind, title, body, destination]), [[
+    "mentor-booking-request-1-accepted", "session", "Meeting request accepted", "Maya Chen accepted your meeting request about Pricing strategy.", "bookings",
+  ]]);
 });
 
-test("startup profile saves keep matching preferences in the Mentor Needs form", () => {
-  assert.deepEqual(buildProfileUpdate("startup", {
-    fullName: " Layth Rahman ",
-    headline: "Preparing for an enterprise sales mentor",
-    summary: "A concise company snapshot.",
-    tags: "Finance, Sales",
-    websiteUrl: "",
-    linkedinUrl: "",
+test("mentor request notices persist after the booking leaves pending and keep independent read state", () => {
+  const dashboard = buildParticipantDashboard({
+    now: "2026-09-11T12:00:00Z",
+    context: { kind: "participant", semesterId: "fall", semesterName: "Fall 2026", membershipId: "mentor-member", role: "mentor", status: "active" },
+    identity: { profileId: "mentor", fullName: "Maya Chen", email: "maya@example.com", emailVerified: true, photoUrl: null },
+    startupSemesterId: null,
+    mentorSemesterId: "mentor-semester",
+    bookingNotifications: [
+      { requestId: "request-2", status: "pending", counterpartName: "Second Startup", topic: "Fundraising", createdAt: "2026-09-11T11:30:00Z" },
+      { requestId: "request-1", status: "accepted", counterpartName: "Northstar Labs", topic: "Pricing strategy", createdAt: "2026-09-11T11:00:00Z" },
+    ],
+    profileComplete: true,
+    roleSetupComplete: true,
+    network: [],
+    readNotificationKeys: ["mentor-booking-request-1-pending"],
+  });
+
+  assert.deepEqual(dashboard.notifications.map(({ key, title, body, read }) => [key, title, body, read]), [
+    ["mentor-booking-request-2-pending", "New meeting request", "Second Startup requested a meeting about Fundraising.", false],
+    ["mentor-booking-request-1-pending", "New meeting request", "Northstar Labs requested a meeting about Pricing strategy.", true],
+  ]);
+});
+
+test("declined booking notices retain a participant's persisted read state", () => {
+  const dashboard = buildParticipantDashboard({
+    now: "2026-09-11T12:00:00Z",
+    context: { kind: "participant", semesterId: "fall", semesterName: "Fall 2026", membershipId: "startup-member", role: "startup", status: "active" },
+    identity: { profileId: "founder", fullName: "Nadia Rahman", email: "nadia@example.com", emailVerified: true, photoUrl: null },
+    startupSemesterId: "northstar",
+    mentorSemesterId: null,
+    bookingNotifications: [{ requestId: "request-2", status: "declined", counterpartName: "Maya Chen", topic: "", createdAt: "2026-09-11T11:30:00Z" }],
+    profileComplete: true,
+    roleSetupComplete: true,
+    network: [],
+    readNotificationKeys: ["mentor-booking-request-2-declined"],
+  });
+
+  assert.deepEqual(dashboard.notifications.map(({ key, title, body, read }) => [key, title, body, read]), [[
+    "mentor-booking-request-2-declined", "Meeting request declined", "Maya Chen declined your meeting request.", true,
+  ]]);
+});
+
+test("startup dashboards retain upcoming accepted independent bookings", () => {
+  const dashboard = buildParticipantDashboard({
+    now: "2026-09-11T12:00:00Z",
+    context: { kind: "participant", semesterId: "fall", semesterName: "Fall 2026", membershipId: "startup-member", role: "startup", status: "active" },
+    identity: { profileId: "founder", fullName: "Nadia Rahman", email: "nadia@example.com", emailVerified: true, photoUrl: null },
+    startupSemesterId: "northstar",
+    mentorSemesterId: null,
+    upcomingMeetings: [{ startsAt: "2026-10-12T15:00:00Z", endsAt: "2026-10-12T15:30:00Z", counterpartName: "Maya Chen", topic: "Pricing strategy" }],
+    profileComplete: true,
+    roleSetupComplete: true,
+    network: [],
+  });
+
+  assert.deepEqual(dashboard.upcomingMeetings, [{ startsAt: "2026-10-12T15:00:00Z", endsAt: "2026-10-12T15:30:00Z", counterpartName: "Maya Chen", topic: "Pricing strategy" }]);
+});
+
+test("mentor profile updates keep title and company separate", () => {
+  assert.deepEqual(buildProfileUpdate("mentor", {
+    fullName: " Maya Chen ", headline: " VP Revenue ", company: " Independent ", summary: " Helps founders grow. ", tags: "Sales, Growth, sales", websiteUrl: " https://example.com ", linkedinUrl: " linkedin.com/in/maya ",
+  }), { profile: { full_name: "Maya Chen" }, mentorProfile: { title: "VP Revenue", company: "Independent", biography: "Helps founders grow.", expertise_tags: ["Sales", "Growth"], website_url: "https://example.com", linkedin_url: "linkedin.com/in/maya" } });
+});
+
+test("startup profile updates keep shared organization and semester fields separate", () => {
+  assert.deepEqual(buildStartupProfileUpdate({
+    name: " Acme ", industry: " FinTech ", stage: "mvp", description: " Payments for student founders. ", websiteUrl: " https://acme.example ",
   }), {
-    profile: { full_name: "Layth Rahman" },
-    startupSemester: {
-      company_snapshot: "A concise company snapshot.",
-      mentor_need_context: "Preparing for an enterprise sales mentor",
-    },
+    organization: { name: "Acme", industry: "FinTech", description: "Payments for student founders.", website_url: "https://acme.example" },
+    startupSemester: { stage: "mvp" },
   });
 });

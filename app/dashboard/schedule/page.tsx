@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 
 import { createClient } from '@/utils/supabase/client'
+import { FridayProgramPanel } from '@/components/friday-program/FridayProgramPanel'
 
 type Meeting = { id: string; label: string | null; meeting_date: string; semester_id: string }
 type ScheduledSession = {
@@ -34,6 +35,7 @@ export default function SchedulePage() {
 
   return <div className="space-y-6">
     <div><h1 className="text-3xl font-bold text-gray-900">Schedule</h1><p className="mt-1 text-sm text-gray-500">Program sessions are managed by semester administrators.</p></div>
+    {[...new Set(meetings.map((meeting) => meeting.semester_id))].map((semesterId) => <FridayProgramPanel key={semesterId} semesterId={semesterId} />)}
     {meetings.map((meeting) => <section key={meeting.id} className="rounded-lg border bg-white p-5">
       <h2 className="font-semibold">{meeting.label ?? meeting.meeting_date}</h2>
       <div className="mt-3 space-y-2">

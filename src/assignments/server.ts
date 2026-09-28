@@ -60,7 +60,7 @@ export interface CandidateSourceData {
     mentorNeedContext: string | null;
     mentorNeedNoPreference: boolean;
     mentorshipNeeds: string[];
-    stage: Database["public"]["Enums"]["startup_stage"] | null;
+    stage: Database["public"]["Tables"]["startup_semesters"]["Row"]["stage"];
   } | null;
   mentors: Array<{
     id: string;
@@ -406,7 +406,19 @@ function responseForError(error: unknown): Response {
   return Response.json({ error: { code, message, ...(field === undefined ? {} : { field }) } }, { status });
 }
 
-export function createAssignmentRoutes(dependencies: AssignmentRouteDependencies) {
+export function legacyAssignmentRetiredResponse(): Response {
+  return Response.json({
+    error: {
+      code: "assignment_retired",
+      message: "New mentor assignments are no longer scheduled in Friday sessions. Use independent mentor booking instead.",
+    },
+  }, { status: 410 });
+}
+
+export function createAssignmentRoutes(
+  dependencies: AssignmentRouteDependencies,
+  options: { allowLegacyWrites?: boolean } = {},
+) {
   return {
     getCandidates: async (request: Request): Promise<Response> => {
       try {
@@ -418,6 +430,7 @@ export function createAssignmentRoutes(dependencies: AssignmentRouteDependencies
       }
     },
     commit: async (request: Request): Promise<Response> => {
+      if (options.allowLegacyWrites !== true) return legacyAssignmentRetiredResponse();
       try {
         let body: unknown;
         try {
@@ -470,7 +483,6 @@ export function createSupabaseAssignmentDataSource(client: Client): AssignmentDa
         startupResult,
         membershipsResult,
         mentorSemestersResult,
-        availabilityResult,
         sessionsResult,
         startupNeedsResult,
       ] = await Promise.all([
@@ -478,7 +490,6 @@ export function createSupabaseAssignmentDataSource(client: Client): AssignmentDa
         client.from("startup_semesters").select("id, semester_id, company_snapshot, goals, mentor_need_context, mentor_need_no_preference, mentorship_needs, stage").eq("id", input.startupSemesterId).eq("semester_id", input.semesterId).maybeSingle(),
         client.from("semester_memberships").select("id, profile_id, semester_id, role, status").eq("semester_id", input.semesterId),
         client.from("mentor_semesters").select("id, semester_membership_id, semester_id, capacity, preferred_format, readiness_status").eq("semester_id", input.semesterId).eq("readiness_status", "ready"),
-        client.from("meeting_availability").select("*").eq("meeting_id", input.meetingId),
         client.from("sessions").select("mentor_semester_id, startup_semester_id, meeting_id, slot, status").eq("semester_id", input.semesterId),
         client.from("startup_mentor_need_tags").select("expertise_tag_id, priority").eq("startup_semester_id", input.startupSemesterId).eq("semester_id", input.semesterId).order("priority"),
       ]);
@@ -487,7 +498,6 @@ export function createSupabaseAssignmentDataSource(client: Client): AssignmentDa
         startupResult,
         membershipsResult,
         mentorSemestersResult,
-        availabilityResult,
         sessionsResult,
         startupNeedsResult,
       ].forEach(checkResult);
@@ -517,7 +527,6 @@ export function createSupabaseAssignmentDataSource(client: Client): AssignmentDa
         date: meeting.meeting_date,
       }));
       const sessionDate = sessionDates.find((meeting) => meeting.id === input.meetingId) ?? null;
-      const membershipById = new Map(activeMentorMemberships.map((membership) => [membership.id, membership]));
       const profileById = new Map((profilesResult.data ?? []).map((profile) => [profile.id, profile]));
       const mentorProfileById = new Map((mentorProfilesResult.data ?? []).map((profile) => [profile.profile_id, profile]));
       const mentorSemesterByMembership = new Map((mentorSemestersResult.data ?? []).map((term) => [term.semester_membership_id, term]));
@@ -557,17 +566,8 @@ export function createSupabaseAssignmentDataSource(client: Client): AssignmentDa
             capacity: term.capacity,
           }];
         }),
-        availability: (availabilityResult.data ?? []).flatMap((availability) => {
-          const membership = membershipById.get(availability.semester_membership_id);
-          if (membership === undefined || (availability.slot !== 1 && availability.slot !== 2)) return [];
-          return [{
-            profileId: membership.profile_id,
-            sessionDateId: availability.meeting_id,
-            timeSlot: availability.slot === 1 ? "3:30-4:15" as const : "4:15-5:00" as const,
-            isAvailable: availability.is_available,
-            format: "format" in availability && typeof availability.format === "string" ? availability.format : null,
-          }];
-        }).filter((availability) => availability.timeSlot === timeSlotFor(input.slot)),
+        // Friday mentorship scheduling was retired; independent bookings own availability.
+        availability: [],
         sessions: (sessionsResult.data ?? []).flatMap((session) => {
           if (session.slot !== 1 && session.slot !== 2) return [];
           return [{

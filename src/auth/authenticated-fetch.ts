@@ -19,6 +19,7 @@ export function createAuthenticatedFetch(
   fetchImplementation: FetchImplementation,
 ): AuthenticatedFetch {
   return async (input, init = {}) => {
+    init.signal?.throwIfAborted();
     let token: string | undefined;
     try {
       const { data, error } = await createBrowserClient().auth.getSession();
@@ -29,6 +30,7 @@ export function createAuthenticatedFetch(
     if (token === undefined || token.length === 0) {
       throw new Error(SESSION_EXPIRED_MESSAGE);
     }
+    init.signal?.throwIfAborted();
 
     const headers = new Headers(init.headers);
     headers.set("Authorization", `Bearer ${token}`);

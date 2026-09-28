@@ -1,11 +1,5 @@
-import { requireSemesterAdmin } from "@/src/auth/server";
-import { createAssignmentRoutes, createSupabaseAssignmentDataSource } from "@/src/assignments/server";
+import { legacyAssignmentRetiredResponse } from "@/src/assignments/retired";
 
-const routes = createAssignmentRoutes({
-  authorize: async (request, semesterId) => {
-    const { userClient } = await requireSemesterAdmin(request, semesterId);
-    return createSupabaseAssignmentDataSource(userClient);
-  },
-});
-
-export const GET = routes.getCandidates;
+export async function GET() {
+  return legacyAssignmentRetiredResponse();
+}

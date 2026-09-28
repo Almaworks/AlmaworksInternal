@@ -8,7 +8,7 @@ import type { Database } from '@/src/db/types'
 
 type AdminProfileRow = Pick<
   Database['public']['Tables']['profiles']['Row'],
-  'id' | 'role' | 'status'
+  'id' | 'role' | 'status' | 'is_active'
 >
 
 const NO_ADMIN_AUTHORITY = {
@@ -47,7 +47,7 @@ export default async function AdminRouteLayout({ children }: { children: React.R
 
   const profileResult = await supabase
     .from('profiles')
-    .select('id, role, status')
+    .select('id, role, status, is_active')
     .eq('auth_user_id', user.id)
     .limit(1)
   // The generated database schema predates the installed client's table generic.

@@ -1,19 +1,25 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { type NextRequest, NextResponse } from 'next/server'
 import { resolvePostLoginDestination } from '@/src/auth/profile-access'
+import { resolvePasswordResetDestination } from '@/src/auth/password-auth'
+import { callbackErrorDestination } from '@/src/auth/auth-errors'
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url)
   const error = searchParams.get('error')
   const errorCode = searchParams.get('error_code')
   const code = searchParams.get('code')
+  const requestedType = searchParams.get('type')
+  const tokenType = requestedType === 'email' || requestedType === 'signup' || requestedType === 'invite' || requestedType === 'recovery'
+    ? requestedType : null
+  const tokenHash = tokenType ? searchParams.get('token_hash') : null
 
   if (error) {
-    const dest = errorCode === 'otp_expired' ? '/?error=link_expired' : '/?error=no_session'
+    const dest = callbackErrorDestination({ code: errorCode ?? undefined })
     return NextResponse.redirect(new URL(dest, origin))
   }
 
-  if (!code) {
+  if (!code && !tokenHash) {
     return NextResponse.redirect(new URL('/?error=no_session', origin))
   }
 
@@ -34,10 +40,21 @@ export async function GET(request: NextRequest) {
     }
   )
 
-  const { data: { session }, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
+  const { data: { session }, error: exchangeError } = tokenHash
+    ? await supabase.auth.verifyOtp({ token_hash: tokenHash, type: tokenType! })
+    : await supabase.auth.exchangeCodeForSession(code!)
 
   if (exchangeError || !session) {
-    return NextResponse.redirect(new URL('/?error=link_expired', origin))
+    return NextResponse.redirect(new URL(callbackErrorDestination(exchangeError), origin))
+  }
+
+  const resetDestination = resolvePasswordResetDestination(tokenType === 'recovery' ? '/account/password?reset=1' : searchParams.get('next'), null)
+  if (resetDestination) {
+    const response = NextResponse.redirect(new URL(resetDestination, origin))
+    pendingCookies.forEach(({ name, value, options }) => {
+      response.cookies.set(name, value, options as Parameters<typeof response.cookies.set>[2])
+    })
+    return response
   }
 
   // Query the profile directly via REST using the session's access_token.

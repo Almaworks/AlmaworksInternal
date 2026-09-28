@@ -2,12 +2,20 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { AuthorizationError, requireAuthenticatedUserWithRls } from "../auth/server.ts";
 import type { Database } from "../db/types.ts";
+import { calendarAvailabilityEnabled, calendarSupabaseEnvironment } from "../calendar/config.ts";
+import { readWorkspaceCalendarAvailability } from "../calendar/workspace-availability.ts";
+import { readCalendarHoldStatuses } from "../calendar/hold-status.ts";
+import { refreshCalendarForBooking } from "../calendar/booking-refresh.ts";
+import { CalendarHttpError } from "../calendar/authorization.ts";
+import { readBearerToken } from "../auth/request.ts";
+import { sendSavedBookingRequest } from "../notifications/booking-request-direct.ts";
 import {
   buildMentorBookingWorkspace,
   MentorBookingDataError,
   MentorBookingRequestError,
   parseMentorBookingCommand,
   parseMentorBookingQuery,
+  parseMentorBookingWeekOffset,
   type MentorBookingModelInput,
 } from "./model.ts";
 import type { MentorBookingCommand, MentorBookingRequestStatus, MentorBookingViewerRole } from "./types.ts";
@@ -19,7 +27,7 @@ export class MentorBookingHttpError extends Error {
 
 export interface MentorBookingStore {
   execute(command: MentorBookingCommand): Promise<void>;
-  load(semesterId: string): Promise<MentorBookingModelInput>;
+  load(semesterId: string, weekOffset?: number): Promise<MentorBookingModelInput>;
 }
 
 type AuthorizeMentorBooking = (request: Request, semesterId: string) => Promise<MentorBookingStore>;
@@ -27,6 +35,7 @@ type DatabaseError = { code?: string; message: string };
 type QueryResult<T> = { data: T | null; error: DatabaseError | null };
 type WeeklyAvailabilityRange = Extract<MentorBookingCommand, { action: "replace_weekly_availability" }>["availability"][number];
 type RelationRecord = Record<string, unknown>;
+type SemesterBookingMetadata = Pick<Database["public"]["Tables"]["semesters"]["Row"], "configuration" | "end_date" | "start_date">;
 
 function firstRelationRecord(value: unknown): RelationRecord | null {
   if (Array.isArray(value)) return firstRelationRecord(value[0]);
@@ -103,11 +112,22 @@ async function allRows<T>(page: (start: number, end: number) => PromiseLike<Quer
 export function createMentorBookingStore(
   client: SupabaseClient<Database>,
   viewer: MentorBookingModelInput["viewer"],
+  authorizedSemester?: SemesterBookingMetadata,
+  calendarToken?: string,
+  refreshCalendar: typeof refreshCalendarForBooking = refreshCalendarForBooking,
 ): MentorBookingStore {
   return {
-    async load(semesterId) {
-      const semester = await client.from("semesters").select("configuration,start_date,end_date").eq("id", semesterId).single();
-      if (semester.error) databaseFailure(semester.error);
+    async load(semesterId, weekOffset = 0) {
+      const rosterPromise = viewer.role === "admin" || viewer.role === "startup"
+        ? allRows((start, end) => {
+          let query = client.from("startup_semesters").select("id,startup_organizations(name)").eq("semester_id", semesterId);
+          if (viewer.role === "startup") query = query.eq("id", viewer.startupSemesterId ?? "00000000-0000-0000-0000-000000000000");
+          return query.order("id").range(start, end);
+        }) : Promise.resolve([]);
+      void rosterPromise.catch(() => undefined);
+      const semesterPromise = authorizedSemester
+        ? Promise.resolve({ data: authorizedSemester, error: null })
+        : client.from("semesters").select("configuration,start_date,end_date").eq("id", semesterId).single();
       const availabilityPromise = allRows((start, end) => client.from("mentor_weekly_availability")
         .select("semester_id,mentor_semester_id,weekday,starts_at,ends_at,mentor_semesters!inner(semester_memberships!inner(profile_id,profiles!inner(full_name)))")
         .eq("semester_id", semesterId).order("mentor_semester_id").order("weekday").order("starts_at").range(start, end));
@@ -117,21 +137,37 @@ export function createMentorBookingStore(
       const acceptedOccupancyPromise = allRows((start, end) => client.from("mentor_booking_accepted_occupancy")
         .select("semester_id,mentor_semester_id,starts_at,ends_at")
         .eq("semester_id", semesterId).gt("ends_at", new Date().toISOString()).order("starts_at").range(start, end));
-      const [availabilityRows, requests, acceptedOccupancyRows] = await Promise.all([availabilityPromise, requestsPromise, acceptedOccupancyPromise]);
+      const workspaceRowsPromise = Promise.all([availabilityPromise, requestsPromise, acceptedOccupancyPromise]);
+      void workspaceRowsPromise.catch(() => undefined);
+      const semester = await semesterPromise;
+      if (semester.error) databaseFailure(semester.error);
+      const [availabilityRows, requests, acceptedOccupancyRows] = await workspaceRowsPromise;
       const availability = availabilityRows.map((row) => mentorWeeklyAvailabilityForWorkspace(row));
-      const mentorProfileIds = [...new Set(availability.map((range) => range.mentorProfileId))];
+      const configuredZone = semester.data?.configuration && typeof semester.data.configuration === "object" && !Array.isArray(semester.data.configuration)
+        ? semester.data.configuration.timezone : undefined;
+      const timeZone = typeof configuredZone === "string" && configuredZone.trim() ? configuredZone : "America/New_York";
+      const effectiveAvailability = calendarToken ? await readWorkspaceCalendarAvailability({ environment: calendarSupabaseEnvironment(), token: calendarToken, semesterId, viewer, timeZone, semesterStartDate: semester.data.start_date, weekOffset }) : undefined;
+      const mentorProfileIds = [...new Set([
+        ...availability.map((range) => range.mentorProfileId),
+        ...(effectiveAvailability ?? []).map((slot) => slot.mentor.profileId),
+      ])];
       const mentorProfiles = mentorProfileIds.length > 0
         ? await client.from("mentor_profiles").select("profile_id,expertise_tags").in("profile_id", mentorProfileIds)
         : { data: [], error: null };
       if (mentorProfiles.error) databaseFailure(mentorProfiles.error);
       const expertiseByProfileId = new Map((mentorProfiles.data ?? []).map((profile) => [profile.profile_id, profile.expertise_tags]));
-      const configuredZone = semester.data?.configuration && typeof semester.data.configuration === "object" && !Array.isArray(semester.data.configuration)
-        ? semester.data.configuration.timezone : undefined;
+      const holdStatuses = calendarToken && viewer.role !== "admin" ? await readCalendarHoldStatuses({
+        environment: calendarSupabaseEnvironment(), token: calendarToken, semesterId,
+        requestIds: requests.filter(row => row.status === "accepted" || row.status === "cancelled").map(row => row.id),
+      }) : {};
+      const startupRoster = (await rosterPromise).map(row => ({ startupSemesterId: row.id, name: String(firstRelationRecord(row.startup_organizations)?.name ?? "Startup") }));
       return {
+        startupRoster,
+        ...(effectiveAvailability ? { effectiveAvailability: effectiveAvailability.map(slot => ({ ...slot, mentor: { ...slot.mentor, expertiseTags: expertiseByProfileId.get(slot.mentor.profileId) ?? [] } })), availabilityWeekOffset: weekOffset } : {}),
         semesterStartDate: semester.data.start_date,
         semesterEndDate: semester.data.end_date,
         semesterId,
-        timeZone: typeof configuredZone === "string" && configuredZone.trim() ? configuredZone : "America/New_York",
+        timeZone,
         viewer,
         acceptedOccupancy: acceptedOccupancyRows.map(acceptedOccupancyForWorkspace),
         availability: availability.map((range) => ({ ...range, mentorExpertiseTags: expertiseByProfileId.get(range.mentorProfileId) ?? range.mentorExpertiseTags ?? [] })),
@@ -140,6 +176,7 @@ export function createMentorBookingStore(
           if (!["pending", "accepted", "declined", "cancelled"].includes(row.status)) throw new MentorBookingDataError("Unknown booking request status.");
           return {
             requestId: row.id, semesterId: row.semester_id, windowId: row.window_id,
+            ...(holdStatuses[row.id] ? { calendarHoldStatus: holdStatuses[row.id] } : {}),
             mentorSemesterId: row.mentor_semester_id, mentorProfileId: row.mentor_profile_id,
             mentorName: row.mentor_name, startupSemesterId: row.startup_semester_id,
             startupOrganizationId: row.startup_organization_id, startupName: row.startup_name,
@@ -151,20 +188,29 @@ export function createMentorBookingStore(
       };
     },
     async execute(command) {
+      if (calendarToken && command.action === "request_booking") {
+        await refreshCalendar({ token: calendarToken, semesterId: command.semesterId, mentorSemesterId: command.mentorSemesterId });
+      } else if (calendarToken && command.action === "accept_request") {
+        const booking = await client.from("mentor_booking_requests").select("mentor_semester_id,status")
+          .eq("semester_id", command.semesterId).eq("id", command.requestId).maybeSingle();
+        if (booking.error) databaseFailure(booking.error);
+        // An acceptance retry must not classify its already-created hold as a
+        // new conflict. The database command still validates ownership/status.
+        if (booking.data?.status === "pending") {
+          await refreshCalendar({ token: calendarToken, semesterId: command.semesterId, mentorSemesterId: booking.data.mentor_semester_id });
+        }
+      }
       let response: QueryResult<unknown>;
       switch (command.action) {
         case "publish_window":
-          response = await client.rpc("publish_mentor_booking_window", { p_semester_id: command.semesterId, p_starts_at: command.startsAt, p_ends_at: command.endsAt });
-          break;
+          throw new MentorBookingRequestError("Mentors cannot change program availability.");
         case "withdraw_window":
-          response = await client.rpc("withdraw_mentor_booking_window", { p_semester_id: command.semesterId, p_window_id: command.windowId });
-          break;
+          throw new MentorBookingRequestError("Mentors cannot change program availability.");
         case "request_window":
           response = await client.rpc("request_mentor_booking_window", { p_semester_id: command.semesterId, p_window_id: command.windowId, p_topic: command.topic });
           break;
         case "replace_weekly_availability":
-          response = await client.rpc("replace_mentor_weekly_availability", { p_semester_id: command.semesterId, p_availability: toWeeklyAvailabilityRpcPayload(command.availability) });
-          break;
+          throw new MentorBookingRequestError("Mentors cannot change program availability.");
         case "request_booking":
           response = await client.rpc("request_mentor_booking", { p_semester_id: command.semesterId, p_mentor_semester_id: command.mentorSemesterId, p_starts_at: command.startsAt, p_ends_at: command.endsAt, p_topic: command.topic });
           break;
@@ -177,21 +223,32 @@ export function createMentorBookingStore(
           break;
       }
       if (response.error) databaseFailure(response.error);
+      if (command.action === "request_booking" && viewer.role === "startup" && typeof response.data === "string") {
+        try {
+          await sendSavedBookingRequest({ client, bookingId: response.data, semesterId: command.semesterId,
+            startupProfileId: viewer.profileId, startupSemesterId: viewer.startupSemesterId ?? "" });
+        } catch (cause) {
+          // The saved booking remains valid when the email provider is unavailable.
+          console.error("[mentor-booking] request email failed", cause);
+        }
+      }
     },
   };
 }
 
 async function authorizeMentorBooking(request: Request, semesterId: string): Promise<MentorBookingStore> {
   const auth = await requireAuthenticatedUserWithRls(request);
-  const semester = await auth.userClient.from("semesters").select("id").eq("id", semesterId).eq("is_active", true).maybeSingle();
+  const [semester, memberships, management] = await Promise.all([
+    auth.userClient.from("semesters").select("id,configuration,start_date,end_date").eq("id", semesterId).eq("is_active", true).maybeSingle(),
+    auth.userClient.from("semester_memberships").select("id,role").eq("semester_id", semesterId).eq("profile_id", auth.profileId).eq("status", "active").in("role", ["mentor", "startup"]),
+    auth.userClient.rpc("can_manage_semester", { target_semester_id: semesterId, candidate_id: auth.user.id }),
+  ]);
   if (semester.error) databaseFailure(semester.error);
   if (!semester.data) throw new MentorBookingHttpError(403, "An active mentor or startup membership is required for this semester.");
-  const memberships = await auth.userClient.from("semester_memberships").select("id,role").eq("semester_id", semesterId).eq("profile_id", auth.profileId).eq("status", "active").in("role", ["mentor", "startup"]);
   if (memberships.error) databaseFailure(memberships.error);
   const participantMembership = (memberships.data ?? []).find((membership) => membership.role === "mentor")
     ?? (memberships.data ?? []).find((membership) => membership.role === "startup")
     ?? null;
-  const management = await auth.userClient.rpc("can_manage_semester", { target_semester_id: semesterId, candidate_id: auth.user.id });
   if (management.error) databaseFailure(management.error);
   if (!participantMembership && management.data !== true) throw new MentorBookingHttpError(403, "An active mentor or startup membership is required for this semester.");
   const role: MentorBookingViewerRole = participantMembership?.role as MentorBookingViewerRole ?? "admin";
@@ -214,7 +271,16 @@ async function authorizeMentorBooking(request: Request, semesterId: string): Pro
     if (startup.error) databaseFailure(startup.error);
     startupNeeds = startupNeedsForWorkspace(startup.data?.mentorship_needs);
   }
-  return createMentorBookingStore(auth.userClient, { profileId: auth.profileId, role, mentorSemesterId, startupSemesterId, ...(startupNeeds ? { startupNeeds } : {}) });
+  return createMentorBookingStore(
+    auth.userClient,
+    { profileId: auth.profileId, role, mentorSemesterId, startupSemesterId, ...(startupNeeds ? { startupNeeds } : {}) },
+    {
+      configuration: semester.data.configuration,
+      end_date: semester.data.end_date,
+      start_date: semester.data.start_date,
+    },
+    calendarAvailabilityEnabled() ? readBearerToken(request.headers.get("authorization")) ?? undefined : undefined,
+  );
 }
 
 function json(body: unknown, status = 200): Response {
@@ -222,7 +288,7 @@ function json(body: unknown, status = 200): Response {
 }
 
 function failure(cause: unknown): Response {
-  if (cause instanceof AuthorizationError || cause instanceof MentorBookingHttpError) return json({ error: cause.message }, cause.status);
+  if (cause instanceof AuthorizationError || cause instanceof MentorBookingHttpError || cause instanceof CalendarHttpError) return json({ error: cause.message }, cause.status);
   if (cause instanceof SyntaxError) return json({ error: "Request body must be valid JSON." }, 400);
   if (cause instanceof MentorBookingRequestError) return json({ error: (cause as Error).message }, 400);
   return json({ error: "Mentor booking could not be saved or loaded. Please try again." }, 500);
@@ -232,17 +298,18 @@ export function createMentorBookingHandlers(authorize: AuthorizeMentorBooking = 
   return {
     async GET(request: Request): Promise<Response> {
       try {
-        const { semesterId } = parseMentorBookingQuery(request.url);
+        const { semesterId, weekOffset } = parseMentorBookingQuery(request.url);
         const store = await authorize(request, semesterId);
-        return json(buildMentorBookingWorkspace(await store.load(semesterId)));
+        return json(buildMentorBookingWorkspace(await store.load(semesterId, weekOffset)));
       } catch (cause) { return failure(cause); }
     },
     async POST(request: Request): Promise<Response> {
       try {
         const command = parseMentorBookingCommand(await request.json());
+        const weekOffset = parseMentorBookingWeekOffset(request.url);
         const store = await authorize(request, command.semesterId);
         await store.execute(command);
-        return json({ workspace: buildMentorBookingWorkspace(await store.load(command.semesterId)) });
+        return json({ workspace: buildMentorBookingWorkspace(await store.load(command.semesterId, weekOffset)) });
       } catch (cause) { return failure(cause); }
     },
   };

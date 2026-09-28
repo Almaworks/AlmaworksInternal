@@ -4,12 +4,12 @@ import * as access from "../../src/auth/admin-route.ts";
 import * as server from "../../src/auth/server.ts";
 
 test("Semesters rejects ordinary admins and failed lookups, allowing only approved Super Admins", () => {
-  const base = { authenticated: true, profile: { role: "admin" as const, status: "approved" }, authority: { isSuperAdmin: false, hasActiveSemesterAdminMembership: true, lookupFailed: false } };
+  const base = { authenticated: true, profile: { role: "admin" as const, status: "approved", is_active: true }, authority: { isSuperAdmin: false, hasActiveSemesterAdminMembership: true, lookupFailed: false } };
   assert.equal(access.resolveSuperAdminRouteAccess(base), "/dashboard/admin");
   assert.equal(access.resolveSuperAdminRouteAccess({ ...base, authority: { ...base.authority, isSuperAdmin: true } }), null);
   assert.equal(access.resolveSuperAdminRouteAccess({ ...base, authority: { ...base.authority, isSuperAdmin: true, lookupFailed: true } }), "/pending");
   assert.equal(access.resolveSuperAdminRouteAccess({ ...base, authenticated: false }), "/");
-  assert.equal(access.resolveSuperAdminRouteAccess({ ...base, profile: { role: "admin", status: "pending" } }), "/pending");
+  assert.equal(access.resolveSuperAdminRouteAccess({ ...base, profile: { role: "admin", status: "pending", is_active: true } }), "/pending");
 });
 
 test("API guard checks durable Super Admin grant and denies regular admins, missing auth, and lookup failures", async () => {

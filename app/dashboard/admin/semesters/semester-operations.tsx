@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 import type { CohortMember } from "@/src/lifecycle/cohort-management";
 import { buildWeeklyMeetingDates, type ReviewableMeetingDate } from "@/src/lifecycle/semester-transition";
 import { createClient } from "@/utils/supabase/client";
+import { DataLoading } from "@/components/DataLoading";
 import styles from "./semester-transition.module.css";
 
 type Step = "details" | "dates" | "people" | "review";
@@ -110,7 +111,7 @@ export default function SemesterOperations() {
     finally { setWorking(false); }
   }
 
-  if (loading) return <main className={styles.loading}><LoaderCircle className={styles.spin} size={24} /> Loading semester setup…</main>;
+  if (loading) return <main className={styles.loading}><DataLoading label="Loading semester setup" /></main>;
   return <main className={styles.shell}>
     <header className={styles.header}><div><p className={styles.eyebrow}>Program settings</p><h1>Semester transition</h1><p>Prepare the next cohort, choose its exact meeting weeks, and activate it when everything is ready.</p></div><Link className={styles.historyLink} href="/dashboard/admin/semesters?view=cohorts">Cohort history <ArrowRight size={15} /></Link></header>
     {source && <section className={styles.statusStrip}><div><span className={styles.liveDot} /><small>Current semester</small><strong>{source.name}</strong><p>{readableDate(source.start_date)} – {readableDate(source.end_date)}</p></div><ArrowRight size={20} /><div className={draft ? styles.draftReady : styles.emptyDraft}><small>{draft ? "Draft in progress" : "Next semester"}</small><strong>{draft?.name ?? "Not created yet"}</strong><p>{draft ? `${readableDate(draft.start_date)} – ${readableDate(draft.end_date)}` : "Start the guided setup below"}</p></div></section>}

@@ -1,7 +1,8 @@
 'use client'
 
 import { createClient } from '@/utils/supabase/client'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { DataLoading } from '@/components/DataLoading'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -111,7 +112,10 @@ export default function AdminNotifyPage() {
 
   const [meetingDate, setMeetingDate] = useState(nextFriday)
   const [sessions, setSessions] = useState<SessionRow[]>([])
-  const [loadingsessions, setLoadingSessions] = useState(false)
+  const [loadingsessions, setLoadingSessions] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [renderedMeetingDate, setRenderedMeetingDate] = useState<string | null>(null)
+  const loadRequestId = useRef(0)
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [sending, setSending] = useState(false)
@@ -119,15 +123,20 @@ export default function AdminNotifyPage() {
 
   useEffect(() => {
     void loadSessions()
+    return () => { loadRequestId.current += 1 }
   }, [meetingDate]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadSessions() {
+    const requestId = loadRequestId.current + 1
+    loadRequestId.current = requestId
     setLoadingSessions(true)
+    setLoadError(null)
     setResult(null)
     setSelected(new Set())
-    const { data } = await supabase
-      .from('sessions')
-      .select(`
+    try {
+      const { data, error } = await supabase
+        .from('sessions')
+        .select(`
         id,
         slot,
         format,
@@ -147,10 +156,19 @@ export default function AdminNotifyPage() {
           )
         )
       `)
-      .eq('meeting.meeting_date', meetingDate)
-      .order('slot')
-    setSessions(((data as unknown as CanonicalSessionRow[]) ?? []).map(mapCanonicalSession))
-    setLoadingSessions(false)
+        .eq('meeting.meeting_date', meetingDate)
+        .order('slot')
+      if (error) throw error
+      if (loadRequestId.current !== requestId) return
+      setSessions(((data as unknown as CanonicalSessionRow[]) ?? []).map(mapCanonicalSession))
+      setRenderedMeetingDate(meetingDate)
+    } catch (cause) {
+      if (loadRequestId.current !== requestId) return
+      setLoadError(cause instanceof Error ? cause.message : 'Sessions could not be loaded. Try again.')
+      setRenderedMeetingDate(meetingDate)
+    } finally {
+      if (loadRequestId.current === requestId) setLoadingSessions(false)
+    }
   }
 
   function toggleAll() {
@@ -250,7 +268,7 @@ export default function AdminNotifyPage() {
         <p className="text-sm text-gray-500 mt-1">
           Send email notifications to mentors and startups for their upcoming Friday sessions.
           <span className="ml-1 text-amber-600 font-medium">
-            Emails will be sent live if <code className="text-[11px] bg-amber-50 px-1 rounded">RESEND_API_KEY</code> is configured, otherwise a dry-run preview is shown.
+            When email delivery is configured, selected messages are sent live. Otherwise, you will see a preview.
           </span>
         </p>
       </div>
@@ -285,10 +303,10 @@ export default function AdminNotifyPage() {
             )}
           </div>
 
-          {loadingsessions ? (
-            <div className="flex items-center justify-center h-20">
-              <div className="w-5 h-5 border-2 border-[#002147] border-t-transparent rounded-full animate-spin" />
-            </div>
+          {loadingsessions || (renderedMeetingDate !== meetingDate && loadError === null) ? (
+            <DataLoading label="Loading sessions" compact />
+          ) : loadError ? (
+            <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{loadError}<button type="button" onClick={() => void loadSessions()} className="ml-3 font-semibold underline">Try again</button></div>
           ) : sessions.length === 0 ? (
             <p className="text-sm text-gray-400">No sessions found for this date.</p>
           ) : (
@@ -377,9 +395,9 @@ export default function AdminNotifyPage() {
               )}
               <div>
                 {result.dry_run ? (
-                  <p className="text-sm font-semibold text-amber-800">Dry run — RESEND_API_KEY not configured</p>
+                  <p className="text-sm font-semibold text-amber-800">Dry run — no email provider configured</p>
                 ) : (
-                  <p className="text-sm font-semibold text-green-800">{result.sent} email{result.sent !== 1 ? 's' : ''} sent successfully</p>
+                  <p className="text-sm font-semibold text-green-800">{result.sent} email{result.sent !== 1 ? 's' : ''} accepted for sending</p>
                 )}
               </div>
             </div>

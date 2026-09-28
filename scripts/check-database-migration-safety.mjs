@@ -60,6 +60,67 @@ const reviewedPostCutoverMigrations = [
   // the occupancy migration also includes the reviewed idempotent backfill.
   "20260914164349_accepted_booking_request_composite_key.sql",
   "20260914164611_accepted_booking_occupancy.sql",
+  // Generated and independently reviewed permanent-startup dependency cleanup,
+  // Friday roster reconciliation, and nonnegative publication count.
+  "20260915210920_startup_deletion_dependencies.sql",
+  // Generated and independently reviewed personal deletion workflow/ACLs,
+  // followed by the separately generated scoped Storage cleanup policies.
+  "20260919042213_full_member_deletion.sql",
+  "20260919042305_member_deletion_storage_policies.sql",
+  // Reviewed generated Calendar release with documented CLI role/extension
+  // corrections and generated booking freshness/onboarding follow-up.
+  "20260919190922_google_calendar_integration.sql",
+  // Generated/replayed owner view, set-based projection and scheduler extensions.
+  // Ownership-transfer CREATE grants are revoked by the corresponding finalizers.
+  "20260919220155_calendar_projection_owner_prepare.sql",
+  "20260919220237_calendar_owner_week.sql",
+  "20260919220335_calendar_projection_owner_finalize.sql",
+  "20260919220815_calendar_performance_owner_prepare.sql",
+  "20260919220922_calendar_projection_performance.sql",
+  "20260919221021_calendar_performance_owner_finalize.sql",
+  "20260919222235_calendar_background_extensions_generated.sql",
+  // Generated Friday speaker table with semester/meeting constraints, RLS,
+  // semester-member reads, and admin-only insert/update grants.
+  "20260920160043_friday_speaker_assignment.sql",
+  // Generated admin-only speaker removal policy and DELETE grant.
+  "20260920195104_friday_speaker_removal.sql",
+  // Generated active-approved Super Admin registration rejection guard/RLS,
+  // followed by additive startup-stage enum values in canonical order.
+  "20260926183855_registration_rejection.sql",
+  "20260926183935_startup_stage_pilot_fundraising.sql",
+  // Generated reversible Friday-week cancellation with serialized write guards,
+  // followed by narrow startup profile edit grants and caller-scoped RLS.
+  "20260926204636_friday_week_cancellation.sql",
+  "20260926204750_startup_profile_edit_access.sql",
+  // Generated semester-scoped notification ledger, followed by recipient
+  // validation and immutable delivery identity guards.
+  "20260926220127_notification_delivery.sql",
+  "20260926221127_notification_delivery_guard.sql",
+  "20260926221945_notification_delivery_email_normalization.sql",
+  "20260926231810_notification_pipeline.sql",
+  // Generated 15/30-minute booking guards and terminal Calendar reconnect status.
+  "20260926232017_booking_durations_and_reconnect.sql",
+  // Generated single-stage text conversion; existing labels and RLS retained.
+  "20260926232354_startup_stage_text.sql",
+  // Generated one-booking notification test worker RLS; no Admin membership.
+  "20260927015608_notification_test_worker.sql",
+  "20260927022449_booking_request_direct_email.sql",
+  // Reviewed generated template whitelist and personal Gmail RLS/claim schema.
+  "20260927032451_outreach_individual_template_variables.sql",
+  "20260927041504_personal_gmail_sending.sql",
+  // Generated booking context tables, column grants, RLS and invoker transition.
+  "20260928031800_booking_context.sql",
+  // Generated deletion dependency policies, guarded credential cleanup, and shared-data blockers.
+  "20260928125414_member_deletion_dependencies.sql",
+  // Non-retrying HTTP conflict for stale deletion previews (PostgREST 40001 retry safety).
+  "20260928130357_member_deletion_conflict_response.sql",
+  // Generated application conflicts for outreach/membership, without serialization retry loops.
+  "20260928134341_business_conflict_responses.sql",
+  "20260928162131_registration_approval_onboarding.sql",
+  // Own assigned startup profile reads during invited/onboarding; cohort access unchanged.
+  "20260928181148_startup_onboarding_read.sql",
+  // Generated column grants for the existing RLS-protected startup wizard save.
+  "20260928182151_startup_onboarding_saves.sql",
 ];
 const requiredOutreachArchiveMigrations = [
   "20260901215752_archive_outreach_contacts.sql",

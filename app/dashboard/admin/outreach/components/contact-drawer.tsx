@@ -4,6 +4,8 @@ import { Archive, Building2, CalendarClock, Mail, Pencil, Trash2, X } from "luci
 import { useEffect, useRef, useState } from "react";
 
 import { ActivityComposer } from "./activity-composer";
+import { OutreachEmailWorkspace } from "@/components/outreach-email/OutreachEmailWorkspace";
+import { DataLoading } from "@/components/DataLoading";
 import { outreachFetch } from "./authenticated-fetch";
 import { contactDetailFromResponse, type ContactDetail } from "./contact-detail-model";
 import { EditContactForm } from "./edit-contact-form";
@@ -11,6 +13,7 @@ import { OwnerPicker } from "./owner-picker";
 import type { WorkspaceData, WorkspaceRow } from "./types";
 import type { OutreachStage } from "@/src/outreach/types";
 import { formatDate } from "./queue-view";
+import { formatEnumLabel } from "@/src/presentation/display-labels";
 import styles from "../outreach-workspace.module.css";
 
 export function ContactDrawer({ row, data, returnFocus, onClose, onRefresh }: { row: WorkspaceRow; data: WorkspaceData; returnFocus: React.RefObject<HTMLElement | null>; onClose: () => void; onRefresh: () => void }) {
@@ -23,6 +26,7 @@ export function ContactDrawer({ row, data, returnFocus, onClose, onRefresh }: { 
   const [message, setMessage] = useState<string | null>(null);
   const [detail, setDetail] = useState<ContactDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(true);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [archiveScope, setArchiveScope] = useState<"semester" | "global" | null>(null);
   const [globalConfirmation, setGlobalConfirmation] = useState("");
@@ -48,6 +52,7 @@ export function ContactDrawer({ row, data, returnFocus, onClose, onRefresh }: { 
   useEffect(() => {
     let cancelled = false;
     setDetailLoading(true);
+    setDetailError(null);
     void outreachFetch(`/api/admin/outreach/contacts/${row.contactId}?semesterId=${encodeURIComponent(row.semesterId)}`)
       .then(async (response) => {
         if (!response.ok) throw new Error("Contact details could not be loaded.");
@@ -55,10 +60,12 @@ export function ContactDrawer({ row, data, returnFocus, onClose, onRefresh }: { 
         if (detailResponse === null) throw new Error("Contact details could not be read.");
         if (!cancelled) setDetail(detailResponse);
       })
-      .catch(() => { if (!cancelled) setDetail(null); })
+      .catch((cause: unknown) => { if (!cancelled) { setDetail(null); setDetailError(cause instanceof Error ? cause.message : "Contact details could not be loaded."); } })
       .finally(() => { if (!cancelled) setDetailLoading(false); });
     return () => { cancelled = true; };
   }, [row.contactId, row.semesterId]);
+
+  useEffect(() => { setStage(row.stage as OutreachStage); }, [row.stage]);
 
   async function mutate(kind: "snooze" | "silence", payload: Record<string, unknown>) {
     if (!available) return;
@@ -113,10 +120,11 @@ export function ContactDrawer({ row, data, returnFocus, onClose, onRefresh }: { 
       <button ref={closeButton} className={styles.close} type="button" onClick={onClose} aria-label="Close contact workspace"><X size={18} /></button>
       <div className={styles.contactModalIdentity}><div><p className={styles.eyebrow}>Contact workspace</p><h2 id="outreach-contact-title">{contact?.fullName ?? row.contactName}</h2><p id="outreach-contact-summary"><Mail size={15} />{contact?.email ?? row.contactEmail ?? "No email on record"}</p>{row.companyName && <p><Building2 size={15} />{row.companyName}</p>}</div><button type="button" className={styles.secondaryButton} disabled={!contact} onClick={() => setEditing((current) => !current)}><Pencil size={15} />{editing ? "Close editor" : "Edit contact"}</button></div>
       {editing && contact ? <section className={styles.contactEditor} aria-labelledby="edit-contact-heading"><div className={styles.sectionTitle}><h3 id="edit-contact-heading">Edit contact</h3><span>Contact details</span></div><EditContactForm semesterId={row.semesterId} contact={contact} onCancel={() => setEditing(false)} onSaved={(saved) => { setDetail((current) => current ? { ...current, contact: saved } : current); setEditing(false); setMessage("Contact saved."); onRefresh(); }} /></section> : <>
-        <section className={styles.contactModalSection}><div className={styles.sectionTitle}><h3>Current opportunity</h3><span className={styles.stage}>{row.stage}</span></div><dl className={styles.detailGrid}><div><dt>Semester</dt><dd>{row.semesterName}</dd></div><div><dt>Next action</dt><dd>{formatDate(row.nextFollowUpAt)}</dd></div><div><dt>Cadence</dt><dd>{row.cadenceDays ? `${row.cadenceDays} days` : "Not available"}</dd></div><div><dt>Snooze</dt><dd>{row.snoozedUntil ? formatDate(row.snoozedUntil) : "Not snoozed"}</dd></div><div><dt>Silence</dt><dd>{row.isSilenced ? row.silenceReason ?? "Silenced" : "Active"}</dd></div></dl><div className={styles.controlRow}><label>Stage<select value={stage} onChange={(event) => setStage(event.target.value as OutreachStage)} disabled={!available}><option value="not_contacted">Not contacted</option><option value="researching">Researching</option><option value="contacted">Contacted</option><option value="replied">Replied</option><option value="conversation_scheduled">Conversation scheduled</option><option value="ready">Ready</option><option value="declined">Declined</option><option value="closed">Closed</option></select></label><button type="button" onClick={() => void changeStage()} disabled={!available || stage === row.stage}>Change stage</button></div><OwnerPicker row={row} owners={data.owners} semesterId={row.semesterId} onCommitted={onRefresh} /></section>
+        <section className={styles.contactModalSection}><div className={styles.sectionTitle}><h3>Current opportunity</h3><span className={styles.stage}>{formatEnumLabel(row.stage)}</span></div><dl className={styles.detailGrid}><div><dt>Semester</dt><dd>{row.semesterName}</dd></div><div><dt>Next action</dt><dd>{formatDate(row.nextFollowUpAt)}</dd></div><div><dt>Cadence</dt><dd>{row.cadenceDays ? `${row.cadenceDays} days` : "Not available"}</dd></div><div><dt>Snooze</dt><dd>{row.snoozedUntil ? formatDate(row.snoozedUntil) : "Not snoozed"}</dd></div><div><dt>Silence</dt><dd>{row.isSilenced ? row.silenceReason ?? "Silenced" : "Active"}</dd></div></dl><div className={styles.controlRow}><label>Stage<select value={stage} onChange={(event) => setStage(event.target.value as OutreachStage)} disabled={!available}><option value="not_contacted">Not contacted</option><option value="researching">Researching</option><option value="contacted">Contacted</option><option value="replied">Replied</option><option value="conversation_scheduled">Conversation scheduled</option><option value="ready">Ready</option><option value="declined">Declined</option><option value="closed">Closed</option></select></label><button type="button" onClick={() => void changeStage()} disabled={!available || stage === row.stage}>Change stage</button></div><OwnerPicker key={`${row.id}:${row.ownerProfileId ?? "unassigned"}`} row={row} owners={data.owners} semesterId={row.semesterId} onCommitted={onRefresh} /></section>
         <ActivityComposer row={row} semesterId={row.semesterId} onCommitted={onRefresh} />
+        <section className={styles.contactModalSection}><OutreachEmailWorkspace key={`${row.semesterId}:${row.id}`} semesterId={row.semesterId} opportunityId={row.id} compact onSent={onRefresh} /></section>
         <section className={styles.contactModalSection}><div className={styles.sectionTitle}><h3>Queue controls</h3><CalendarClock size={16} /></div><div className={styles.controlRow}><label>Snooze until<input type="date" value={snoozeDate} onChange={(event) => setSnoozeDate(event.target.value)} disabled={!available} /></label><button type="button" onClick={() => void mutate("snooze", { snoozedUntil: snoozeDate ? new Date(`${snoozeDate}T12:00:00Z`).toISOString() : null })} disabled={!available || !snoozeDate}>Snooze</button></div><div className={styles.controlRow}><label>Silence reason<input value={silenceReason} onChange={(event) => setSilenceReason(event.target.value)} disabled={!available} /></label><button type="button" onClick={() => void mutate("silence", { silence: true, reason: silenceReason })} disabled={!available || !silenceReason.trim()}>Silence</button></div>{row.isSilenced && <div className={styles.controlRow}><label>Next action<input type="date" value={restoreDate} onChange={(event) => setRestoreDate(event.target.value)} disabled={!available} /></label><button type="button" onClick={() => void mutate("silence", { silence: false, nextFollowUpAt: restoreDate ? new Date(`${restoreDate}T12:00:00Z`).toISOString() : null })} disabled={!available || !restoreDate}>Restore</button></div>}{!available && <p className={styles.unavailable}>Queue controls are disabled until the workspace API returns the edit version.</p>}{message && archiveScope === null && <p role="status" className={styles.formStatus}>{message}</p>}</section>
-        <section className={styles.contactModalSection}><div className={styles.sectionTitle}><h3>Activity timeline</h3><span>{detailLoading ? "Loading…" : `${activities.length} recorded`}</span></div>{detailLoading ? <p>Loading activity history…</p> : activities.length === 0 ? <p className={styles.unavailable}>No activity has been recorded yet.</p> : <ol className={styles.activityTimeline}>{activities.map((activity) => <li key={activity.id}><strong>{activity.activityKind}</strong> · {formatDate(activity.occurredAt)}<br />{activity.summary ?? "No summary"}</li>)}</ol>}</section>
+        <section className={styles.contactModalSection}><div className={styles.sectionTitle}><h3>Activity timeline</h3><span>{detailLoading ? "Loading…" : detailError ? "Unavailable" : `${activities.length} recorded`}</span></div>{detailLoading ? <DataLoading label="Loading activity history" compact /> : detailError ? <p role="alert" className={styles.formError}>{detailError}</p> : activities.length === 0 ? <p className={styles.unavailable}>No activity has been recorded yet.</p> : <ol className={styles.activityTimeline}>{activities.map((activity) => <li key={activity.id}><strong>{activity.activityKind}</strong> · {formatDate(activity.occurredAt)}<br />{activity.summary ?? "No summary"}</li>)}</ol>}</section>
         <section className={`${styles.contactModalSection} ${styles.dangerZone}`}>
           <div className={styles.sectionTitle}><h3>Remove contact</h3><Archive size={16} /></div>
           <p>Removal is recoverable and keeps contact details, notes, and activity history.</p>

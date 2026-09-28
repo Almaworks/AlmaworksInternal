@@ -19,6 +19,19 @@ type CapturedRequest = {
   url: URL;
 };
 
+type RecordedResponse = {
+  body: unknown;
+  status: number;
+};
+
+function recordedResponse(status: number, body: unknown): RecordedResponse {
+  return { body, status };
+}
+
+function isRecordedResponse(value: unknown): value is RecordedResponse {
+  return typeof value === "object" && value !== null && "body" in value && "status" in value;
+}
+
 function recordingClient(responses: readonly unknown[] = []) {
   const requests: CapturedRequest[] = [];
   let responseIndex = 0;
@@ -30,16 +43,135 @@ function recordingClient(responses: readonly unknown[] = []) {
           method: init?.method ?? "GET",
           url: new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url),
         });
-        const body = responses[responseIndex++] ?? [];
+        const response = responses[responseIndex++] ?? [];
+        const body = isRecordedResponse(response) ? response.body : response;
         return new Response(JSON.stringify(body), {
           headers: { "Content-Type": "application/json" },
-          status: 200,
+          status: isRecordedResponse(response) ? response.status : 200,
         });
       },
     },
   });
   return { client, requests };
 }
+
+test("mentor directory retries without profiles.photo_path when the deployed schema lacks that column", async () => {
+  const mentorRow = {
+    id: "mentor-term-legacy-schema",
+    semester_id: "semester-1",
+    membership: {
+      profile_id: "profile-1",
+      profile: {
+        full_name: "Legacy Schema Mentor",
+        is_active: true,
+        mentor_profile: { photo_url: "https://images.example/mentor.jpg" },
+      },
+    },
+  };
+  const { client, requests } = recordingClient([
+    recordedResponse(400, {
+      code: "42703",
+      details: null,
+      hint: null,
+      message: "column profiles_1.photo_path does not exist",
+    }),
+    [mentorRow],
+  ]);
+
+  const mentors = await loadMentorDirectory(client);
+
+  assert.equal(mentors[0].photo_url, "https://images.example/mentor.jpg");
+  assert.equal(requests.length, 2);
+  assert.match(requests[0].url.searchParams.get("select") ?? "", /photo_path/u);
+  assert.doesNotMatch(requests[1].url.searchParams.get("select") ?? "", /photo_path/u);
+});
+
+test("mentor directory resolves personal photos with one authenticated storage batch", async () => {
+  const firstProfileId = "11111111-1111-4111-8111-111111111111";
+  const secondProfileId = "33333333-3333-4333-8333-333333333333";
+  const firstPath = `${firstProfileId}/22222222-2222-4222-8222-222222222222.png`;
+  const secondPath = `${secondProfileId}/44444444-4444-4444-8444-444444444444.jpg`;
+  const { client, requests } = recordingClient([
+    [
+      { id: "mentor-term-photo-1", semester_id: "semester-1", membership: {
+        profile_id: firstProfileId, profile: { full_name: "First Photo Mentor", is_active: true, photo_path: firstPath },
+      } },
+      { id: "mentor-term-photo-2", semester_id: "semester-1", membership: {
+        profile_id: secondProfileId, profile: { full_name: "Second Photo Mentor", is_active: true, photo_path: secondPath },
+      } },
+    ],
+    [
+      { error: null, path: firstPath, signedURL: `/object/sign/profile-photos/${firstPath}?token=first` },
+      { error: null, path: secondPath, signedURL: `/object/sign/profile-photos/${secondPath}?token=second` },
+    ],
+  ]);
+  const mentors = await loadMentorDirectory(client);
+
+  assert.equal(mentors.length, 2);
+  assert.match(mentors[0].photo_url ?? "", /token=first/u);
+  assert.match(mentors[1].photo_url ?? "", /token=second/u);
+  assert.match(requests[0].url.searchParams.get("select") ?? "", /photo_path/u);
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].url.pathname, "/storage/v1/object/sign/profile-photos");
+  assert.deepEqual(JSON.parse(requests[1].body ?? "null"), {
+    expiresIn: 3600,
+    paths: [firstPath, secondPath],
+  });
+});
+
+test("mentor profile preserves legacy photo when no personal photo is set", async () => {
+  const { client, requests } = recordingClient([{
+    id: "mentor-term-legacy", semester_id: "semester-1", membership: {
+      profile_id: "profile-1", profile: { full_name: "Legacy Mentor", mentor_profile: { photo_url: "https://images.example/mentor.jpg" } },
+    },
+  }]);
+  const mentor = await loadMentorProfile(client, "mentor-term-legacy");
+  assert.equal(mentor?.photo_url, "https://images.example/mentor.jpg");
+  assert.equal(requests.length, 1);
+});
+
+test("single mentor reads retry without profiles.photo_path on the verified missing-column error", async () => {
+  const mentorRow = {
+    id: "mentor-term-legacy-schema",
+    semester_id: "semester-1",
+    membership: {
+      profile_id: "profile-1",
+      profile: {
+        full_name: "Legacy Schema Mentor",
+        is_active: true,
+        mentor_profile: { photo_url: "https://images.example/mentor.jpg" },
+      },
+    },
+  };
+  const { client, requests } = recordingClient([
+    recordedResponse(400, {
+      code: "42703",
+      details: null,
+      hint: null,
+      message: "column profiles.photo_path does not exist",
+    }),
+    mentorRow,
+  ]);
+
+  const mentor = await loadMentorProfile(client, mentorRow.id);
+
+  assert.equal(mentor?.photo_url, "https://images.example/mentor.jpg");
+  assert.equal(requests.length, 2);
+  assert.match(requests[0].url.searchParams.get("select") ?? "", /photo_path/u);
+  assert.doesNotMatch(requests[1].url.searchParams.get("select") ?? "", /photo_path/u);
+});
+
+test("mentor profile signs its personal photo instead of using the legacy image", async () => {
+  const path = "11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.png";
+  const { client } = recordingClient([{
+    id: "mentor-term-photo", semester_id: "semester-1", membership: {
+      profile_id: path.split("/")[0], profile: { full_name: "Photo Mentor", photo_path: path,
+        mentor_profile: { photo_url: "https://images.example/old.jpg" } },
+    },
+  }, { signedURL: `/object/sign/profile-photos/${path}?token=test` }]);
+  const mentor = await loadMentorProfile(client, "mentor-term-photo");
+  assert.match(mentor?.photo_url ?? "", /\/storage\/v1\/object\/sign\/profile-photos\//u);
+});
 
 test("mentor directory is read from canonical term, membership, identity, and biography tables", async () => {
   const { client, requests } = recordingClient();
@@ -56,6 +188,43 @@ test("mentor directory is read from canonical term, membership, identity, and bi
   assert.equal(requests[0].url.searchParams.get("membership.role"), "eq.mentor");
   assert.equal(requests[0].url.searchParams.get("membership.profile.order"), "full_name.asc");
   assert.equal(requests[0].url.searchParams.get("semester_memberships.role"), null);
+});
+
+test("mentor directory omits profiles retained only for anonymized deletion history", async () => {
+  const { client, requests } = recordingClient([[{
+    id: "active-mentor-term",
+    semester_id: "semester-1",
+    membership: {
+      id: "active-membership",
+      profile_id: "active-profile",
+      status: "active",
+      profile: {
+        email: "active@example.com",
+        full_name: "Active Mentor",
+        is_active: true,
+        status: "approved",
+      },
+    },
+  }, {
+    id: "deleted-mentor-term",
+    semester_id: "semester-1",
+    membership: {
+      id: "deleted-membership",
+      profile_id: "deleted-profile",
+      status: "suspended",
+      profile: {
+        email: "deleted+profile@invalid.example",
+        full_name: "Deleted member",
+        is_active: false,
+        status: "rejected",
+      },
+    },
+  }]]);
+
+  const mentors = await loadMentorDirectory(client);
+
+  assert.deepEqual(mentors.map((mentor) => mentor.id), ["active-mentor-term"]);
+  assert.match(requests[0].url.searchParams.get("select") ?? "", /status/u);
 });
 
 test("startup directory is read from canonical cohort, organization, and team membership tables", async () => {

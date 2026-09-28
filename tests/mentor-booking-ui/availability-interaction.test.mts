@@ -14,13 +14,17 @@ function elements(node: ReactNode): ReactElement<Props>[] {
   return [element, ...elements(element.props.children)];
 }
 
-// Execute the real workspace and its selection utilities; replace only React's
-// lifecycle so a completed calendar gesture can be replayed without a browser.
-function workspaceHarness() {
+// Execute the shared mentoring-hours editor and replace only React's lifecycle,
+// so completed calendar gestures can be replayed without a browser.
+function scheduleHarness() {
   const states: unknown[] = [];
   const refs: { current: unknown }[] = [];
+  const effects: { deps: unknown[]; cleanup?: () => void }[] = [];
+  const pendingEffects: (() => void)[] = [];
   let stateIndex = 0;
   let refIndex = 0;
+  let effectIndex = 0;
+  let settingsReads = 0;
   const cache = new Map<string, { exports: Record<string, unknown> }>();
   function load(filename: string): Record<string, unknown> {
     if (cache.has(filename)) return cache.get(filename)!.exports;
@@ -38,9 +42,16 @@ function workspaceHarness() {
         useRef(initial: unknown) { const index = refIndex++; return refs[index] ??= { current: initial }; },
         useMemo: (factory: () => unknown) => factory(),
         useCallback: (callback: unknown) => callback,
-        useEffect: () => {},
+        useEffect(run: () => void | (() => void), deps: unknown[]) {
+          const index = effectIndex++;
+          const prior = effects[index];
+          if (prior && deps.length === prior.deps.length && deps.every((value, dependencyIndex) => Object.is(value, prior.deps[dependencyIndex]))) return;
+          pendingEffects.push(() => { prior?.cleanup?.(); effects[index] = { deps, cleanup: run() ?? undefined }; });
+        },
       };
-      if (name === "@/src/auth/authenticated-fetch") return { authenticatedFetch: () => assert.fail("Editing availability must not make a request") };
+      if (name === "@/src/auth/authenticated-fetch") return { authenticatedFetch: async () => { settingsReads += 1; return Response.json({ mode: "weekly", timeZone: "America/New_York", connectionId: null, workingHours: [] }); } };
+      if (name === "@/src/calendar/sync-status") return { requestCalendarSync: () => assert.fail("Editing availability must not request a calendar sync") };
+      if (name === "./IntegratedAvailabilityCalendar") return { IntegratedAvailabilityCalendar: () => null };
       if (!name.startsWith(".") && !name.startsWith("@/")) return nativeRequire(name);
       const base = name.startsWith("@/") ? path.resolve(name.slice(2)) : path.resolve(path.dirname(filename), name);
       const resolved = [base, `${base}.ts`, `${base}.tsx`].find(existsSync);
@@ -53,37 +64,46 @@ function workspaceHarness() {
     new Function("require", "module", "exports", compiled)(requireLocal, loaded, loaded.exports);
     return loaded.exports;
   }
-  const Workspace = load(path.resolve("components/mentor-booking/MentorBookingWorkspace.tsx")).default as (props: Props) => ReactElement<Props>;
-  const previewData = {
-    semesterId: "test-semester", semesterStartDate: "2026-09-01", semesterEndDate: "2026-12-31",
-    timeZone: "America/New_York", viewer: { role: "mentor", profileId: "mentor", mentorSemesterId: "mentor-semester" },
-    windows: [], history: [], availability: [],
+  const Settings = load(path.resolve("components/calendar/MentorCalendarSettings.tsx")).MentorCalendarSettings as (props: Props) => ReactElement<Props>;
+  return {
+    render() { stateIndex = 0; refIndex = 0; effectIndex = 0; return Settings({ semesterId: "test-semester", connectionId: null }); },
+    flushEffects() { pendingEffects.splice(0).forEach((run) => run()); },
+    settingsReads: () => settingsReads,
   };
-  return { render() { stateIndex = 0; refIndex = 0; return Workspace({ semesterId: previewData.semesterId, previewData }); } };
 }
 
-test("finishing consecutive availability gestures never expands semester booking windows", () => {
-  const harness = workspaceHarness();
+test("finishing consecutive shared-calendar gestures retains drafts without refreshing settings or expanding booking windows", async () => {
+  const harness = scheduleHarness();
   let tree = harness.render();
-  const original = Intl.DateTimeFormat;
+  harness.flushEffects();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  tree = harness.render();
+  harness.flushEffects();
+  assert.equal(harness.settingsReads(), 1, "the editor reads settings once before changes");
+  const originalDateTimeFormat = Intl.DateTimeFormat;
   let formatters = 0;
-  Intl.DateTimeFormat = new Proxy(original, {
-    construct(target, args) {
-      formatters += 1;
-      assert.ok(formatters <= 100, "A gesture triggered expensive semester timezone expansion");
-      return Reflect.construct(target, args);
-    },
+  Intl.DateTimeFormat = new Proxy(originalDateTimeFormat, {
+    construct(target, args) { formatters += 1; return Reflect.construct(target, args); },
   });
   try {
-    for (const monday of [["09:00", "09:15", "09:30", "09:45"], ["09:00", "09:15"], []]) {
-      const calendar = elements(tree).find((element) => typeof element.props.onBlocks === "function");
+  for (const workingHours of [
+    [{ weekday: 1, startsAt: "09:00", endsAt: "10:00" }],
+    [{ weekday: 1, startsAt: "09:00", endsAt: "09:30" }],
+    [],
+  ]) {
+      const calendar = elements(tree).find((element) => typeof element.props.onWorkingHoursChange === "function");
       assert.ok(calendar);
-      (calendar.props.onBlocks as (blocks: unknown) => void)({ monday, tuesday: [], wednesday: [], thursday: [], friday: [], saturday: [], sunday: [] });
-      formatters = 0;
+      (calendar.props.onWorkingHoursChange as (hours: unknown) => void)(workingHours);
       tree = harness.render();
-      const updated = elements(tree).find((element) => typeof element.props.onBlocks === "function");
-      assert.deepEqual((updated!.props.selectedBlocks as { monday: string[] }).monday, monday);
-      assert.ok(elements(tree).some((element) => element.type === "button" && element.props.children === "Save weekly availability"));
-    }
-  } finally { Intl.DateTimeFormat = original; }
+      harness.flushEffects();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      tree = harness.render();
+      harness.flushEffects();
+      const updated = elements(tree).find((element) => typeof element.props.onWorkingHoursChange === "function");
+      assert.deepEqual(updated!.props.workingHours, workingHours);
+      assert.ok(elements(tree).some((element) => element.type === "button" && element.props.children === "Save mentoring hours"));
+      assert.equal(harness.settingsReads(), 1, "editing availability must not re-read settings");
+      assert.equal(formatters, 0, "editing availability must not expand semester booking windows");
+  }
+  } finally { Intl.DateTimeFormat = originalDateTimeFormat; }
 });

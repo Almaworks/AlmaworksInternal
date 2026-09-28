@@ -6,17 +6,23 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import { resolvePostLoginDestination } from '@/src/auth/profile-access'
 import { loadCanonicalAccess } from '@/src/program/canonical-access'
+import { saveRegistrationPreference } from '@/src/auth/registration-preference'
 
 export default function PendingPage() {
   const supabase = useMemo(() => createClient(), [])
   const router = useRouter()
   const [email, setEmail] = useState<string | null>(null)
+  const [preference, setPreference] = useState('')
+  const [savingPreference, setSavingPreference] = useState(false)
+  const [preferenceMessage, setPreferenceMessage] = useState<string | null>(null)
 
   useEffect(() => {
     async function checkStatus() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
       setEmail(user.email ?? null)
+      const requestedRole = user.user_metadata?.requested_role
+      setPreference(requestedRole === 'mentor' || requestedRole === 'startup' ? requestedRole : '')
       try {
         const access = await loadCanonicalAccess(supabase, user.id)
         const destination = resolvePostLoginDestination(access)
@@ -31,6 +37,15 @@ export default function PendingPage() {
   async function signOut() {
     await supabase.auth.signOut()
     router.push('/')
+  }
+
+  async function savePreference(event: React.FormEvent) {
+    event.preventDefault()
+    if (savingPreference) return
+    setSavingPreference(true)
+    const result = await saveRegistrationPreference(supabase.auth, preference)
+    setPreferenceMessage(result.ok ? 'Preference saved for administrator review.' : result.error ?? 'Unable to save.')
+    setSavingPreference(false)
   }
 
   return (
@@ -56,9 +71,20 @@ export default function PendingPage() {
           </p>
           <p className="text-sm text-gray-500 mb-8">
             An Almaworks admin will review your request and assign your role.
-            You&apos;ll be able to sign in once approved.
+            You can sign in to check your status. Program access opens after approval.
           </p>
 
+          <form onSubmit={savePreference} className="mb-6 space-y-3 text-left">
+            <label htmlFor="pending-preference" className="block text-sm text-gray-700">Requested participation</label>
+            <select id="pending-preference" value={preference} onChange={event => { setPreference(event.target.value); setPreferenceMessage(null) }} required disabled={savingPreference}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-3 text-sm text-gray-800">
+              <option value="">Choose a preference</option><option value="mentor">Mentor</option><option value="startup">Startup participant</option>
+            </select>
+            <p className="text-xs text-gray-500">Your administrator assigns your role and cohort. This preference does not grant access.</p>
+            {preferenceMessage && <p role="status" className="text-sm text-gray-700">{preferenceMessage}</p>}
+            <button disabled={savingPreference} className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm text-[#002147] disabled:opacity-50">{savingPreference ? 'Saving…' : 'Save preference'}</button>
+          </form>
+          <button type="button" onClick={() => window.location.reload()} className="mb-5 text-sm text-[#002147] underline">Check approval status</button>
           <p className="text-xs text-gray-400 mb-6">
             Questions? Email us at{' '}
             <a href="mailto:almaworkscu@gmail.com" className="text-[#002147] underline">

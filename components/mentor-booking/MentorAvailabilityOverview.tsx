@@ -40,7 +40,7 @@ export default function MentorAvailabilityOverview({ availability, profileId, se
   );
   const days = availabilityOverviewCalendar(blocks);
   return <div className={styles.availabilityOverview} aria-label="Your weekly availability, read only">
-    <div className={styles.availabilityOverviewIntro}><CalendarDays size={19} /><p>Current weekly schedule</p><button type="button" onClick={onManage}>Manage</button></div>
+    <div className={styles.availabilityOverviewIntro}><CalendarDays size={19} /><p>Current weekly schedule</p><button type="button" onClick={onManage}>View</button></div>
     {hasAvailabilityOverview(blocks) ? <>
       <div className={styles.availabilityCalendarScroll}>
         <div className={styles.availabilityCalendar} role="group" aria-label="Weekly availability calendar">
@@ -60,6 +60,6 @@ export default function MentorAvailabilityOverview({ availability, profileId, se
         </div>
       </div>
       <div className={styles.availabilityLegend}><span><i /> Available</span><small>Repeats weekly</small></div>
-    </> : <div className={styles.availabilityEmpty}><CalendarDays size={20} /><p>No weekly availability shared yet.</p><button type="button" onClick={onManage}>Manage availability</button></div>}
+    </> : <div className={styles.availabilityEmpty}><CalendarDays size={20} /><p>No program hours have been assigned yet.</p><button type="button" onClick={onManage}>View schedule</button></div>}
   </div>;
 }

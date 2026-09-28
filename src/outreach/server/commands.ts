@@ -275,7 +275,7 @@ function unwrapRpc<T>(
   response: OutreachRpcResponse<T>,
   staleMessage: string,
 ): OutreachCommandResult<T> {
-  if (response.error?.code === "40001") {
+  if (response.error !== null && ["PT409", "40001"].includes(response.error.code ?? "")) {
     return conflict(staleMessage);
   }
   if (response.error !== null) {

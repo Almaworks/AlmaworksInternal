@@ -18,28 +18,51 @@ function membershipReadinessStatus(value: string | null | undefined): Membership
 export async function loadManageableCohorts(
   client: SupabaseClient<Database>,
   userId: string,
+  knownProfileId?: string,
 ): Promise<CohortSummary[]> {
-  const { data, error } = await client
-    .from("semesters")
-    .select("id, name, start_date, is_active")
-    .order("start_date", { ascending: false });
-  if (error !== null) throw new CohortRepositoryError(error.message);
+  let profileId = knownProfileId;
+  if (!profileId) {
+    const profileResult = await client
+      .from("profiles")
+      .select("id")
+      .eq("auth_user_id", userId)
+      .maybeSingle();
+    if (profileResult.error !== null) throw new CohortRepositoryError(profileResult.error.message);
+    if (profileResult.data === null) return [];
+    profileId = profileResult.data.id;
+  }
 
-  const checks = await Promise.all((data ?? []).map(async (semester) => {
-    const result = await client.rpc("can_manage_semester", {
-      target_semester_id: semester.id,
-      candidate_id: userId,
-    });
-    if (result.error !== null) throw new CohortRepositoryError(result.error.message);
-    return result.data === true ? semester : null;
-  }));
+  const [platformRoleResult, adminMembershipResult, semesterResult] = await Promise.all([
+    client
+      .from("platform_roles")
+      .select("role")
+      .eq("profile_id", profileId)
+      .eq("role", "super_admin"),
+    client
+      .from("semester_memberships")
+      .select("semester_id")
+      .eq("profile_id", profileId)
+      .eq("role", "admin")
+      .eq("status", "active"),
+    client
+      .from("semesters")
+      .select("id, name, start_date, is_active")
+      .order("start_date", { ascending: false }),
+  ]);
+  if (platformRoleResult.error !== null) throw new CohortRepositoryError(platformRoleResult.error.message);
+  if (adminMembershipResult.error !== null) throw new CohortRepositoryError(adminMembershipResult.error.message);
+  if (semesterResult.error !== null) throw new CohortRepositoryError(semesterResult.error.message);
 
-  return checks.flatMap((semester) => semester === null ? [] : [{
+  const isSuperAdmin = (platformRoleResult.data ?? []).some((row) => row.role === "super_admin");
+  const manageableSemesterIds = new Set((adminMembershipResult.data ?? []).map((row) => row.semester_id));
+  return (semesterResult.data ?? []).flatMap((semester) => (
+    !isSuperAdmin && !manageableSemesterIds.has(semester.id) ? [] : [{
     id: semester.id,
     name: semester.name,
     startsOn: semester.start_date,
     isActive: semester.is_active,
-  }]);
+    }]
+  ));
 }
 
 export async function loadCohortMembers(

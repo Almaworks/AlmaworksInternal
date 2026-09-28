@@ -11,7 +11,7 @@ test("members workspace loads durable login fields and latest account audit in o
   assert.match(page, /profile_is_active: boolean/u);
   assert.match(page, /membership_is_active: boolean/u);
   assert.match(page, /latest_removal_audit_action/u);
-  assert.match(page, /from\('program_audit_events'\)[\s\S]*?\.in\('subject_id', memberProfileIds\)[\s\S]*?\.in\('action', MEMBER_LOGIN_AUDIT_ACTIONS\)[\s\S]*?\.order\('created_at', \{ ascending: false \}\)/u);
+  assert.match(page, /from\('program_audit_events'\)[\s\S]*?\.in\('subject_id', memberProfileIds\)[\s\S]*?\.in\('action', \[\.\.\.MEMBER_LOGIN_AUDIT_ACTIONS, 'member\.personal_deletion_prepared', 'member\.personal_deletion_completed'\]\)[\s\S]*?\.order\('created_at', \{ ascending: false \}\)/u);
   assert.equal((page.match(/from\('program_audit_events'\)/gu) ?? []).length, 1);
 });
 

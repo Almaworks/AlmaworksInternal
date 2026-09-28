@@ -16,7 +16,7 @@ test("startup essentials are short, ordered, and readiness-gated", () => {
 
   assert.deepEqual(
     checklist.filter((item) => item.required).map((item) => item.key),
-    ["identity", "company_snapshot", "team_contacts", "availability"],
+    ["identity", "company_snapshot", "team_contacts"],
   );
   assert.equal(checklist.some((item) => item.key === "company_links" && !item.required), true);
 
@@ -24,10 +24,10 @@ test("startup essentials are short, ordered, and readiness-gated", () => {
     "startup",
     new Set(["identity", "company_snapshot", "team_contacts"]),
   );
-  assert.equal(progress.ready, false);
+  assert.equal(progress.ready, true);
   assert.equal(progress.required.completed, 3);
-  assert.equal(progress.required.total, 4);
-  assert.equal(progress.next?.key, "availability");
+  assert.equal(progress.required.total, 3);
+  assert.equal(progress.next?.key, "company_links");
 });
 
 test("participant onboarding produces only RLS-owned profile writes", () => {
@@ -49,11 +49,11 @@ test("participant onboarding produces only RLS-owned profile writes", () => {
 test("mentor readiness ignores optional enrichment", () => {
   const progress = calculateOnboardingProgress(
     "mentor",
-    new Set(["identity", "mentor_profile", "expertise", "availability"]),
+    new Set(["identity", "mentor_profile", "expertise"]),
   );
 
   assert.equal(progress.ready, true);
-  assert.equal(progress.percent, 80);
+  assert.equal(progress.percent, 75);
   assert.equal(progress.next?.key, "profile_links");
 });
 

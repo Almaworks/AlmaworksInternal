@@ -3,7 +3,6 @@ import {
   type ParticipantDashboardView,
   type ParticipantDirectoryEntry,
   type ParticipantRole,
-  type ParticipantSessionInput,
 } from "./participant-dashboard.ts";
 
 export type AdminView = "admin" | ParticipantRole;
@@ -43,12 +42,6 @@ export function parseParticipantPreviewRole(value: string): ParticipantRole | nu
   return value === "mentor" || value === "startup" ? value : null;
 }
 
-function dateOffset(now: string, days: number): string {
-  const date = new Date(now);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
-}
-
 const network: ParticipantDirectoryEntry[] = [
   { id: "demo-mentor-maya", semesterId: "demo-semester", kind: "mentor", name: "Maya Chen", headline: "VP Revenue · Helio", tags: ["Enterprise sales", "Go-to-market", "Hiring"], summary: "Helps early teams build repeatable revenue systems and land their first enterprise customers.", websiteUrl: "helio.demo", photoUrl: null },
   { id: "demo-mentor-jordan", semesterId: "demo-semester", kind: "mentor", name: "Jordan Ellis", headline: "Founder · Fieldwork", tags: ["Fundraising", "Pricing", "Product"], summary: "Former founder and operator focused on positioning, pricing, and fundraising narratives.", websiteUrl: "fieldwork.demo", photoUrl: null },
@@ -65,65 +58,6 @@ export function buildParticipantPreview(
   const isMentor = role === "mentor";
   const mentorSemesterId = "demo-mentor-semester-maya";
   const startupSemesterId = "demo-startup-semester-northstar";
-  const sessions: ParticipantSessionInput[] = [
-    {
-      id: "demo-upcoming-session",
-      semesterId: "demo-semester",
-      mentorSemesterId,
-      startupSemesterId,
-      partnerName: isMentor ? "Northstar Labs" : "Maya Chen",
-      meetingDate: dateOffset(now, 10),
-      startsAt: "15:30",
-      endsAt: "16:15",
-      timezone: "America/New_York",
-      topic: "Enterprise sales motion",
-      format: "In person",
-      status: "confirmed",
-      attendees: [
-        { semesterMembershipId: "demo-mentor-membership", profileId: "demo-profile-maya", fullName: "Maya Chen", role: "mentor", response: "attending", respondedAt: now, updatedAt: now },
-        { semesterMembershipId: "demo-startup-membership", profileId: "demo-profile-nadia", fullName: "Nadia Rahman", role: "startup", response: "no_response", respondedAt: null, updatedAt: null },
-        { semesterMembershipId: "demo-startup-teammate", profileId: "demo-profile-eli", fullName: "Eli Brooks", role: "startup", response: "attending", respondedAt: now, updatedAt: now },
-      ],
-    },
-    {
-      id: "demo-later-session",
-      semesterId: "demo-semester",
-      mentorSemesterId,
-      startupSemesterId,
-      partnerName: isMentor ? "Northstar Labs" : "Maya Chen",
-      meetingDate: dateOffset(now, 17),
-      startsAt: "16:15",
-      endsAt: "17:00",
-      timezone: "America/New_York",
-      topic: "Pilot pipeline review",
-      format: "Online",
-      status: "confirmed",
-      attendees: [
-        { semesterMembershipId: "demo-mentor-membership", profileId: "demo-profile-maya", fullName: "Maya Chen", role: "mentor", response: "no_response", respondedAt: null, updatedAt: null },
-        { semesterMembershipId: "demo-startup-membership", profileId: "demo-profile-nadia", fullName: "Nadia Rahman", role: "startup", response: "attending", respondedAt: now, updatedAt: now },
-        { semesterMembershipId: "demo-startup-teammate", profileId: "demo-profile-eli", fullName: "Eli Brooks", role: "startup", response: "not_attending", respondedAt: now, updatedAt: now },
-      ],
-    },
-    {
-      id: "demo-past-session",
-      semesterId: "demo-semester",
-      mentorSemesterId,
-      startupSemesterId,
-      partnerName: isMentor ? "Forge Robotics" : "Jordan Ellis",
-      meetingDate: dateOffset(now, -7),
-      startsAt: "13:00",
-      endsAt: "13:45",
-      timezone: "America/New_York",
-      topic: isMentor ? "First sales hire" : "Pricing strategy",
-      format: "Online",
-      status: "completed",
-      attendees: [
-        { semesterMembershipId: "demo-mentor-membership", profileId: "demo-profile-maya", fullName: "Maya Chen", role: "mentor", response: "attending", respondedAt: now, updatedAt: now },
-        { semesterMembershipId: "demo-startup-membership", profileId: "demo-profile-nadia", fullName: "Nadia Rahman", role: "startup", response: "attending", respondedAt: now, updatedAt: now },
-      ],
-    },
-  ];
-
   return buildParticipantDashboard({
     now,
     context: {
@@ -135,13 +69,19 @@ export function buildParticipantPreview(
       status: "active",
     },
     identity: isMentor
-      ? { profileId: "demo-profile-maya", fullName: "Maya Chen", email: "maya@helio.demo", emailVerified: true }
-      : { profileId: "demo-profile-nadia", fullName: "Nadia Rahman", email: "nadia@northstar.demo", emailVerified: true },
+      ? { profileId: "demo-profile-maya", fullName: "Maya Chen", email: "maya@helio.demo", emailVerified: true, photoUrl: null }
+      : { profileId: "demo-profile-nadia", fullName: "Nadia Rahman", email: "nadia@northstar.demo", emailVerified: true, photoUrl: null },
     startupSemesterId: isMentor ? null : startupSemesterId,
     mentorSemesterId: isMentor ? mentorSemesterId : null,
+    weeklyAvailability: isMentor ? [{ weekday: 1, startsAt: "09:00", endsAt: "11:00" }, { weekday: 3, startsAt: "14:00", endsAt: "15:30" }] : [],
+    upcomingMeetings: [{ startsAt: "2026-10-12T15:00:00Z", endsAt: "2026-10-12T15:30:00Z", counterpartName: isMentor ? "Northstar Labs" : "Maya Chen", topic: "Pricing strategy" }],
     profileComplete: true,
     roleSetupComplete: true,
-    sessions,
+    startups: [
+      { id: "demo-startup-semester-northstar", semesterId: "demo-semester", name: "Northstar Labs", industry: "Climate intelligence", stage: "Seed", description: "Decision tools that help industrial teams forecast and manage climate-related operational risk.", websiteUrl: "https://northstar.demo", goals: ["Launch enterprise pilots"], mentorshipNeeds: ["Enterprise sales", "Pricing"], mentorNeedContext: "Preparing for our first enterprise pilot.", people: [{ id: "demo-profile-nadia", name: "Nadia Rahman", email: "nadia@northstar.demo", photoUrl: null }, { id: "demo-profile-eli", name: "Eli Brooks", email: "eli@northstar.demo", photoUrl: null }] },
+      { id: "demo-startup-semester-luma", semesterId: "demo-semester", name: "Luma Health", industry: "Care navigation", stage: "Pre-seed", description: "A guided care platform that helps families understand options and find trusted providers faster.", websiteUrl: "https://luma.demo", goals: ["Validate the product"], mentorshipNeeds: ["Product", "Fundraising"], mentorNeedContext: null, people: [{ id: "demo-profile-alex", name: "Alex Rivera", email: "alex@luma.demo", photoUrl: null }] },
+      { id: "demo-startup-semester-forge", semesterId: "demo-semester", name: "Forge Robotics", industry: "Warehouse automation", stage: "Seed", description: "Modular robotic systems that make warehouse automation accessible to mid-market operators.", websiteUrl: null, goals: [], mentorshipNeeds: ["Hiring"], mentorNeedContext: null, people: [] },
+    ],
     network: network.map((entry) => ({
       ...entry,
       email: `${entry.id.replace("demo-", "")}@example.com`,

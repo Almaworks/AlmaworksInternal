@@ -5,9 +5,10 @@ import { AlmaworksBrand } from '@/components/AlmaworksBrand'
 import { AdminViewAsControl } from '@/components/AdminViewAsControl'
 import { AdminViewTransitionShell } from '@/components/AdminViewTransitionShell'
 import Link from 'next/link'
-import { useRouter, usePathname } from 'next/navigation'
-import { useEffect, useMemo, useState, useTransition } from 'react'
-import { Bell, BookOpen, CalendarClock, CalendarDays, CalendarPlus, CalendarRange, ChevronLeft, ChevronRight, House, Inbox, LayoutDashboard, LogOut, Menu, Megaphone, Network, Settings, Target, Users, X } from 'lucide-react'
+import { DataLoading } from '@/components/DataLoading'
+import { useRouter, usePathname, useSearchParams } from 'next/navigation'
+import { Suspense, useEffect, useMemo, useState, useTransition } from 'react'
+import { Bell, BookOpen, Building2, CalendarCheck, CalendarDays, CalendarPlus, CalendarRange, Download, ChevronLeft, ChevronRight, House, Inbox, KeyRound, LayoutDashboard, LogOut, Menu, Megaphone, Network, Settings, Target, UserRound, Users, X } from 'lucide-react'
 import { isDashboardNavigationActive } from '@/src/assignments/schedule-navigation'
 import { resolveDashboardPersona } from '@/src/auth/admin-capability'
 import { authenticatedFetch } from '@/src/auth/authenticated-fetch'
@@ -22,10 +23,22 @@ type Profile = {
 
 const SIDEBAR_STORAGE_KEY = 'almaworks-dashboard-sidebar-collapsed'
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname()
+  // These pages own their shell and authenticated data loader. Avoid mounting
+  // an invisible second shell and repeating its identity/capability requests.
+  if (pathname === '/dashboard/onboarding' || pathname === '/dashboard/mentor' || pathname === '/dashboard/startup' || pathname.startsWith('/dashboard/admin/preview/')) return <>{children}</>
+  return <DashboardShell>{children}</DashboardShell>
+}
+
+function DashboardShell({ children }: { children: React.ReactNode }) {
   const supabase = useMemo(() => createClient(), [])
   const router = useRouter()
   const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const [isNavigationPending, startNavigationTransition] = useTransition()
+  const [navigationLabel, setNavigationLabel] = useState('workspace')
+  const [navigationReady, setNavigationReady] = useState(false)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [canManageAdmin, setCanManageAdmin] = useState(false)
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
@@ -49,33 +62,39 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [sidebarCollapsed, sidebarPreferenceLoaded])
 
   useEffect(() => {
+    let active = true
     supabase.auth.getUser().then(async ({ data: { user }, error }) => {
+      if (!active) return
       if (error || !user) {
         await supabase.auth.signOut({ scope: 'local' })
-        router.replace('/')
+        if (active) router.replace('/')
         return
       }
       let access
+      let capabilityResponse: Response | null
       try {
-        access = await loadCanonicalAccess(supabase, user.id)
+        ;[access, capabilityResponse] = await Promise.all([
+          loadCanonicalAccess(supabase, user.id),
+          authenticatedFetch('/api/auth/capabilities').catch(() => null),
+        ])
       } catch {
-        router.replace('/?error=identity_lookup_failed')
+        if (active) router.replace('/?error=identity_lookup_failed')
         return
       }
+      if (!active) return
       if (!access) {
         router.replace('/?error=identity_link_missing')
         return
       }
       if (access.is_active === false) {
         await supabase.auth.signOut()
-        window.location.href = '/?error=account_inactive'
+        if (active) window.location.href = '/?error=account_inactive'
         return
       }
-      setProfile(access ? { email: access.email, full_name: access.full_name, role: access.role } : null)
       try {
-        const response = await authenticatedFetch('/api/auth/capabilities')
-        const payload: unknown = await response.json().catch(() => null)
-        const canManage = response.ok
+        const payload: unknown = await capabilityResponse?.json().catch(() => null)
+        if (!active) return
+        const canManage = capabilityResponse?.ok === true
           && typeof payload === 'object'
           && payload !== null
           && 'data' in payload
@@ -89,7 +108,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         setCanManageAdmin(false)
         setIsSuperAdmin(false)
       }
+      setProfile({ email: access.email, full_name: access.full_name, role: access.role })
+      setNavigationReady(true)
+    }).catch(() => {
+      if (active) router.replace('/?error=identity_lookup_failed')
     })
+    return () => { active = false }
   }, [router, supabase])
 
   async function signOut() {
@@ -99,51 +123,57 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const viewTransition = resolveAdminViewTransition(pathname, pendingView, isViewTransitionPending)
   const effectiveRole = resolveDashboardPersona(profile?.role ?? null, canManageAdmin, viewTransition.sidebarView)
-  const isOnboarding = pathname === '/dashboard/onboarding'
-  const isParticipantWorkspace = pathname === '/dashboard/mentor' || pathname === '/dashboard/startup'
-  const isParticipantPreview = pathname.startsWith('/dashboard/admin/preview/')
 
   const navItems =
     effectiveRole === 'admin'
       ? [
           { href: '/dashboard/admin', label: 'Overview' },
-          { href: '/dashboard/admin/schedule', label: 'Schedule' },
+          ...(isSuperAdmin ? [{ href: '/dashboard/admin/access', label: 'Access' }] : []),
+          { href: '/dashboard/admin/members', label: 'Members' },
+          { href: '/dashboard/admin/startups', label: 'Startups' },
+          { href: '/dashboard/admin/friday-program', label: 'Friday Program' },
+          { href: '/dashboard/bookings', label: 'Bookings' },
           ...(isSuperAdmin ? [{ href: '/dashboard/admin/semesters', label: 'Semesters' }] : []),
           { href: '/dashboard/admin/outreach', label: 'Outreach' },
           { href: '/dashboard/admin/mentor-needs', label: 'Mentor Needs' },
           { href: '/dashboard/admin/mentors', label: 'Mentors' },
           { href: '/dashboard/admin/notify', label: 'Notify' },
+          { href: '/dashboard/admin/export', label: 'Export' },
           { href: '/dashboard/resources', label: 'Resources' },
         ]
       : effectiveRole === 'mentor'
       ? [
           { href: '/dashboard/mentor', label: 'My Schedule' },
           { href: '/dashboard/mentor/inbox', label: 'Inbox' },
-          { href: '/dashboard/bookings', label: 'Bookings' },
+          { href: '/dashboard/mentor?tab=bookings', label: 'Bookings' },
           { href: '/dashboard/mentors', label: 'Mentor Directory' },
         ]
       : effectiveRole === 'startup'
       ? [
           { href: '/dashboard/startup', label: 'Dashboard' },
           { href: '/dashboard/mentors', label: 'Mentors' },
-          { href: '/dashboard/bookings', label: 'Bookings' },
+          { href: '/dashboard/startup?tab=bookings', label: 'Bookings' },
         ]
       : []
 
   const navIcons = {
     Overview: LayoutDashboard,
-    Schedule: CalendarClock,
+    Access: KeyRound,
+    Members: Users,
+    Startups: Building2,
+    'Friday Program': CalendarCheck,
+    Bookings: CalendarPlus,
     Semesters: CalendarRange,
     Outreach: Megaphone,
     'Mentor Needs': Target,
-    Mentors: Users,
+    Mentors: UserRound,
     Notify: Bell,
+    Export: Download,
     Resources: BookOpen,
     'My Schedule': CalendarDays,
     Inbox: Inbox,
     'Mentor Directory': Network,
     Dashboard: House,
-    Bookings: CalendarPlus,
   } as const
 
   const roleLabel =
@@ -159,9 +189,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     })
   }
 
+  function handleMobileViewChange(next: AdminView) {
+    setMobileNavOpen(false)
+    handleViewChange(next)
+  }
+  function navigateModule(event: { preventDefault: () => void }, href: string, label: string) {
+    if (`${pathname}${searchParams.size ? `?${searchParams.toString()}` : ''}` === href) return
+    event.preventDefault()
+    setNavigationLabel(label)
+    setMobileNavOpen(false)
+    startNavigationTransition(() => router.push(href))
+  }
   const showViewLoading = viewTransition.loading
 
-  if (isOnboarding || isParticipantWorkspace || isParticipantPreview) return <>{children}</>
   if (showViewLoading && pendingView) {
     return <AdminViewTransitionShell destination={pendingView} adminName={profile?.full_name ?? profile?.email} />
   }
@@ -203,13 +243,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
 
         <nav className={`flex-1 py-4 space-y-0.5 ${sidebarCollapsed ? 'px-2' : 'px-3'}`} aria-label="Dashboard navigation">
+          {!navigationReady && <DataLoading compact label="Loading navigation..." />}
           {navItems.map(({ href, label }) => {
-            const active = isDashboardNavigationActive(pathname, href)
+            const active = isDashboardNavigationActive(pathname, href, searchParams.get('tab'))
             const Icon = navIcons[label as keyof typeof navIcons] ?? Settings
             return (
               <Link
                 key={href}
                 href={href}
+              onNavigate={(event) => navigateModule(event, href, label)}
                 className={`group relative flex items-center rounded-lg text-sm font-medium transition-colors ${sidebarCollapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2'} ${
                   active
                     ? 'bg-white/15 text-white'
@@ -256,12 +298,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </div>
         <nav className={`${mobileNavOpen ? 'flex' : 'hidden'} absolute left-0 right-0 top-14 flex-col gap-1 border-t border-white/10 bg-[#002147] px-3 py-3 shadow-xl`} aria-label="Mobile dashboard navigation">
+          {canManageAdmin && (
+            <AdminViewAsControl
+              current={viewTransition.selectedView}
+              onChange={handleMobileViewChange}
+              disabled={showViewLoading}
+              className="border-b border-white/10 px-0 pb-3"
+            />
+          )}
           {navItems.map(({ href, label }) => (
             <Link
               key={href}
               href={href}
+              onNavigate={(event) => navigateModule(event, href, label)}
               onClick={() => setMobileNavOpen(false)}
-              className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium ${isDashboardNavigationActive(pathname, href) ? 'bg-white text-[#002147]' : 'text-white/65 hover:bg-white/10 hover:text-white'}`}
+              className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium ${isDashboardNavigationActive(pathname, href, searchParams.get('tab')) ? 'bg-white text-[#002147]' : 'text-white/65 hover:bg-white/10 hover:text-white'}`}
             >
               {label}
             </Link>
@@ -272,8 +323,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Main */}
       <main className="flex-1 overflow-y-auto pt-[6.2rem] md:pt-0">
-        <div className="p-4 md:p-8">{children}</div>
+        <div className="p-4 md:p-8">{isNavigationPending && <DataLoading label={`Loading ${navigationLabel}...`} />}<div hidden={isNavigationPending}>{children}</div></div>
       </main>
     </div>
   )
+}
+
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  return <Suspense fallback={<DataLoading label="Loading dashboard..." />}><DashboardLayoutContent>{children}</DashboardLayoutContent></Suspense>
 }

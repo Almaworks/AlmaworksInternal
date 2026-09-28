@@ -37,8 +37,11 @@ grant insert (semester_id, meeting_id, semester_membership_id, slot, is_availabl
 revoke insert (semester_id, meeting_id, mentor_semester_id, startup_semester_id, slot, status, topic, format) on table public.sessions from authenticated;
 grant insert (semester_id, session_id, semester_membership_id, response) on table public.session_rsvps to authenticated;
 grant insert (semester_id, source_name, status, idempotency_key, rows, result, created_by) on table public.outreach_imports to authenticated;
-grant update (full_name) on table public.profiles to authenticated;
-grant update (goals, mentorship_needs, mentor_need_context, mentor_need_no_preference, company_snapshot) on table public.startup_semesters to authenticated;
+grant update (full_name, photo_path) on table public.profiles to authenticated;
+grant update (photo_url) on table public.mentor_profiles to authenticated;
+grant update (goals, mentorship_needs, mentor_need_context, mentor_need_no_preference, company_snapshot, readiness_status) on table public.startup_semesters to authenticated;
+grant update (stage) on table public.startup_semesters to authenticated;
+grant update (name, industry, description, website_url, logo_path) on table public.startup_organizations to authenticated;
 grant update (semester_id, meeting_id, semester_membership_id, slot, is_available, format, source) on table public.meeting_availability to authenticated;
 grant update (status) on table public.sessions to authenticated;
 grant update (response) on table public.session_rsvps to authenticated;

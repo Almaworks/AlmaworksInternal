@@ -5,11 +5,18 @@ import { scopeParticipantDashboard } from "../../src/dashboard/participant-dashb
 import { scopeActiveNetwork } from "../../src/dashboard/participant-network.ts";
 
 test("dashboard network loads active cohort memberships before looking up mentor profiles", () => {
-  const route = readFileSync(new URL("../../app/api/participant-dashboard/route.ts", import.meta.url), "utf8");
-  assert.match(route, /const networkMembershipsResult[\s\S]*?\.eq\("semester_id", activeSemester.id\)\.eq\("status", "active"\)/);
+  const route = readFileSync(new URL("../../src/dashboard/participant-snapshot-loader.ts", import.meta.url), "utf8");
+  assert.match(route, /const networkMembershipsPromise[\s\S]*?\.eq\("semester_id", activeSemester.id\)[\s\S]*?\.eq\("status", "active"\)/);
   assert.match(route, /from\("mentor_profiles"\)\.select\([^\n]+\)\.in\("profile_id", mentorProfileIds\)/);
-  assert.match(route, /from\("profiles"\)\.select\("id,full_name,email"\)\.in\("id", networkProfileIds\)/);
-  assert.match(route, /base.network = scopeActiveNetwork\(activeSemester.id, profileId, networkMemberships,/);
+  assert.match(route, /from\("profiles"\)\.select\("id,full_name,email,photo_path"\)\.in\("id", networkProfileIds\)/);
+  assert.match(route, /base\.network = scopeActiveNetwork\([\s\S]*?activeSemester\.id,[\s\S]*?profileId,[\s\S]*?networkData\.networkMemberships,/);
+});
+
+test("startup network headlines format canonical stage values for display", () => {
+  const route = readFileSync(new URL("../../src/dashboard/participant-snapshot-loader.ts", import.meta.url), "utf8");
+
+  assert.match(route, /import \{ formatEnumLabel \} from "\.\.\/presentation\/display-labels\.ts";/u);
+  assert.match(route, /\[organization\?\.name, organization\?\.industry, startup\?\.stage && formatEnumLabel\(startup\.stage\)\]\.filter\(Boolean\)\.join/u);
 });
 
 test("network rejects historical, inactive and wrong-role profiles and preserves contact info", () => {
@@ -36,6 +43,6 @@ test("startup networks include cohort peers as well as mentors, excluding other 
     { id: "peer", semesterId: "fall", kind: "startup" as const },
     { id: "old", semesterId: "spring", kind: "mentor" as const },
   ].map((entry) => ({ ...entry, name: entry.id, headline: "", summary: "", tags: [] }));
-  const result = scopeParticipantDashboard({ role: "startup", profileId: "self", startupSemesterId: "team", activeSemesterId: "fall", source: { network, notifications: [], sessions: [] } });
+  const result = scopeParticipantDashboard({ role: "startup", profileId: "self", startupSemesterId: "team", activeSemesterId: "fall", source: { network, notifications: [] } });
   assert.deepEqual(result.network.map((entry) => entry.id), ["mentor", "peer"]);
 });

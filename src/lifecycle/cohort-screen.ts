@@ -79,6 +79,14 @@ export function membershipIdsForRecords(
   return [...new Set(ids)];
 }
 
+export function selectedVisibleMembershipIds(
+  selectedIds: readonly string[],
+  visibleIds: readonly string[],
+): string[] {
+  const selected = new Set(selectedIds);
+  return [...new Set(visibleIds)].filter((id) => selected.has(id));
+}
+
 export function filterRecordsForCohort<T extends CohortRecordReference>(
   records: readonly T[],
   members: readonly CohortMember[],

@@ -4,7 +4,9 @@ import { createClient } from '@/utils/supabase/client'
 import { AlmaworksBrand } from '@/components/AlmaworksBrand'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { Suspense, useState } from 'react'
+import { Suspense, useMemo, useState } from 'react'
+import { passwordSignIn } from '@/src/auth/password-auth'
+import { rememberRegistrationEmail } from '@/src/auth/password-registration'
 
 export default function SignInPage() {
   return (
@@ -15,56 +17,64 @@ export default function SignInPage() {
 }
 
 function SignInContent() {
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
   const searchParams = useSearchParams()
 
   const errorParam = searchParams.get('error')
   const initialError =
     errorParam === 'link_expired'
-      ? 'Your sign-in link expired or was opened on a different device. Please request a new one.'
+      ? 'Your verification or recovery link expired. Please request a new one.'
       : errorParam === 'no_session'
-      ? 'Sign-in failed. Please request a new magic link.'
+      ? 'Sign-in failed. Please try again.'
       : errorParam === 'account_inactive'
       ? 'Your account has been deactivated. Contact an Almaworks admin to restore access.'
       : errorParam === 'identity_link_missing'
       ? 'Your sign-in succeeded, but your Almaworks profile is not linked. Contact an Almaworks admin.'
       : errorParam === 'identity_lookup_failed'
       ? 'We could not verify your Almaworks profile. Please try signing in again.'
+      : errorParam === 'auth_unavailable'
+      ? 'We cannot reach the sign-in service right now. Please try again shortly.'
+      : errorParam === 'signin_failed'
+      ? 'Sign-in failed. Please try again.'
       : null
 
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(initialError)
-  const [message, setMessage] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   async function signInWithGoogle() {
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
-    })
+    if (loading) return
+    setError(null)
+    setLoading(true)
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: `${window.location.origin}/auth/callback` },
+      })
+      if (error) { setError(error.message); setLoading(false) }
+    } catch {
+      setError('Unable to connect. Please try again.')
+      setLoading(false)
+    }
   }
 
-  async function sendMagicLink(e: React.FormEvent) {
+  async function signIn(e: React.FormEvent) {
     e.preventDefault()
+    if (loading) return
     setError(null)
-    setMessage(null)
     setLoading(true)
-
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
-    })
-    if (error) {
-      setError(error.message)
+    const result = await passwordSignIn(supabase.auth, email, password)
+    setPassword('')
+    if (result.ok) {
+      window.location.assign('/dashboard')
+    } else if (result.reason === 'email_unconfirmed' && result.email) {
+      rememberRegistrationEmail(window.sessionStorage, result.email)
+      window.location.assign('/verify-email')
     } else {
-      setMessage('Check your email for a magic sign-in link.')
+      setError(result.error)
+      setLoading(false)
     }
-
-    setLoading(false)
   }
 
   return (
@@ -96,6 +106,7 @@ function SignInContent() {
           {/* Google */}
           <button
             onClick={signInWithGoogle}
+            disabled={loading}
             className="w-full flex items-center justify-center gap-3 px-4 py-3 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
           >
             <GoogleIcon />
@@ -109,9 +120,11 @@ function SignInContent() {
             <div className="flex-1 h-px bg-gray-100" />
           </div>
 
-          {/* Email magic link */}
-          <form onSubmit={sendMagicLink} className="space-y-3">
+          <form onSubmit={signIn} className="space-y-3">
+            <label htmlFor="sign-in-email" className="block text-sm text-gray-700">Email</label>
             <input
+              id="sign-in-email"
+              autoComplete="username"
               type="email"
               placeholder="Email"
               value={email}
@@ -120,21 +133,30 @@ function SignInContent() {
               className="w-full text-sm text-gray-800 placeholder:text-gray-500 border border-gray-300 rounded-xl px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
             />
 
-            {error && <p className="text-xs text-red-500">{error}</p>}
-            {message && <p className="text-xs text-green-600">{message}</p>}
+            <label htmlFor="sign-in-password" className="block text-sm text-gray-700">Password</label>
+            <input id="sign-in-password" type="password" autoComplete="current-password"
+              value={password} onChange={e => setPassword(e.target.value)} required
+              className="w-full text-sm text-gray-800 border border-gray-300 rounded-xl px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40" />
+
+            {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
 
             <button
               type="submit"
               disabled={loading}
               className="w-full py-3 bg-[#002147] text-white text-sm font-medium rounded-xl hover:bg-[#002147]/90 disabled:opacity-60 transition-colors"
             >
-              {loading ? '…' : 'Send magic link'}
+              {loading ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
+          <p className="mt-3 text-center text-xs text-gray-500 leading-relaxed">
+            <Link href="/forgot-password" className="text-[#002147] underline">Forgot your password?</Link>
+          </p>
 
           <div className="mt-6 pt-6 border-t border-gray-100">
             <p className="text-xs text-gray-400 text-center leading-relaxed">
-              New users will need admin approval before accessing the platform.
+              New to Almaworks?{' '}
+              <Link href="/request-access" className="font-medium text-[#002147] underline">Request access</Link>.
+              {' '}An administrator reviews every request.
             </p>
           </div>
         </div>

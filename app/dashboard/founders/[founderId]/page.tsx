@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { DataLoading } from '@/components/DataLoading'
 import { useParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
 
@@ -25,19 +26,29 @@ export default function FounderProfilePage() {
   const [selectedStartupSemesterId, setSelectedStartupSemesterId] = useState('')
   const [sessions, setSessions] = useState<FounderSession[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
+  const [loadedId, setLoadedId] = useState<string | null>(null)
 
   useEffect(() => {
+    let active = true
     const client = createClient()
     void loadFounderHistory(client, founderId).then((history) => {
+      if (!active) return
+      setError(null)
       setFounder(history?.profile ?? null)
       setParticipations(history?.participations ?? [])
       setSelectedStartupSemesterId(history?.participations[0]?.startupSemesterId ?? '')
       setSessions((history?.sessions as unknown as FounderSession[]) ?? [])
-      setLoading(false)
-    })
-  }, [founderId])
+      setLoadedId(founderId)
+    }).catch((cause: unknown) => {
+      if (active) { setLoadedId(founderId); setError(cause instanceof Error ? cause.message : "Profile could not be loaded.") }
+    }).finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [founderId, attempt])
 
-  if (loading) return <p className="text-gray-600">Loading founder profile...</p>
+  if (loading || loadedId !== founderId) return <DataLoading label="Loading founder profile..." />
+  if (error) return <div role="alert">{error} <button type="button" className="underline" onClick={() => { setLoading(true); setError(null); setAttempt(value => value + 1) }}>Try again</button></div>
   if (!founder) return <p className="text-gray-600">Founder not found</p>
   const selected = participations.find((item) => item.startupSemesterId === selectedStartupSemesterId)
   const visibleSessions = sessions.filter((session) => session.startup_semester_id === selectedStartupSemesterId)

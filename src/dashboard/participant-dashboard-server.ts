@@ -2,10 +2,10 @@ import {
   buildParticipantDashboard,
   buildProfileUpdate,
   selectParticipantContext,
+  type ParticipantBookingNotification,
   type ParticipantDashboardView,
   type ParticipantDirectoryEntry,
   type ParticipantMembershipInput,
-  type ParticipantSessionInput,
 } from "./participant-dashboard.ts";
 
 export interface ParticipantDashboardSnapshot {
@@ -14,13 +14,16 @@ export interface ParticipantDashboardSnapshot {
   identity: ParticipantDashboardView["identity"];
   startupSemesterId: string | null;
   mentorSemesterId: string | null;
+  weeklyAvailability?: { endsAt: string; startsAt: string; weekday: number }[];
+  upcomingMeetings?: { counterpartName: string; endsAt: string; startsAt: string; topic: string }[];
   profileComplete: boolean;
   roleSetupComplete: boolean;
-  sessions: ParticipantSessionInput[];
   network: ParticipantDirectoryEntry[];
+  startups?: ParticipantDashboardView["startups"];
   profile?: ParticipantDashboardView["profile"];
+  startupProfile?: ParticipantDashboardView["startupProfile"];
   mentorNeeds?: ParticipantDashboardView["mentorNeeds"];
-  availability?: ParticipantDashboardView["availability"];
+  bookingNotifications?: ParticipantBookingNotification[];
   readNotificationKeys?: string[];
 }
 
@@ -30,6 +33,7 @@ export type ParticipantDashboardResponse =
   | { state: "unavailable" };
 
 export interface ParticipantProfileForm {
+  company?: string;
   fullName: string;
   headline: string;
   summary: string;

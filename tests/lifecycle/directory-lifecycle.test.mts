@@ -150,5 +150,5 @@ test("directory pages present lifecycle status without a direct boolean lifecycl
   assert.match(adminPage, /setCohortSelected\(deepLinkState\.selectedMembershipIds\)/u);
   assert.match(mentorPage, /adminMemberHref\(m\.email, m\.semester_id\)/u);
   assert.match(adminPage, /adminMemberHref\(s\.membership_email, s\.semester_id\)/u);
-  assert.match(adminPage, /useCohortScreen\(memberReferences, 'all', searchParams\.get\('semester'\) \?\? undefined\)/u);
+  assert.match(adminPage, /useCohortScreen\(memberReferences, 'all', searchParams\.get\('semester'\) \?\? undefined, tab !== 'overview' && tab !== 'friday-program'\)/u);
 });

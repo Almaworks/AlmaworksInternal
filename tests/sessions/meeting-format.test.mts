@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateSessionMeetingFormat } from "../../src/sessions/meeting-format.ts";
+import { validateSessionMeetingFormat, sessionFormatSource } from "../../src/sessions/meeting-format.ts";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "../../src/db/types.ts";
+
+test("retired Friday slot preferences require no database lookup", async () => {
+  const client = { from() { throw new Error("Retired relation must not be queried"); } } as unknown as SupabaseClient<Database>;
+  assert.equal(await sessionFormatSource(client).slotFormat(input, "membership"), null);
+});
 
 const input = { semesterId: "semester", meetingId: "meeting", mentorSemesterId: "mentor", slot: 2 as const, format: "online" };
 function source(preferredFormat: string | null, slotFormat: string | null) {

@@ -13,7 +13,7 @@ export function bookingSections(requests: readonly MentorBookingRequest[], now: 
     const endsAt = Date.parse(request.endsAt);
     if (request.status === "pending" && endsAt > nowTime) sections.pending.push(request);
     if (request.status === "accepted" && endsAt > nowTime) sections.upcoming.push(request);
-    if (request.status === "accepted" && endsAt <= nowTime) sections.history.push(request);
+    if (request.status === "declined" || request.status === "cancelled" || endsAt <= nowTime) sections.history.push(request);
     return sections;
   }, { pending: [], upcoming: [], history: [] });
 }

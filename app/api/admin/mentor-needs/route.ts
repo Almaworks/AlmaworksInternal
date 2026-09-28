@@ -12,8 +12,8 @@ export async function GET(request: Request) {
     const semesterId = url.searchParams.get("semesterId")?.trim();
     const scope = url.searchParams.get("scope") ?? "semester";
     if (!semesterId || (scope !== "semester" && scope !== "all")) return NextResponse.json({ error: "semesterId and a valid scope are required." }, { status: 400 });
-    const { user, userClient } = await requireSemesterAdmin(request, semesterId);
-    const manageable = await loadManageableCohorts(userClient, user.id);
+    const { profileId, user, userClient } = await requireSemesterAdmin(request, semesterId);
+    const manageable = await loadManageableCohorts(userClient, user.id, profileId);
     const semesterIds = scope === "all" ? manageable.map((semester) => semester.id) : [semesterId];
     const board = await loadMentorNeedsBoard(userClient, semesterIds);
     return NextResponse.json(buildMentorNeedsBoardPayload(buildCohortOptions(manageable), board.rows, board.summary, scope));
