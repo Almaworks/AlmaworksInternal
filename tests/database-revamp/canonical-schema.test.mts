@@ -116,7 +116,7 @@ test("all tables have RLS, only reviewed onboarding policies overlap, and auth c
     const reviewed = reviewedOverlaps.get(key);
     if (reviewed) {
       assert.deepEqual(
-        matching.map((policy) => /^create policy (.*?)\s+on\s/su.exec(policy[0])?.[1]).sort(),
+        matching.map((policy) => /^create policy ([\s\S]*?)\s+on\s/u.exec(policy[0])?.[1]).sort(),
         [...reviewed].sort(),
         `only the reviewed policies may overlap for ${key}`,
       );

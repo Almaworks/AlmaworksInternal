@@ -38,6 +38,9 @@ export async function submitSequenzyNotification(options: SendOptions): Promise<
   }
 
   if (!response.ok) {
+    if (response.status >= 500 || response.status === 408 || response.status === 429) {
+      return { kind: 'unknown', error: 'Sequenzy delivery status is unknown. Check its dashboard before retrying.' };
+    }
     return { kind: 'rejected', error: `Sequenzy rejected the email (HTTP ${response.status}).` };
   }
 

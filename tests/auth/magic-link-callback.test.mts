@@ -47,6 +47,9 @@ test('generated email tokens establish server cookies and use the authorized rol
     const recovery = await GET(new NextRequest('https://almaworks.example.test/auth/callback?token_hash=test-hash&type=recovery'));
     assert.equal(recovery.headers.get('location'), 'https://almaworks.example.test/account/password?reset=1');
     assert.ok(recovery.headers.get('set-cookie')?.includes('auth-token'));
+    const invitation = await GET(new NextRequest('https://almaworks.example.test/auth/callback?token_hash=test-hash&type=invite&next=%2Faccount%2Fpassword%3Freset%3D1'));
+    assert.equal(invitation.headers.get('location'), 'https://almaworks.example.test/account/password?reset=1');
+    assert.ok(invitation.headers.get('set-cookie')?.includes('auth-token'));
     rejectToken = true;
     const expired = await GET(new NextRequest('https://almaworks.example.test/auth/callback?token_hash=test-hash&type=email'));
     assert.equal(expired.headers.get('location'), 'https://almaworks.example.test/?error=link_expired');

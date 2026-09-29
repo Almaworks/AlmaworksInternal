@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { sendSequenzyNotification } from '../../src/notifications/sequenzy.ts';
+import { sendSequenzyNotification, submitSequenzyNotification } from '../../src/notifications/sequenzy.ts';
 
 const message = {
   apiKey: 'test-secret',
@@ -9,6 +9,22 @@ const message = {
   subject: 'Session reminder',
   html: '<p>See you soon</p>',
 };
+
+test('uncertain provider failures require review without retrying the submission', async () => {
+  for (const status of [408, 429, 500, 502, 503]) {
+    let attempts = 0;
+    const result = await submitSequenzyNotification({
+      ...message,
+      fetch: async () => {
+        attempts += 1;
+        return new Response('private provider details', { status });
+      },
+    });
+    assert.equal(result.kind, 'unknown', `HTTP ${status}`);
+    assert.equal(attempts, 1);
+    assert.ok(!JSON.stringify(result).includes('private provider details'));
+  }
+});
 
 test('session notification uses the verified alerts sender and a server-side bearer key', async () => {
   const requests: { url: string; init?: RequestInit }[] = [];
