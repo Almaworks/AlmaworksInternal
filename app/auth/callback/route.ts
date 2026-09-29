@@ -3,16 +3,55 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { resolvePostLoginDestination } from '@/src/auth/profile-access'
 import { resolvePasswordResetDestination } from '@/src/auth/password-auth'
 import { callbackErrorDestination } from '@/src/auth/auth-errors'
+import { emailConfirmationHtml } from '@/src/auth/email-confirmation'
 
 export async function GET(request: NextRequest) {
+  return handleCallback(request)
+}
+
+export async function POST(request: NextRequest) {
+  const origin = new URL(request.url).origin
+  if (request.headers.get('origin') !== origin) {
+    return new NextResponse('Please start from your Almaworks email link.', { status: 403 })
+  }
+  const contentType = request.headers.get('content-type') ?? ''
+  if (!contentType.startsWith('application/x-www-form-urlencoded')) {
+    return new NextResponse('Invalid confirmation.', { status: 400 })
+  }
+  const body = await request.text()
+  if (body.length > 8192) return new NextResponse('Invalid confirmation.', { status: 400 })
+  const fields = new URLSearchParams(body)
+  const type = fields.get('type')
+  const tokenHash = fields.get('token_hash')
+  if ((type !== 'invite' && type !== 'recovery') || !tokenHash || tokenHash.length > 2048) {
+    return new NextResponse('Invalid confirmation.', { status: 400 })
+  }
+  return handleCallback(request, { type, tokenHash })
+}
+
+async function handleCallback(request: NextRequest, confirmation?: { type: 'invite' | 'recovery'; tokenHash: string }) {
   const { searchParams, origin } = new URL(request.url)
-  const error = searchParams.get('error')
+  const redirectStatus = confirmation ? 303 : 307
+  const error = confirmation ? null : searchParams.get('error')
   const errorCode = searchParams.get('error_code')
-  const code = searchParams.get('code')
-  const requestedType = searchParams.get('type')
+  const code = confirmation ? null : searchParams.get('code')
+  const requestedType = confirmation?.type ?? searchParams.get('type')
   const tokenType = requestedType === 'email' || requestedType === 'signup' || requestedType === 'invite' || requestedType === 'recovery'
     ? requestedType : null
-  const tokenHash = tokenType ? searchParams.get('token_hash') : null
+  const tokenHash = confirmation?.tokenHash ?? (tokenType ? searchParams.get('token_hash') : null)
+
+  if (!confirmation && !error && tokenHash && (tokenType === 'invite' || tokenType === 'recovery')) {
+    if (tokenHash.length > 2048) return new NextResponse('Invalid confirmation.', { status: 400 })
+    return new NextResponse(emailConfirmationHtml(tokenHash, tokenType), {
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'Referrer-Policy': 'no-referrer',
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+      },
+    })
+  }
 
   if (error) {
     const dest = callbackErrorDestination({ code: errorCode ?? undefined })
@@ -45,12 +84,12 @@ export async function GET(request: NextRequest) {
     : await supabase.auth.exchangeCodeForSession(code!)
 
   if (exchangeError || !session) {
-    return NextResponse.redirect(new URL(callbackErrorDestination(exchangeError), origin))
+    return NextResponse.redirect(new URL(callbackErrorDestination(exchangeError), origin), redirectStatus)
   }
 
-  const resetDestination = resolvePasswordResetDestination(tokenType === 'recovery' ? '/account/password?reset=1' : searchParams.get('next'), null)
+  const resetDestination = resolvePasswordResetDestination(confirmation || tokenType === 'recovery' ? '/account/password?reset=1' : searchParams.get('next'), null)
   if (resetDestination) {
-    const response = NextResponse.redirect(new URL(resetDestination, origin))
+    const response = NextResponse.redirect(new URL(resetDestination, origin), redirectStatus)
     pendingCookies.forEach(({ name, value, options }) => {
       response.cookies.set(name, value, options as Parameters<typeof response.cookies.set>[2])
     })

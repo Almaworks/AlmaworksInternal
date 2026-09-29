@@ -14,7 +14,7 @@ registerHooks({ resolve(specifier, context, nextResolve) {
 }});
 
 test('generated email tokens establish server cookies and use the authorized role destination', async () => {
-  const { GET } = await import('../../app/auth/callback/route.ts');
+  const { GET, POST } = await import('../../app/auth/callback/route.ts');
   const { NextRequest } = await import('next/server.js');
   const oldFetch = globalThis.fetch;
   const oldUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -44,13 +44,44 @@ test('generated email tokens establish server cookies and use the authorized rol
     assert.equal(response.headers.get('location'), 'https://almaworks.example.test/dashboard/mentor');
     assert.ok(response.headers.get('set-cookie')?.includes('auth-token'));
     assert.equal(calls.filter(url => url.endsWith('/auth/v1/verify')).length, 1);
-    const recovery = await GET(new NextRequest('https://almaworks.example.test/auth/callback?token_hash=test-hash&type=recovery'));
+    const submit = (type: string, token = 'test-hash', requestOrigin = 'https://almaworks.example.test') => POST(new NextRequest('https://almaworks.example.test/auth/callback', {
+      method: 'POST', headers: { origin: requestOrigin }, body: new URLSearchParams({ token_hash: token, type }),
+    }));
+    for (const type of ['invite', 'recovery']) {
+      const before = calls.length;
+      const landing = await GET(new NextRequest(`https://almaworks.example.test/auth/callback?token_hash=test-hash&type=${type}`));
+      assert.equal(landing.status, 200);
+      assert.equal(calls.length, before, 'opening the email must not redeem its token');
+      assert.equal(landing.headers.get('cache-control'), 'no-store');
+      assert.equal(landing.headers.get('referrer-policy'), 'no-referrer');
+      assert.equal(landing.headers.get('set-cookie'), null);
+      const html = await landing.text();
+      assert.match(html, /method="post"/u);
+      assert.match(html, /Continue to password setup/u);
+      assert.doesNotMatch(html, /<script|http-equiv="refresh"/iu);
+      const secondVisit = await GET(new NextRequest(`https://almaworks.example.test/auth/callback?token_hash=test-hash&type=${type}`));
+      assert.equal(secondVisit.status, 200);
+      assert.equal(calls.length, before, 'repeated scanner visits must leave the token unused');
+    }
+    const beforeRejected = calls.length;
+    assert.equal((await submit('invite', 'test-hash', 'https://evil.example')).status, 403);
+    assert.equal((await submit('signup')).status, 400);
+    assert.equal((await submit('invite', '')).status, 400);
+    assert.equal((await POST(new NextRequest('https://almaworks.example.test/auth/callback', {
+      method: 'POST', body: new URLSearchParams({ type: 'invite', token_hash: 'test-hash' }),
+    }))).status, 403);
+    assert.equal(calls.length, beforeRejected, 'invalid submissions must not contact Auth');
+    const recovery = await submit('recovery');
+    assert.equal(recovery.status, 303);
     assert.equal(recovery.headers.get('location'), 'https://almaworks.example.test/account/password?reset=1');
     assert.ok(recovery.headers.get('set-cookie')?.includes('auth-token'));
-    const invitation = await GET(new NextRequest('https://almaworks.example.test/auth/callback?token_hash=test-hash&type=invite&next=%2Faccount%2Fpassword%3Freset%3D1'));
+    const invitation = await submit('invite');
     assert.equal(invitation.headers.get('location'), 'https://almaworks.example.test/account/password?reset=1');
     assert.ok(invitation.headers.get('set-cookie')?.includes('auth-token'));
     rejectToken = true;
+    const expiredInvitation = await submit('invite');
+    assert.equal(expiredInvitation.status, 303);
+    assert.equal(expiredInvitation.headers.get('location'), 'https://almaworks.example.test/?error=link_expired');
     const expired = await GET(new NextRequest('https://almaworks.example.test/auth/callback?token_hash=test-hash&type=email'));
     assert.equal(expired.headers.get('location'), 'https://almaworks.example.test/?error=link_expired');
     const before = calls.length;
@@ -62,4 +93,12 @@ test('generated email tokens establish server cookies and use the authorized rol
     if (oldUrl === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL; else process.env.NEXT_PUBLIC_SUPABASE_URL = oldUrl;
     if (oldKey === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY; else process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = oldKey;
   }
+});
+
+test('confirmation escapes URL input and never offers an external form destination', async () => {
+  const { emailConfirmationHtml } = await import('../../src/auth/email-confirmation.ts');
+  const html = emailConfirmationHtml('\"><script>alert(1)</script>', 'invite');
+  assert.doesNotMatch(html, /<script>/u);
+  assert.match(html, /&quot;&gt;&lt;script&gt;/u);
+  assert.match(html, /action="\/auth\/callback"/u);
 });
