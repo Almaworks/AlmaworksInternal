@@ -126,7 +126,9 @@ export default function LearnMorePage() {
       <footer className="py-10 px-8 border-t border-[#002147]/10">
         <div className="max-w-4xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
           <p className="text-sm text-[#002147]/40">© 2026 Almaworks · Columbia University</p>
-          <div className="flex gap-6 text-sm text-[#002147]/40">
+          <div className="flex flex-wrap justify-center gap-6 text-sm text-[#002147]/70">
+            <Link href="/privacy" className="underline underline-offset-4">Privacy policy</Link>
+            <Link href="/terms" className="underline underline-offset-4">Terms of service</Link>
             <a href="mailto:almaworkscu@gmail.com" className="hover:text-[#002147] transition-colors">almaworkscu@gmail.com</a>
             <a href="https://coreatcu.com" target="_blank" rel="noopener noreferrer" className="hover:text-[#002147] transition-colors">CORE</a>
           </div>

@@ -164,6 +164,10 @@ function SignInContent() {
 
       {/* Footer */}
       <div className="px-8 py-6 text-center">
+        <nav aria-label="Legal" className="mb-3 flex justify-center gap-5 text-sm text-[#b7d8f3]">
+          <Link href="/privacy" className="underline underline-offset-4 hover:text-white">Privacy policy</Link>
+          <Link href="/terms" className="underline underline-offset-4 hover:text-white">Terms of service</Link>
+        </nav>
         <p className="text-[#75AADB]/60 text-xs">
           © 2026 Almaworks · Columbia University
         </p>

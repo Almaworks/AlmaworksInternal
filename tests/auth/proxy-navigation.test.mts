@@ -75,7 +75,7 @@ function harness(options: { role?: "mentor" | "startup" | "admin"; invalidClaims
 
 test("API handlers and public routes do not repeat cookie auth work", async () => {
   const app = harness();
-  for (const path of ["/api/auth/capabilities", "/api/participant-dashboard", "/learn-more", "/request-access", "/verify-email", "/forgot-password", "/auth/callback", "/?error=account_inactive"]) {
+  for (const path of ["/api/auth/capabilities", "/api/participant-dashboard", "/learn-more", "/privacy", "/terms", "/request-access", "/verify-email", "/forgot-password", "/auth/callback", "/?error=account_inactive"]) {
     assert.equal((await app.run(path)).kind, "next");
   }
   assert.deepEqual(app.calls, []);

@@ -20,7 +20,7 @@ export async function proxy(req: NextRequest) {
 
   // API handlers validate their bearer token themselves. Public pages and assets
   // do not need a cookie-session refresh before their response can begin.
-  if (pathname.startsWith('/api/') || ['/learn-more', '/request-access', '/verify-email', '/forgot-password'].includes(pathname) || pathname.startsWith('/auth/') || pathname.startsWith('/_next') || pathname === '/favicon.ico' || shouldRenderAuthError(pathname, req.nextUrl.searchParams.get('error'))) return res
+  if (pathname.startsWith('/api/') || ['/learn-more', '/privacy', '/terms', '/request-access', '/verify-email', '/forgot-password'].includes(pathname) || pathname.startsWith('/auth/') || pathname.startsWith('/_next') || pathname === '/favicon.ico' || shouldRenderAuthError(pathname, req.nextUrl.searchParams.get('error'))) return res
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

@@ -125,6 +125,9 @@ export default function RequestAccessPage() {
           </button>
         </form>
 
+        <p className="mt-5 text-center text-xs leading-5 text-gray-600">
+          Read our <Link href="/terms" className="underline">Terms of service</Link> and <Link href="/privacy" className="underline">Privacy policy</Link> before requesting access.
+        </p>
         <div className="mt-6 border-t border-gray-100 pt-5 text-center text-sm text-gray-600">
           Already have an account? <Link href="/" className="font-medium text-[#002147] underline">Sign in</Link>
           {' '}or <Link href="/forgot-password" className="font-medium text-[#002147] underline">reset your password</Link>.
