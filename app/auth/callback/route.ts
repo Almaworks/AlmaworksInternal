@@ -46,7 +46,9 @@ async function handleCallback(request: NextRequest, confirmation?: { type: 'invi
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-store',
-        'Referrer-Policy': 'no-referrer',
+        // no-referrer makes native form POSTs send Origin: null. Keep the
+        // same-origin guard usable without leaking the token-bearing URL.
+        'Referrer-Policy': 'strict-origin',
         'X-Content-Type-Options': 'nosniff',
         'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
       },

@@ -53,7 +53,7 @@ test('generated email tokens establish server cookies and use the authorized rol
       assert.equal(landing.status, 200);
       assert.equal(calls.length, before, 'opening the email must not redeem its token');
       assert.equal(landing.headers.get('cache-control'), 'no-store');
-      assert.equal(landing.headers.get('referrer-policy'), 'no-referrer');
+      assert.equal(landing.headers.get('referrer-policy'), 'strict-origin', 'native POST forms need a real Origin; referrers must omit the token-bearing path');
       assert.equal(landing.headers.get('set-cookie'), null);
       const html = await landing.text();
       assert.match(html, /method="post"/u);
@@ -65,6 +65,7 @@ test('generated email tokens establish server cookies and use the authorized rol
     }
     const beforeRejected = calls.length;
     assert.equal((await submit('invite', 'test-hash', 'https://evil.example')).status, 403);
+    assert.equal((await submit('invite', 'test-hash', 'null')).status, 403);
     assert.equal((await submit('signup')).status, 400);
     assert.equal((await submit('invite', '')).status, 400);
     assert.equal((await POST(new NextRequest('https://almaworks.example.test/auth/callback', {
