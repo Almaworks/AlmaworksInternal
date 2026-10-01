@@ -10,7 +10,8 @@ test("every dashboard navigation label maps to a unique icon", () => {
   const entries = [...iconMap.matchAll(/^    (?:'([^']+)'|(\w+)): (\w+),$/gmu)]
     .map(([, quotedLabel, label, icon]) => [quotedLabel ?? label, icon] as const);
 
-  assert.equal(entries.length, 17);
+  assert.equal(entries.length, 15);
+  assert.equal(entries.some(([label]) => label === "Export" || label === "Resources"), false);
   assert.equal(new Set(entries.map(([, icon]) => icon)).size, entries.length);
 });
 

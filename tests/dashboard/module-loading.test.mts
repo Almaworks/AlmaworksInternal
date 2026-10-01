@@ -42,16 +42,15 @@ test("scope-changing admin reads ignore superseded responses", async () => {
 });
 
 test("cohort and remote workspaces keep empty states behind animated loading gates", async () => {
-  const [cohorts, exportWorkspace, emailWorkspace, photoWorkspace, semesterOperations, drawer] = await Promise.all([
+  const [cohorts, emailWorkspace, photoWorkspace, semesterOperations, drawer] = await Promise.all([
     source("app/dashboard/admin/semesters/cohort-directory.tsx"),
-    source("components/semester-export/ExportWorkspace.tsx"),
     source("components/outreach-email/OutreachEmailWorkspace.tsx"),
     source("components/profile-photo/AdminProfilePhotoWorkspace.tsx"),
     source("app/dashboard/admin/semesters/semester-operations.tsx"),
     source("app/dashboard/admin/outreach/components/contact-drawer.tsx"),
   ]);
 
-  for (const moduleSource of [cohorts, exportWorkspace, emailWorkspace, photoWorkspace, semesterOperations, drawer]) {
+  for (const moduleSource of [cohorts, emailWorkspace, photoWorkspace, semesterOperations, drawer]) {
     assert.match(moduleSource, /import\s*\{\s*DataLoading\s*\}\s*from\s*["']@\/components\/DataLoading["']/u);
   }
   assert.match(cohorts, /loadRequestId\.current !== requestId/u);

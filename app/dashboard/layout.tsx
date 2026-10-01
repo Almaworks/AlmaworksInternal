@@ -8,7 +8,7 @@ import Link from 'next/link'
 import { DataLoading } from '@/components/DataLoading'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useMemo, useState, useTransition } from 'react'
-import { Bell, BookOpen, Building2, CalendarCheck, CalendarDays, CalendarPlus, CalendarRange, Download, ChevronLeft, ChevronRight, House, Inbox, KeyRound, LayoutDashboard, LogOut, Menu, Megaphone, Network, Settings, Target, UserRound, Users, X } from 'lucide-react'
+import { Bell, Building2, CalendarCheck, CalendarDays, CalendarPlus, CalendarRange, ChevronLeft, ChevronRight, House, Inbox, KeyRound, LayoutDashboard, LogOut, Menu, Megaphone, Network, Settings, Target, UserRound, Users, X } from 'lucide-react'
 import { isDashboardNavigationActive } from '@/src/assignments/schedule-navigation'
 import { resolveDashboardPersona } from '@/src/auth/admin-capability'
 import { authenticatedFetch } from '@/src/auth/authenticated-fetch'
@@ -138,8 +138,6 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
           { href: '/dashboard/admin/mentor-needs', label: 'Mentor Needs' },
           { href: '/dashboard/admin/mentors', label: 'Mentors' },
           { href: '/dashboard/admin/notify', label: 'Notify' },
-          { href: '/dashboard/admin/export', label: 'Export' },
-          { href: '/dashboard/resources', label: 'Resources' },
         ]
       : effectiveRole === 'mentor'
       ? [
@@ -168,8 +166,6 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
     'Mentor Needs': Target,
     Mentors: UserRound,
     Notify: Bell,
-    Export: Download,
-    Resources: BookOpen,
     'My Schedule': CalendarDays,
     Inbox: Inbox,
     'Mentor Directory': Network,

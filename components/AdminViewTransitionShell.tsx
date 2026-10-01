@@ -4,7 +4,6 @@ import {
   CalendarDays,
   LayoutDashboard,
   Megaphone,
-  Search,
   Target,
   Users,
 } from "lucide-react";
@@ -22,7 +21,6 @@ const adminItems = [
   { label: "Mentor Needs", Icon: Target },
   { label: "Mentors", Icon: Users },
   { label: "Notify", Icon: Megaphone },
-  { label: "Resources", Icon: Search },
 ] as const;
 
 export function AdminViewTransitionShell({

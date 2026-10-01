@@ -13,7 +13,7 @@ Only operate on Supabase project `layjdjfvxkowxidwuvbs` (`https://layjdjfvxkowxi
 
 ## Hosted-schema preflight
 
-Before opening the browser, verify that the app target is the allowlisted Supabase project and compare the hosted schema with the features under test. Check every required table, column, function/RPC, policy, and the applied migration state; record the migration identifiers or a concrete blocker. Do not infer hosted readiness from local migration files, generated database types, mock data, or healthy unit/integration tests. For example, bookings require the hosted booking-window, request, and claim tables; Friday programs require the hosted program and assignment tables; exports require every source relation they read.
+Before opening the browser, verify that the app target is the allowlisted Supabase project and compare the hosted schema with the features under test. Check every required table, column, function/RPC, policy, and the applied migration state; record the migration identifiers or a concrete blocker. Do not infer hosted readiness from local migration files, generated database types, mock data, or healthy unit/integration tests. For example, bookings require the hosted booking-window, request, and claim tables; Friday programs require the hosted program and assignment tables.
 
 If any required schema object or migration is absent, mark only the affected feature `BLOCKED`, report the exact missing object and next deployment action, and stop that feature's browser workflow. Healthy mock tests cannot cover an absent production schema because they exercise local fixtures or mocks rather than the hosted database, RLS, and migration history. QA findings do not authorize deployment: never deploy migrations or application code from QA without explicit release authorization.
 
@@ -26,12 +26,12 @@ Use a user-designated test semester and disposable fixtures. Obtain explicit aut
 | Login | Correct credentials reach the expected role; incorrect credentials show a recoverable error; reload retains the session; logout denies protected access. |
 | Bookings | Appropriate participant can see actual availability, create a booking with authorized fixtures, and see it after reload. Confirm the corresponding admin/mentor view and test unavailable/conflicting slots. Verify an unauthorized account cannot access another participant's private booking. |
 | Friday programs | Admin can load, create/edit a fixture program, assign groups, and reload the saved result. Participant view shows the correct semester/group and cannot perform admin actions. |
-| Export | Select a semester, download the export, open the artifact, and verify format, headers, representative records, and semester filtering. A toast or download click alone is insufficient. Check that participant accounts cannot export admin data. |
+| Retired Resources and Export modules | Admin navigation has no Resources or Export entry. Their former pages and the semester-export API are unavailable; Outreach templates remain accessible. |
 
 For every changed workflow exercise its primary action, validation/error state, reload/persistence, and relevant permission boundary. Inspect desktop and narrow/mobile layouts. Preview pages, mocked tests, compilation, and HTTP 200 responses do not establish that a real workflow works.
 
 ## Completion gate and report
 
-Record `PASS`, `FAIL`, or `BLOCKED` per scenario with URL, environment/build identity, role (no credentials), semester fixture identifier, exact steps, expected and actual results, and sanitized evidence. Include downloaded-artifact inspection for exports and reload evidence for mutations. Store disposable evidence under `work/` and final sanitized reports under `outputs/`.
+Record `PASS`, `FAIL`, or `BLOCKED` per scenario with URL, environment/build identity, role (no credentials), semester fixture identifier, exact steps, expected and actual results, and sanitized evidence. Include downloaded-artifact inspection for any remaining download workflows and reload evidence for mutations. Store disposable evidence under `work/` and final sanitized reports under `outputs/`.
 
 If Browser inventory is empty, login is unavailable, migrations are missing, or live data requests fail, report the specific blocker and the next required action. Fix in-scope failures and repeat the affected scenario. Code may be described as implemented with QA pending, but the feature must not be called working, verified, or complete until all required scenarios pass. Unit tests/lint/build results must be reported separately from live browser results.

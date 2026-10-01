@@ -100,7 +100,7 @@ Agents must obey all of the following rules:
 
 - Before validating user-facing features, follow `docs/runbooks/authenticated-qa.md`.
 - Use real role-specific authenticated browser sessions. Admin View as and design previews do not verify participant permissions or persistence.
-- Verify primary actions, reload/persistence, error states, and authorization boundaries. Inspect downloaded export contents.
+- Verify primary actions, reload/persistence, error states, and authorization boundaries. Inspect downloaded artifact contents for any remaining download workflows.
 - Report PASS/FAIL/BLOCKED per scenario. Missing browser access or credentials means QA pending; never mark a feature complete on lint, unit tests, or HTTP 200 alone.
 
 ## Persistent Project Memory
