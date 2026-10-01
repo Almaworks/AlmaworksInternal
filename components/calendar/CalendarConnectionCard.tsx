@@ -83,7 +83,14 @@ export function CalendarConnectionCard({ semesterId, role, returnTo, beforeConne
     {!status && !error && <p role="status" className="mt-3 text-sm text-slate-500">Checking your connection…</p>}
     {callbackNotice && <p role="status" className="mt-3 text-sm text-slate-700">{callbackNotice}</p>}
     {error && <p role="alert" className="mt-3 text-sm text-rose-700">{error}</p>}
-    {status?.enabled && !disconnecting && <button type="button" onClick={() => void connect()} disabled={connecting||disconnectRequested} className="mt-4 rounded-lg bg-[#002147] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{connecting ? "Opening Google…" : connected || status.connection?.status === "reconnect_required" ? "Reconnect Google Calendar" : "Connect Google Calendar"}</button>}
+    {status?.enabled && !disconnecting && <>
+      <aside aria-label="Google verification notice" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
+        <p className="font-semibold">Before you connect to Google Calendar</p>
+        <p className="mt-1">Google has not yet verified the Almaworks Calendar integration. You may see a warning that the app is unverified or unsafe when you continue to Google. Review the requested permissions and only continue if you are comfortable granting access.</p>
+        <p className="mt-2">Some school or work accounts may block the connection entirely. You can skip connecting for now and continue using Almaworks, but automatic Google Calendar availability checks and meeting holds will not be available without a working connection.</p>
+      </aside>
+      <button type="button" onClick={() => void connect()} disabled={connecting||disconnectRequested} className="mt-4 rounded-lg bg-[#002147] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{connecting ? "Opening Google…" : connected || status.connection?.status === "reconnect_required" ? "Reconnect Google Calendar" : "Connect Google Calendar"}</button>
+    </>}
     {(status?.availabilityEnabled||status?.enabled)&&status?.connection&&["connected","reconnect_required"].includes(status.connection.status)&&<div className="mt-5 border-t border-slate-200 pt-4">
       <p className="mt-2 text-xs leading-5 text-slate-600">Disconnecting stops automatic sync and new Google holds. Existing bookable times are retained. We’ll try to remove Almaworks meeting holds, then delete stored calendar credentials. Your mentorship bookings remain in Almaworks.</p>
       <button type="button" disabled={disconnectRequested||connecting} onClick={()=>void disconnect()} className="mt-3 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">{disconnectRequested?"Requesting disconnect…":"Disconnect Google Calendar"}</button>
