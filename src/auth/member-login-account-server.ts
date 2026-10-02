@@ -49,8 +49,24 @@ export interface AuthDeleteResult {
 }
 
 export interface AuthInviteResult {
-  data: { actionLink: string; userId: string } | null;
-  error: { message: string } | null;
+  data: { tokenHash: string; userId: string } | null;
+  error: AuthOperationError | null;
+}
+
+export interface AuthOperationError {
+  code?: string;
+  message: string;
+  status?: number;
+}
+
+export type AuthUserLookupResult =
+  | { status: "found"; userId: string }
+  | { status: "not_found" }
+  | { error: AuthOperationError; status: "error" };
+
+export interface AuthUserCreationResult {
+  data: { userId: string } | null;
+  error: AuthOperationError | null;
 }
 
 export interface ProfileLinkResult {
@@ -64,6 +80,8 @@ export interface MemberLoginAccountClient {
     p_profile_id: string;
     p_reason: string;
   }): Promise<RpcResult<MemberLoginRemovalPreparedRow[]>>;
+  getAuthUser(userId: string): Promise<AuthUserLookupResult>;
+  createAuthUser(input: { email: string; id: string }): Promise<AuthUserCreationResult>;
   deleteAuthUser(userId: string, shouldSoftDelete: false): Promise<AuthDeleteResult>;
   generateInvite(email: string, redirectTo: string): Promise<AuthInviteResult>;
   attach(args: {
@@ -113,10 +131,10 @@ export class MemberLoginAccountError extends Error {
 }
 
 export class MemberLoginReconciliationError extends Error {
-  readonly databaseState: "disabled" | "unknown";
+  readonly databaseState: "active" | "disabled" | "unknown";
   readonly reconciliationRequired = true;
 
-  constructor(message: string, databaseState: "disabled" | "unknown") {
+  constructor(message: string, databaseState: "active" | "disabled" | "unknown") {
     super(message);
     this.name = "MemberLoginReconciliationError";
     this.databaseState = databaseState;
@@ -244,6 +262,129 @@ async function discardAndDeleteReplacement(
   }
 }
 
+const passwordSetupDestination = "/account/password?reset=1";
+
+function invitationRedirectTo(redirectTo: string): string {
+  const callback = new URL(redirectTo);
+  callback.search = "";
+  callback.hash = "";
+  callback.searchParams.set("next", passwordSetupDestination);
+  return callback.toString();
+}
+
+function scannerSafeInvitationLink(redirectTo: string, tokenHash: string): string {
+  const callback = new URL(redirectTo);
+  callback.search = "";
+  callback.hash = "";
+  callback.searchParams.set("token_hash", tokenHash);
+  callback.searchParams.set("type", "invite");
+  callback.searchParams.set("next", passwordSetupDestination);
+  return callback.toString();
+}
+
+function knownAuthRejection(error: AuthOperationError): boolean {
+  return typeof error.status === "number"
+    && error.status >= 400
+    && error.status < 500
+    && error.status !== 408
+    && error.status !== 429;
+}
+
+async function restoreActiveUnlinkedMemberLogin(
+  client: MemberLoginAccountClient,
+  input: { email: string; profileId: string; redirectTo: string },
+): Promise<MemberLoginRestorationResult> {
+  const existingAuthUser = await client.getAuthUser(input.profileId);
+  if (existingAuthUser.status === "found") {
+    throw new MemberLoginAccountError(
+      "The retained profile ID is already occupied by an Auth account; no account was changed.",
+      "55000",
+    );
+  }
+  if (existingAuthUser.status === "error") {
+    throw new MemberLoginAccountError(existingAuthUser.error.message, "auth_lookup_failed");
+  }
+
+  let created: AuthUserCreationResult;
+  try {
+    created = await client.createAuthUser({ email: input.email, id: input.profileId });
+  } catch {
+    throw new MemberLoginReconciliationError(
+      "Auth account creation had an uncertain result. The retained profile was preserved; verify the Auth identity before retrying.",
+      "unknown",
+    );
+  }
+  if (created.error !== null) {
+    if (knownAuthRejection(created.error)) {
+      throw new MemberLoginAccountError(
+        created.error.message,
+        created.error.code ?? "auth_create_failed",
+      );
+    }
+    throw new MemberLoginReconciliationError(
+      "Auth account creation returned an uncertain result. The retained profile was preserved; verify the Auth identity before retrying.",
+      "unknown",
+    );
+  }
+  if (created.data?.userId !== input.profileId) {
+    throw new MemberLoginReconciliationError(
+      "Auth account creation returned an unexpected identity. The retained profile was preserved; reconcile the Auth identity before retrying.",
+      "unknown",
+    );
+  }
+
+  let verification: ProfileLinkResult;
+  try {
+    verification = await client.verifyProfile(input.profileId);
+  } catch {
+    throw new MemberLoginReconciliationError(
+      "The Auth account was created, but its retained profile link could not be verified. Do not create another account.",
+      "unknown",
+    );
+  }
+  if (
+    verification.error !== null
+    || verification.data === null
+    || verification.data.auth_user_id !== input.profileId
+    || verification.data.is_active !== true
+  ) {
+    throw new MemberLoginReconciliationError(
+      "The Auth account was created, but its retained profile link could not be verified. Do not create another account.",
+      "unknown",
+    );
+  }
+
+  let invitation: AuthInviteResult;
+  try {
+    invitation = await client.generateInvite(
+      input.email,
+      invitationRedirectTo(input.redirectTo),
+    );
+  } catch {
+    throw new MemberLoginReconciliationError(
+      "The login account is active, but its invitation link could not be generated. Do not create another account.",
+      "active",
+    );
+  }
+  if (
+    invitation.error !== null
+    || invitation.data === null
+    || invitation.data.userId !== input.profileId
+  ) {
+    throw new MemberLoginReconciliationError(
+      "The login account is active, but its invitation link could not be generated. Do not create another account.",
+      "active",
+    );
+  }
+
+  return {
+    actionLink: scannerSafeInvitationLink(input.redirectTo, invitation.data.tokenHash),
+    mustSendLink: true,
+    profileActive: true,
+    profileId: input.profileId,
+  };
+}
+
 export async function restoreMemberLogin(
   client: MemberLoginAccountClient,
   input: { profileId: string; redirectTo: string },
@@ -253,6 +394,13 @@ export async function restoreMemberLogin(
     input.profileId,
     "Login restoration preview",
   );
+  if (preview.auth_user_id === null && preview.profile_is_active) {
+    return restoreActiveUnlinkedMemberLogin(client, {
+      email: preview.email,
+      profileId: input.profileId,
+      redirectTo: input.redirectTo,
+    });
+  }
   if (preview.auth_user_id !== null || preview.profile_is_active) {
     throw new MemberLoginAccountError(
       "Retained profile must be unlinked and disabled before restoring login.",
@@ -260,7 +408,10 @@ export async function restoreMemberLogin(
     );
   }
 
-  const invitation = await client.generateInvite(preview.email, input.redirectTo);
+  const invitation = await client.generateInvite(
+    preview.email,
+    invitationRedirectTo(input.redirectTo),
+  );
   if (invitation.error !== null) {
     throw new MemberLoginAccountError(invitation.error.message, "auth_invite_failed");
   }
@@ -302,7 +453,7 @@ export async function restoreMemberLogin(
   }
 
   return {
-    actionLink: invitation.data.actionLink,
+    actionLink: scannerSafeInvitationLink(input.redirectTo, invitation.data.tokenHash),
     mustSendLink: true,
     profileActive: true,
     profileId: input.profileId,
@@ -326,6 +477,40 @@ export function createMemberLoginAccountProductionClient(
       const result = await userClient.rpc("prepare_member_login_removal", args);
       return { data: result.data, error: rpcError(result.error) };
     },
+    getAuthUser: async (userId) => {
+      const result = await adminClient.auth.admin.getUserById(userId);
+      if (result.error !== null) {
+        if (result.error.status === 404 || result.error.code === "user_not_found") {
+          return { status: "not_found" };
+        }
+        return {
+          error: {
+            code: result.error.code,
+            message: result.error.message,
+            status: result.error.status,
+          },
+          status: "error",
+        };
+      }
+      return result.data.user === null
+        ? { error: { message: "Auth user lookup returned an invalid result." }, status: "error" }
+        : { status: "found", userId: result.data.user.id };
+    },
+    createAuthUser: async ({ email, id }) => {
+      const result = await adminClient.auth.admin.createUser({
+        email,
+        email_confirm: false,
+        id,
+      });
+      return {
+        data: result.data.user === null ? null : { userId: result.data.user.id },
+        error: result.error === null ? null : {
+          code: result.error.code,
+          message: result.error.message,
+          status: result.error.status,
+        },
+      };
+    },
     deleteAuthUser: async (userId, shouldSoftDelete) => {
       const result = await adminClient.auth.admin.deleteUser(userId, shouldSoftDelete);
       return { error: result.error === null ? null : { message: result.error.message } };
@@ -337,10 +522,10 @@ export function createMemberLoginAccountProductionClient(
         type: "invite",
       });
       if (result.error !== null) return { data: null, error: { message: result.error.message } };
-      const actionLink = result.data.properties?.action_link;
+      const tokenHash = result.data.properties?.hashed_token;
       const userId = result.data.user?.id;
       return {
-        data: actionLink && userId ? { actionLink, userId } : null,
+        data: tokenHash && userId ? { tokenHash, userId } : null,
         error: null,
       };
     },

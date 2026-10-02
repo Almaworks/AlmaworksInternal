@@ -38,10 +38,12 @@ function client(overrides: Partial<MemberLoginAccountClient> = {}): MemberLoginA
   return {
     preview: async () => ({ data: [previewRow], error: null }),
     prepare: async () => ({ data: [preparedRow], error: null }),
+    getAuthUser: async () => ({ status: "not_found" }),
+    createAuthUser: async ({ id }) => ({ data: { userId: id }, error: null }),
     deleteAuthUser: async () => ({ error: null }),
     generateInvite: async () => ({
       data: {
-        actionLink: "https://almaworks.test/auth/verify?token=test",
+        tokenHash: "test-hash",
         userId: "replacement-auth-1",
       },
       error: null,
@@ -202,7 +204,7 @@ test("restoration generates an invite, attaches the replacement, and returns onl
     generateInvite: async (email, redirectTo) => {
       events.push({ generateInvite: { email, redirectTo } });
       return {
-        data: { actionLink: "https://almaworks.test/auth/verify?token=test", userId: "replacement-auth-1" },
+        data: { tokenHash: "replacement-hash", userId: "replacement-auth-1" },
         error: null,
       };
     },
@@ -217,16 +219,283 @@ test("restoration generates an invite, attaches the replacement, and returns onl
 
   assert.deepEqual(events, [
     { preview: "profile-1" },
-    { generateInvite: { email: "member@example.test", redirectTo: "https://almaworks.test/auth/callback" } },
+    {
+      generateInvite: {
+        email: "member@example.test",
+        redirectTo: "https://almaworks.test/auth/callback?next=%2Faccount%2Fpassword%3Freset%3D1",
+      },
+    },
     { attach: { p_auth_user_id: "replacement-auth-1", p_profile_id: "profile-1" } },
   ]);
   assert.deepEqual(result, {
-    actionLink: "https://almaworks.test/auth/verify?token=test",
+    actionLink: "https://almaworks.test/auth/callback?token_hash=replacement-hash&type=invite&next=%2Faccount%2Fpassword%3Freset%3D1",
     mustSendLink: true,
     profileActive: true,
     profileId: "profile-1",
   });
   assert.equal("authUserId" in result, false);
+});
+
+test("active unlinked restoration provisions the retained profile ID before generating its invite", async () => {
+  const events: unknown[] = [];
+  const result = await restoreMemberLogin(client({
+    preview: async (profileId) => {
+      events.push({ preview: profileId });
+      return { data: [{ ...previewRow, auth_user_id: null, profile_is_active: true }], error: null };
+    },
+    getAuthUser: async (userId) => {
+      events.push({ getAuthUser: userId });
+      return { status: "not_found" };
+    },
+    createAuthUser: async (input) => {
+      events.push({ createAuthUser: input });
+      return { data: { userId: "profile-1" }, error: null };
+    },
+    verifyProfile: async (profileId) => {
+      events.push({ verifyProfile: profileId });
+      return { data: { auth_user_id: "profile-1", is_active: true }, error: null };
+    },
+    generateInvite: async (email, redirectTo) => {
+      events.push({ generateInvite: { email, redirectTo } });
+      return {
+        data: { tokenHash: "restored-hash", userId: "profile-1" },
+        error: null,
+      };
+    },
+    attach: async () => {
+      assert.fail("same-ID provisioning must not attach a replacement profile");
+    },
+  }), { profileId: "profile-1", redirectTo: "https://almaworks.test/auth/callback" });
+
+  assert.deepEqual(events, [
+    { preview: "profile-1" },
+    { getAuthUser: "profile-1" },
+    { createAuthUser: { email: "member@example.test", id: "profile-1" } },
+    { verifyProfile: "profile-1" },
+    {
+      generateInvite: {
+        email: "member@example.test",
+        redirectTo: "https://almaworks.test/auth/callback?next=%2Faccount%2Fpassword%3Freset%3D1",
+      },
+    },
+  ]);
+  assert.deepEqual(result, {
+    actionLink: "https://almaworks.test/auth/callback?token_hash=restored-hash&type=invite&next=%2Faccount%2Fpassword%3Freset%3D1",
+    mustSendLink: true,
+    profileActive: true,
+    profileId: "profile-1",
+  });
+});
+
+test("active unlinked restoration rejects an existing Auth ID without creating or changing it", async () => {
+  const events: string[] = [];
+  await assert.rejects(
+    restoreMemberLogin(client({
+      preview: async () => ({ data: [{ ...previewRow, auth_user_id: null, profile_is_active: true }], error: null }),
+      getAuthUser: async () => {
+        events.push("lookup");
+        return { status: "found", userId: "profile-1" };
+      },
+      createAuthUser: async () => {
+        events.push("create");
+        return { data: null, error: null };
+      },
+      generateInvite: async () => {
+        events.push("invite");
+        return { data: null, error: null };
+      },
+    }), { profileId: "profile-1", redirectTo: "https://almaworks.test/auth/callback" }),
+    (error: unknown) => error instanceof MemberLoginAccountError
+      && !(error instanceof MemberLoginReconciliationError)
+      && error.code === "55000",
+  );
+  assert.deepEqual(events, ["lookup"]);
+});
+
+test("active unlinked restoration treats an inconclusive Auth lookup as occupied", async () => {
+  let createCalled = false;
+  await assert.rejects(
+    restoreMemberLogin(client({
+      preview: async () => ({ data: [{ ...previewRow, auth_user_id: null, profile_is_active: true }], error: null }),
+      getAuthUser: async () => ({
+        error: { message: "Auth lookup failed", status: 503 },
+        status: "error",
+      }),
+      createAuthUser: async () => {
+        createCalled = true;
+        return { data: null, error: null };
+      },
+    }), { profileId: "profile-1", redirectTo: "https://almaworks.test/auth/callback" }),
+    (error: unknown) => error instanceof MemberLoginAccountError
+      && error.code === "auth_lookup_failed",
+  );
+  assert.equal(createCalled, false);
+});
+
+test("known duplicate-email creation rejection leaves the active retained profile unchanged", async () => {
+  let inviteCalled = false;
+  await assert.rejects(
+    restoreMemberLogin(client({
+      preview: async () => ({ data: [{ ...previewRow, auth_user_id: null, profile_is_active: true }], error: null }),
+      getAuthUser: async () => ({ status: "not_found" }),
+      createAuthUser: async () => ({
+        data: null,
+        error: { code: "email_exists", message: "A user with this email already exists", status: 422 },
+      }),
+      generateInvite: async () => {
+        inviteCalled = true;
+        return { data: null, error: null };
+      },
+    }), { profileId: "profile-1", redirectTo: "https://almaworks.test/auth/callback" }),
+    (error: unknown) => error instanceof MemberLoginAccountError
+      && !(error instanceof MemberLoginReconciliationError)
+      && error.code === "email_exists",
+  );
+  assert.equal(inviteCalled, false);
+});
+
+test("uncertain Auth creation failure preserves durable data and requires reconciliation", async () => {
+  const cleanupEvents: string[] = [];
+  await assert.rejects(
+    restoreMemberLogin(client({
+      preview: async () => ({ data: [{ ...previewRow, auth_user_id: null, profile_is_active: true }], error: null }),
+      getAuthUser: async () => ({ status: "not_found" }),
+      createAuthUser: async () => ({
+        data: null,
+        error: { message: "Auth request timed out", status: 503 },
+      }),
+      deleteAuthUser: async () => {
+        cleanupEvents.push("delete");
+        return { error: null };
+      },
+      discardPlaceholder: async () => {
+        cleanupEvents.push("discard");
+        return { data: null, error: null };
+      },
+    }), { profileId: "profile-1", redirectTo: "https://almaworks.test/auth/callback" }),
+    (error: unknown) => error instanceof MemberLoginReconciliationError
+      && error.databaseState === "unknown",
+  );
+  assert.deepEqual(cleanupEvents, []);
+});
+
+test("thrown Auth creation failure preserves durable data and requires reconciliation", async () => {
+  await assert.rejects(
+    restoreMemberLogin(client({
+      preview: async () => ({ data: [{ ...previewRow, auth_user_id: null, profile_is_active: true }], error: null }),
+      getAuthUser: async () => ({ status: "not_found" }),
+      createAuthUser: async () => {
+        throw new Error("network connection closed");
+      },
+    }), { profileId: "profile-1", redirectTo: "https://almaworks.test/auth/callback" }),
+    (error: unknown) => error instanceof MemberLoginReconciliationError
+      && error.databaseState === "unknown",
+  );
+});
+
+test("failed same-ID profile-link verification preserves the new Auth identity for reconciliation", async () => {
+  const events: string[] = [];
+  await assert.rejects(
+    restoreMemberLogin(client({
+      preview: async () => ({ data: [{ ...previewRow, auth_user_id: null, profile_is_active: true }], error: null }),
+      getAuthUser: async () => ({ status: "not_found" }),
+      createAuthUser: async () => {
+        events.push("create");
+        return { data: { userId: "profile-1" }, error: null };
+      },
+      verifyProfile: async () => {
+        events.push("verify");
+        return { data: { auth_user_id: null, is_active: true }, error: null };
+      },
+      generateInvite: async () => {
+        events.push("invite");
+        return { data: null, error: null };
+      },
+      deleteAuthUser: async () => {
+        events.push("delete");
+        return { error: null };
+      },
+    }), { profileId: "profile-1", redirectTo: "https://almaworks.test/auth/callback" }),
+    (error: unknown) => error instanceof MemberLoginReconciliationError
+      && error.databaseState === "unknown",
+  );
+  assert.deepEqual(events, ["create", "verify"]);
+});
+
+test("thrown profile verification failure preserves the new Auth identity for reconciliation", async () => {
+  await assert.rejects(
+    restoreMemberLogin(client({
+      preview: async () => ({ data: [{ ...previewRow, auth_user_id: null, profile_is_active: true }], error: null }),
+      getAuthUser: async () => ({ status: "not_found" }),
+      createAuthUser: async () => ({ data: { userId: "profile-1" }, error: null }),
+      verifyProfile: async () => {
+        throw new Error("database connection closed");
+      },
+    }), { profileId: "profile-1", redirectTo: "https://almaworks.test/auth/callback" }),
+    (error: unknown) => error instanceof MemberLoginReconciliationError
+      && error.databaseState === "unknown",
+  );
+});
+
+test("invite generation failure after same-ID provisioning reports the verified active state", async () => {
+  const events: string[] = [];
+  await assert.rejects(
+    restoreMemberLogin(client({
+      preview: async () => ({ data: [{ ...previewRow, auth_user_id: null, profile_is_active: true }], error: null }),
+      getAuthUser: async () => ({ status: "not_found" }),
+      createAuthUser: async () => ({ data: { userId: "profile-1" }, error: null }),
+      verifyProfile: async () => ({ data: { auth_user_id: "profile-1", is_active: true }, error: null }),
+      generateInvite: async () => {
+        events.push("invite");
+        return { data: null, error: { message: "Invite provider unavailable", status: 503 } };
+      },
+      deleteAuthUser: async () => {
+        events.push("delete");
+        return { error: null };
+      },
+    }), { profileId: "profile-1", redirectTo: "https://almaworks.test/auth/callback" }),
+    (error: unknown) => error instanceof MemberLoginReconciliationError
+      && error.databaseState === "active",
+  );
+  assert.deepEqual(events, ["invite"]);
+});
+
+test("thrown invite generation failure after same-ID provisioning reports the verified active state", async () => {
+  await assert.rejects(
+    restoreMemberLogin(client({
+      preview: async () => ({ data: [{ ...previewRow, auth_user_id: null, profile_is_active: true }], error: null }),
+      getAuthUser: async () => ({ status: "not_found" }),
+      createAuthUser: async () => ({ data: { userId: "profile-1" }, error: null }),
+      verifyProfile: async () => ({ data: { auth_user_id: "profile-1", is_active: true }, error: null }),
+      generateInvite: async () => {
+        throw new Error("auth service connection closed");
+      },
+    }), { profileId: "profile-1", redirectTo: "https://almaworks.test/auth/callback" }),
+    (error: unknown) => error instanceof MemberLoginReconciliationError
+      && error.databaseState === "active",
+  );
+});
+
+test("active unlinked restoration authorizes with preview before any Auth operation", async () => {
+  const events: string[] = [];
+  await assert.rejects(
+    restoreMemberLogin(client({
+      preview: async () => {
+        events.push("preview");
+        return { data: null, error: { code: "42501", message: "Platform super-administrator access required" } };
+      },
+      getAuthUser: async () => {
+        events.push("lookup");
+        return { status: "not_found" };
+      },
+      createAuthUser: async () => {
+        events.push("create");
+        return { data: null, error: null };
+      },
+    }), { profileId: "profile-1", redirectTo: "https://almaworks.test/auth/callback" }),
+    (error: unknown) => error instanceof MemberLoginAccountError && error.code === "42501",
+  );
+  assert.deepEqual(events, ["preview"]);
 });
 
 test("attachment failure discards the verified placeholder before hard-deleting replacement Auth", async () => {
@@ -377,7 +646,7 @@ test("production adapter keeps database access on userClient and Auth Admin oper
   const factory = memberLoginServer.createMemberLoginAccountProductionClient;
   assert.equal(typeof factory, "function", "the production adapter factory must be directly testable");
 
-  const requests: Array<{ authorization: string | null; body: unknown; host: string; pathname: string }> = [];
+  const requests: Array<{ authorization: string | null; body: unknown; host: string; method: string; pathname: string }> = [];
   const fetcher: typeof fetch = async (input, init) => {
     const request = input instanceof Request ? input : new Request(input, init);
     const url = new URL(request.url);
@@ -386,6 +655,7 @@ test("production adapter keeps database access on userClient and Auth Admin oper
       authorization: request.headers.get("authorization"),
       body: text ? JSON.parse(text) : null,
       host: url.host,
+      method: request.method,
       pathname: url.pathname,
     });
 
@@ -403,6 +673,20 @@ test("production adapter keeps database access on userClient and Auth Admin oper
     }
     if (url.pathname.endsWith("/profiles")) {
       return Response.json({ auth_user_id: null, is_active: false });
+    }
+    if (url.pathname.endsWith("/admin/users/20000000-0000-4000-8000-000000000002") && request.method === "GET") {
+      return Response.json({ code: "user_not_found", message: "User not found" }, { status: 404 });
+    }
+    if (url.pathname.endsWith("/admin/users") && request.method === "POST") {
+      return Response.json({
+        id: "20000000-0000-4000-8000-000000000002",
+        aud: "authenticated",
+        role: "authenticated",
+        email: "member@example.test",
+        app_metadata: {},
+        user_metadata: {},
+        created_at: "2026-09-02T12:00:00Z",
+      });
     }
     if (url.pathname.endsWith("/admin/generate_link")) {
       return Response.json({
@@ -444,17 +728,36 @@ test("production adapter keeps database access on userClient and Auth Admin oper
   await adapter.attach({ p_auth_user_id: "20000000-0000-4000-8000-000000000001", p_profile_id: "profile-1" });
   await adapter.discardPlaceholder({ p_auth_user_id: "20000000-0000-4000-8000-000000000001", p_profile_id: "profile-1" });
   await adapter.verifyProfile("profile-1");
-  await adapter.generateInvite("member@example.test", "https://almaworks.test/auth/callback");
+  assert.deepEqual(
+    await adapter.getAuthUser("20000000-0000-4000-8000-000000000002"),
+    { status: "not_found" },
+  );
+  assert.deepEqual(
+    await adapter.createAuthUser({ email: "member@example.test", id: "20000000-0000-4000-8000-000000000002" }),
+    { data: { userId: "20000000-0000-4000-8000-000000000002" }, error: null },
+  );
+  assert.deepEqual(
+    await adapter.generateInvite("member@example.test", "https://almaworks.test/auth/callback?next=%2Faccount%2Fpassword%3Freset%3D1"),
+    { data: { tokenHash: "hash", userId: "20000000-0000-4000-8000-000000000001" }, error: null },
+  );
   await adapter.deleteAuthUser("20000000-0000-4000-8000-000000000001", false);
 
   const databaseRequests = requests.filter(({ pathname }) => pathname.startsWith("/rest/v1/"));
   assert.equal(databaseRequests.length, 5);
   assert.equal(databaseRequests.every(({ authorization, host }) => authorization === "Bearer user-key" && host === "user-client.test"), true);
   const authRequests = requests.filter(({ pathname }) => pathname.startsWith("/auth/v1/admin/"));
-  assert.equal(authRequests.length, 2);
+  assert.equal(authRequests.length, 4);
   assert.equal(authRequests.every(({ authorization, host }) => authorization === "Bearer admin-key" && host === "admin-client.test"), true);
   assert.deepEqual(
-    authRequests.find(({ pathname }) => pathname.includes("/admin/users/"))?.body,
+    authRequests.find(({ method, pathname }) => method === "POST" && pathname.endsWith("/admin/users"))?.body,
+    {
+      email: "member@example.test",
+      email_confirm: false,
+      id: "20000000-0000-4000-8000-000000000002",
+    },
+  );
+  assert.deepEqual(
+    authRequests.find(({ method, pathname }) => method === "DELETE" && pathname.includes("/admin/users/"))?.body,
     { should_soft_delete: false },
   );
 });
