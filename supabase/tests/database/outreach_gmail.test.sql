@@ -47,9 +47,10 @@ insert into public.outreach_gmail_messages(id,semester_id,opportunity_id,profile
 values ('e6000000-0000-4000-8000-000000000002','e1000000-0000-4000-8000-000000000001','e5000000-0000-4000-8000-000000000001','e2000000-0000-4000-8000-000000000001','e7000000-0000-4000-8000-000000000001',repeat('a',64),'admin@example.test','ada@example.test','Test','Body','sending');
 select ok(not has_table_privilege('anon','public.outreach_gmail_accounts','SELECT'),'anonymous cannot read account tokens');
 select ok(not has_table_privilege('authenticated','public.outreach_gmail_messages','TRUNCATE'),'authenticated cannot truncate history');
-select ok(not has_table_privilege('authenticated','public.outreach_gmail_messages','DELETE'),'authenticated cannot delete history');
 set local role authenticated;
 select set_config('request.jwt.claim.sub','e2000000-0000-4000-8000-000000000001',true);
+with removed as (delete from public.outreach_gmail_messages where id='e6000000-0000-4000-8000-000000000002' returning id)
+select is((select count(*)::int from removed),0,'ordinary admin cannot delete Gmail history');
 select is((select count(*)::int from public.outreach_gmail_accounts),0,'admin cannot read encrypted credentials');
 select is((select count(*)::int from public.outreach_gmail_messages),1,'semester admin reads delivery history');
 select throws_ok($$select * from public.reserve_personal_gmail('{}','e6000000-0000-4000-8000-000000000001')$$,'42501',null,'browser admin cannot invoke worker claim directly');

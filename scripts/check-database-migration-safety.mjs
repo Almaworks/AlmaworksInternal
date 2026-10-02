@@ -123,6 +123,8 @@ const reviewedPostCutoverMigrations = [
   "20260928182151_startup_onboarding_saves.sql",
   // Generated and replayed startup deletion cleanup for booking context rows.
   "20261002001812_fix_startup_deletion_booking_context.sql",
+  // Generated and replayed RLS-scoped cleanup for confirmed QA outreach fixtures.
+  "20261002005108_qa_outreach_cleanup.sql",
 ];
 const requiredOutreachArchiveMigrations = [
   "20260901215752_archive_outreach_contacts.sql",
