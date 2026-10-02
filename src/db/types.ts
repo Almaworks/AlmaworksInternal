@@ -2614,6 +2614,7 @@ export type Database = {
           durable_contact_data: Json
           id: string
           industry: string | null
+          logo_path: string | null
           logo_url: string | null
           name: string
           slug: string
@@ -2626,6 +2627,7 @@ export type Database = {
           durable_contact_data?: Json
           id?: string
           industry?: string | null
+          logo_path?: string | null
           logo_url?: string | null
           name: string
           slug: string
@@ -2638,6 +2640,7 @@ export type Database = {
           durable_contact_data?: Json
           id?: string
           industry?: string | null
+          logo_path?: string | null
           logo_url?: string | null
           name?: string
           slug?: string
@@ -3240,6 +3243,15 @@ export type Database = {
       publish_mentor_booking_window: {
         Args: { p_ends_at: string; p_semester_id: string; p_starts_at: string }
         Returns: string
+      }
+      purge_qa_outreach_contact: {
+        Args: {
+          p_confirmation_email: string
+          p_contact_id: string
+          p_expected_message_count: number
+          p_expected_opportunity_count: number
+        }
+        Returns: Json
       }
       release_inactive_owner_work: {
         Args: { p_owner_profile_id: string }

@@ -5,6 +5,7 @@ export interface StartupLogoState {
   organizationId: string | null;
   logoPath: string | null;
   legacyLogoUrl: string | null;
+  companyName?: string | null;
 }
 
 export interface StartupLogoRepository {
@@ -36,16 +37,6 @@ async function requireEligible(repository: StartupLogoRepository, profileId: str
 function isManagedLogoPath(organizationId: string, path: string | null): path is string {
   if (!path?.startsWith(`${organizationId}/`)) return false;
   return /^[a-zA-Z0-9_-]+\.(?:jpg|png|webp)$/u.test(path.slice(organizationId.length + 1));
-}
-
-function safeHttpsUrl(value: string | null): string | null {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" ? url.toString() : null;
-  } catch {
-    return null;
-  }
 }
 
 async function cleanup(repository: StartupLogoRepository, paths: string[]): Promise<void> {
@@ -99,7 +90,7 @@ export function createStartupLogoService(
       const replaced = await repository.replacePath(state.organizationId, state.logoPath, null);
       if (!replaced) throw new StartupLogoError("The startup logo changed while this removal was running. Please try again.", 409);
       if (isManagedLogoPath(state.organizationId, state.logoPath)) await cleanup(repository, [state.logoPath]);
-      return { logoUrl: safeHttpsUrl(state.legacyLogoUrl) };
+      return { logoUrl: null };
     },
   };
 }

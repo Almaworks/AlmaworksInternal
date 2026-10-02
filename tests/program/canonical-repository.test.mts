@@ -19,6 +19,29 @@ type CapturedRequest = {
   url: URL;
 };
 
+test("startup profile resolves managed logos from private storage", async () => {
+  const path = "org/50000000-0000-0000-0000-000000000001.png";
+  const { client, requests } = recordingClient([
+    [{ id: "term", organization: { id: "org", name: "Company", logo_path: path, logo_url: null }, team: [] }],
+    { signedURL: `/object/sign/startup-profile-logos/${path}?token=fixture` },
+  ]);
+  const result = await loadStartupProfile(client, "term");
+  assert.ok(result?.logo_url?.endsWith(`/object/sign/startup-profile-logos/${path}?token=fixture`));
+  assert.match(requests[0].url.searchParams.get("select") ?? "", /logo_path/u);
+  assert.equal(requests[1].method, "POST");
+});
+
+test("startup directory can read legacy schema during staged rollout", async () => {
+  const { client, requests } = recordingClient([
+    recordedResponse(400, { code: "42703", message: "column startup_organizations_1.logo_path does not exist" }),
+    [{ id: "term", organization: { name: "Legacy", logo_url: "https://legacy.test/logo.png" }, team: [] }],
+  ]);
+  const result = await loadStartupDirectory(client);
+  assert.equal(result[0].logo_url, "https://legacy.test/logo.png");
+  assert.equal(requests.length, 2);
+  assert.doesNotMatch(requests[1].url.searchParams.get("select") ?? "", /logo_path/u);
+});
+
 type RecordedResponse = {
   body: unknown;
   status: number;

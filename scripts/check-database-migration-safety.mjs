@@ -125,6 +125,10 @@ const reviewedPostCutoverMigrations = [
   "20261002001812_fix_startup_deletion_booking_context.sql",
   // Generated and replayed RLS-scoped cleanup for confirmed QA outreach fixtures.
   "20261002005108_qa_outreach_cleanup.sql",
+  // Generated logo path, active-team guard, and narrow column update grants.
+  "20261002041604_startup_logo_profile.sql",
+  // Generated private-logo storage policies; no unrelated storage changes.
+  "20261002041612_startup_logo_storage.sql",
 ];
 const requiredOutreachArchiveMigrations = [
   "20260901215752_archive_outreach_contacts.sql",

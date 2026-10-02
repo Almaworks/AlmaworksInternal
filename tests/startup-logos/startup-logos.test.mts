@@ -65,7 +65,19 @@ test("a concurrent replacement deletes only the new object", async () => {
   assert.deepEqual(removed, [[`${ORGANIZATION_ID}/50000000-0000-0000-0000-000000000002.png`]]);
 });
 
-test("removal clears the managed path and returns the HTTPS rollout fallback", async () => {
+test("signing and database failures compensate the new object", async () => {
+  for (const failingMethod of ["sign", "replacePath"] as const) {
+    const removed: string[][] = [];
+    const service = createStartupLogoService(repository({
+      [failingMethod]: async () => { throw new Error("unavailable"); },
+      remove: async (paths) => { removed.push(paths); },
+    }), () => "50000000-0000-0000-0000-000000000002");
+    await assert.rejects(service.upload(PROFILE_ID, png()), /unavailable/u);
+    assert.deepEqual(removed, [[`${ORGANIZATION_ID}/50000000-0000-0000-0000-000000000002.png`]]);
+  }
+});
+
+test("removal clears the managed path without resurrecting a legacy logo", async () => {
   const events: string[] = [];
   const service = createStartupLogoService(repository({
     loadForProfile: async () => ({ eligible: true, organizationId: ORGANIZATION_ID, logoPath: `${ORGANIZATION_ID}/old.jpg`, legacyLogoUrl: "https://legacy.test/logo.png" }),
@@ -73,8 +85,19 @@ test("removal clears the managed path and returns the HTTPS rollout fallback", a
     remove: async (paths) => { events.push(`remove:${paths.join(",")}`); },
   }));
 
-  assert.deepEqual(await service.remove(PROFILE_ID), { logoUrl: "https://legacy.test/logo.png" });
+  assert.deepEqual(await service.remove(PROFILE_ID), { logoUrl: null });
   assert.deepEqual(events, [`replace:${ORGANIZATION_ID}/old.jpg:null`, `remove:${ORGANIZATION_ID}/old.jpg`]);
+});
+
+test("failed removal leaves the managed object untouched", async () => {
+  const removed: string[][] = [];
+  const service = createStartupLogoService(repository({
+    loadForProfile: async () => ({ eligible: true, organizationId: ORGANIZATION_ID, logoPath: `${ORGANIZATION_ID}/old.jpg`, legacyLogoUrl: null }),
+    replacePath: async () => false,
+    remove: async (paths) => { removed.push(paths); },
+  }));
+  await assert.rejects(service.remove(PROFILE_ID), (error: unknown) => error instanceof StartupLogoError && error.status === 409);
+  assert.deepEqual(removed, []);
 });
 
 test("URL resolver signs managed paths once and preserves an HTTPS legacy fallback", async () => {

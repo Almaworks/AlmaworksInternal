@@ -1,4 +1,4 @@
-export const STARTUP_LOGO_BUCKET = "startup-logos";
+export const STARTUP_LOGO_BUCKET = "startup-profile-logos";
 export const STARTUP_LOGO_URL_TTL_SECONDS = 60 * 60;
 
 interface SignedUrlResult {

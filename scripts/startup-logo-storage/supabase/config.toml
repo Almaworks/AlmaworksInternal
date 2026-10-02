@@ -1,0 +1,8 @@
+# Narrow release configuration: seed only this feature's bucket.
+# Always pass the allowlisted --project-ref from the release runbook.
+project_id = "AlmaworksInternal"
+
+[storage.buckets.startup-profile-logos]
+public = false
+file_size_limit = "4MiB"
+allowed_mime_types = ["image/jpeg", "image/png", "image/webp"]

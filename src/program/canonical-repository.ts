@@ -3,6 +3,7 @@ import type { MembershipReadinessStatus } from "../lifecycle/membership-presenta
 import type { MembershipStatus } from "../lifecycle/types.ts";
 import { selectWithOptionalProfilePhotoPath } from "../profile-photos/schema-compatibility.ts";
 import { createProfilePhotoUrlResolver } from "../profile-photos/urls.ts";
+import { createStartupLogoUrlResolver } from "../startup-logos/urls.ts";
 
 type ProgramClient = SupabaseClient;
 
@@ -62,6 +63,7 @@ type StartupSemesterRow = {
     id: string;
     industry: string | null;
     logo_url: string | null;
+    logo_path?: string | null;
     name: string;
     slug: string;
     website_url: string | null;
@@ -181,6 +183,7 @@ const STARTUP_DIRECTORY_SELECT = `
     industry,
     website_url,
     logo_url,
+    logo_path,
     durable_contact_data
   ),
   team:startup_team_memberships(
@@ -281,12 +284,26 @@ export async function loadMentorProfile(client: ProgramClient, mentorSemesterId:
 }
 
 export async function loadStartupDirectory(client: ProgramClient) {
-  const result = await client
+  const select = (columns: string) => client
     .from("startup_semesters")
-    .select(STARTUP_DIRECTORY_SELECT)
+    .select(columns)
     .order("name", { referencedTable: "organization" });
+  const result = await selectStartupWithLogo(select);
   failIfError(result.error);
-  return ((result.data ?? []) as unknown as StartupSemesterRow[]).map(mapStartup);
+  const resolveLogo = createStartupLogoUrlResolver(client);
+  return Promise.all(((result.data ?? []) as unknown as StartupSemesterRow[]).map(async (row) => {
+    const organization = one(row.organization);
+    return { ...mapStartup(row), logo_url: await resolveLogo(organization?.logo_path, organization?.logo_url) };
+  }));
+}
+
+async function selectStartupWithLogo<T>(select: (columns: string) => PromiseLike<{ data: T; error: { code?: string; message: string } | null }>) {
+  const result = await select(STARTUP_DIRECTORY_SELECT);
+  // Support a frontend-first rollout without hiding unrelated query failures.
+  if (result.error?.code === "42703" && /^column startup_organizations(?:_\d+)?\.logo_path does not exist$/iu.test(result.error.message)) {
+    return select(STARTUP_DIRECTORY_SELECT.replace("    logo_path,\n", ""));
+  }
+  return result;
 }
 
 function mapStartup(row: StartupSemesterRow): StartupView {
@@ -333,13 +350,16 @@ function mapStartup(row: StartupSemesterRow): StartupView {
 }
 
 export async function loadStartupProfile(client: ProgramClient, startupSemesterId: string) {
-  const result = await client
+  const result = await selectStartupWithLogo((columns) => client
     .from("startup_semesters")
-    .select(STARTUP_DIRECTORY_SELECT)
+    .select(columns)
     .eq("id", startupSemesterId)
-    .maybeSingle();
+    .maybeSingle());
   failIfError(result.error);
-  return result.data ? mapStartup(result.data as unknown as StartupSemesterRow) : null;
+  if (!result.data) return null;
+  const row = result.data as unknown as StartupSemesterRow;
+  const organization = one(row.organization);
+  return { ...mapStartup(row), logo_url: await createStartupLogoUrlResolver(client)(organization?.logo_path, organization?.logo_url) };
 }
 
 export async function loadMentorAvailability(
