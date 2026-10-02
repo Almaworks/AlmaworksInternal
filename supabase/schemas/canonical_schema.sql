@@ -1786,6 +1786,21 @@ begin
   where request.startup_organization_id = p_startup_organization_id
   for update;
 
+  delete from public.mentor_booking_decision_notes note
+  using public.mentor_booking_requests request
+  where note.semester_id = request.semester_id and note.request_id = request.id
+    and request.startup_organization_id = p_startup_organization_id;
+
+  delete from public.mentor_booking_meeting_details detail
+  using public.mentor_booking_requests request
+  where detail.semester_id = request.semester_id and detail.request_id = request.id
+    and request.startup_organization_id = p_startup_organization_id;
+
+  delete from public.mentor_booking_outcomes outcome
+  using public.mentor_booking_requests request
+  where outcome.semester_id = request.semester_id and outcome.request_id = request.id
+    and request.startup_organization_id = p_startup_organization_id;
+
   delete from public.mentor_booking_accepted_occupancy occupancy
   using public.mentor_booking_requests request
   where occupancy.request_id = request.id

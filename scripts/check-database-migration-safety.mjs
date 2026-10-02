@@ -121,6 +121,8 @@ const reviewedPostCutoverMigrations = [
   "20260928181148_startup_onboarding_read.sql",
   // Generated column grants for the existing RLS-protected startup wizard save.
   "20260928182151_startup_onboarding_saves.sql",
+  // Generated and replayed startup deletion cleanup for booking context rows.
+  "20261002001812_fix_startup_deletion_booking_context.sql",
 ];
 const requiredOutreachArchiveMigrations = [
   "20260901215752_archive_outreach_contacts.sql",

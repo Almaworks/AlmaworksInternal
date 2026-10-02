@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(22);
+select plan(26);
 
 insert into public.semesters (id, name, start_date, end_date, lifecycle_status, configuration)
 values ('b1000000-0000-0000-0000-000000000001', 'Startup deletion test', '2099-09-01', '2099-12-31', 'active', '{"timezone":"America/New_York"}'::jsonb);
@@ -85,6 +85,16 @@ select set_config('request.jwt.claims', '{"sub":"b2000000-0000-0000-0000-0000000
 update public.mentor_booking_requests set status = 'accepted' where startup_organization_id = 'b5000000-0000-0000-0000-000000000001' and topic = 'Accepted deletion fixture';
 select set_config('request.jwt.claims', '{"sub":"b2000000-0000-0000-0000-000000000004","role":"authenticated"}', true);
 select public.request_mentor_booking('b1000000-0000-0000-0000-000000000001', 'b4000000-0000-0000-0000-000000000001', '2099-09-07 14:00:00+00', '2099-09-07 14:15:00+00', 'Preserved booking fixture');
+insert into public.mentor_booking_decision_notes (semester_id, request_id, kind, note, author_profile_id)
+select semester_id, id, 'cancelled', 'Disposable booking decision', 'b2000000-0000-0000-0000-000000000002'
+from public.mentor_booking_requests where topic in ('Accepted deletion fixture', 'Preserved booking fixture');
+insert into public.mentor_booking_meeting_details (semester_id, request_id, location, updated_by_profile_id)
+select semester_id, id, 'Disposable meeting location', 'b2000000-0000-0000-0000-000000000002'
+from public.mentor_booking_requests where topic = 'Accepted deletion fixture';
+insert into public.mentor_booking_outcomes (semester_id, request_id, reporter_profile_id, attendance, feedback)
+select semester_id, id, 'b2000000-0000-0000-0000-000000000002', 'attended', 'Disposable booking feedback'
+from public.mentor_booking_requests where topic = 'Accepted deletion fixture';
+select is((select count(*) from public.mentor_booking_decision_notes), 2::bigint, 'target and retained booking notes exist before deletion');
 select is((select count(*) from public.mentor_booking_requests where startup_organization_id = 'b5000000-0000-0000-0000-000000000001'), 2::bigint, 'target has pending and accepted bookings before deletion');
 select is((select count(*) from public.mentor_booking_accepted_occupancy where semester_id = 'b1000000-0000-0000-0000-000000000001'), 1::bigint, 'accepted booking occupancy exists before deletion');
 set constraints all immediate;
@@ -131,6 +141,9 @@ select is((select count(*) from public.startup_organizations where id = 'b500000
 select is((select count(*) from public.mentor_booking_requests where startup_organization_id = 'b5000000-0000-0000-0000-000000000001'), 0::bigint, 'target pending and accepted bookings are deleted');
 select is((select count(*) from public.mentor_booking_accepted_occupancy where semester_id = 'b1000000-0000-0000-0000-000000000001'), 0::bigint, 'target accepted occupancy is released');
 select is((select count(*) from public.mentor_booking_requests where startup_organization_id = 'b5000000-0000-0000-0000-000000000002'), 1::bigint, 'another startup booking remains');
+select is((select count(*) from public.mentor_booking_decision_notes), 1::bigint, 'target booking note is removed while another startup note remains');
+select is((select count(*) from public.mentor_booking_meeting_details), 0::bigint, 'target meeting details are removed');
+select is((select count(*) from public.mentor_booking_outcomes), 0::bigint, 'target booking outcome is removed');
 select is((select count(*) from public.mentor_weekly_availability where mentor_semester_id = 'b4000000-0000-0000-0000-000000000001'), 1::bigint, 'mentor weekly availability remains');
 
 -- Deleting the final startup retains an empty program and must also commit
