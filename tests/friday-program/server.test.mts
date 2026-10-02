@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createFridayProgramHandlers, createFridayProgramStore, createFridaySpeakerHandlers, createFridayWeekCancellationHandlers, FridayProgramHttpError, type FridayProgramStore } from "../../src/friday-program/server.ts";
+import { createFridayProgramHandlers, createFridayProgramStore, createFridaySpeakerHandlers, createFridayWeekCancellationHandlers, createFridayWeekLabelHandlers, FridayProgramHttpError, type FridayProgramStore } from "../../src/friday-program/server.ts";
 import type { FridayProgramModelInput } from "../../src/friday-program/model.ts";
 import type { Database } from "../../src/db/types.ts";
 
@@ -16,7 +16,7 @@ const input: FridayProgramModelInput = {
 };
 function request(body: unknown) { return new Request("http://localhost/api/admin/friday-program/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
 function store(overrides: Partial<FridayProgramStore> = {}): FridayProgramStore {
-  return { load: async () => input, generate: async () => ({ created: true, programId }), saveSpeaker: async () => {}, removeSpeaker: async () => {}, setWeekCanceled: async () => {}, ...overrides };
+  return { load: async () => input, generate: async () => ({ created: true, programId }), saveSpeaker: async () => {}, removeSpeaker: async () => {}, setWeekCanceled: async () => {}, saveWeekLabel: async () => {}, ...overrides };
 }
 
 function deferred<T>() {
@@ -230,6 +230,21 @@ test("week restoration clears canceled state and rejects malformed or unauthoriz
   assert.equal((await invalid.PUT(request({ semesterId, meetingId, canceled: "false" }))).status, 400);
   const denied = createFridayWeekCancellationHandlers(async () => { throw new FridayProgramHttpError(403, "Denied"); });
   assert.equal((await denied.PUT(request({ semesterId, meetingId, canceled: true }))).status, 403);
+});
+
+test("week label update requires an admin and a valid label", async () => {
+  const calls: unknown[] = [];
+  const handlers = createFridayWeekLabelHandlers(async (_request, semester, mode) => {
+    calls.push([semester, mode]);
+    return store({ saveWeekLabel: async (...args) => { calls.push(args); } });
+  });
+  const saved = await handlers.PUT(request({ semesterId, meetingId, label: "Thanksgiving break" }));
+  assert.equal(saved.status, 200);
+  assert.deepEqual(await saved.json(), { label: "Thanksgiving break", meetingId });
+  assert.deepEqual(calls, [[semesterId, "label"], [semesterId, meetingId, "Thanksgiving break"]]);
+  assert.equal((await handlers.PUT(request({ semesterId, meetingId, label: "  " }))).status, 400);
+  const denied = createFridayWeekLabelHandlers(async () => { throw new FridayProgramHttpError(403, "Denied"); });
+  assert.equal((await denied.PUT(request({ semesterId, meetingId, label: "Week 9" }))).status, 403);
 });
 
 test("GET authorizes the requested semester and never generates groups", async () => {

@@ -117,3 +117,4 @@ revoke all privileges on function public.guard_friday_week_cancellation_change()
 revoke all privileges on function public.reject_canceled_friday_speaker_change() from public, anon, authenticated, service_role;
 grant execute on function public.set_friday_week_canceled(uuid, uuid, boolean) to authenticated;
 grant update (friday_canceled_at, friday_canceled_by_profile_id) on table public.meetings to authenticated;
+grant update (label) on table public.meetings to authenticated;

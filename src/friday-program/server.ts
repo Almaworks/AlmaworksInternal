@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { AuthorizationError, requireAuthenticatedUserWithRls } from "../auth/server.ts";
 import type { Database } from "../db/types.ts";
-import { buildFridayProgramResponse, FridayProgramDataError, FridayProgramRequestError, parseFridayProgramQuery, parseGenerateFridayProgramRequest, parseRemoveFridaySpeakerRequest, parseSaveFridaySpeakerRequest, parseSetFridayWeekCanceledRequest, type FridayProgramModelInput } from "./model.ts";
+import { buildFridayProgramResponse, FridayProgramDataError, FridayProgramRequestError, parseFridayProgramQuery, parseGenerateFridayProgramRequest, parseRemoveFridaySpeakerRequest, parseSaveFridaySpeakerRequest, parseSaveFridayWeekLabelRequest, parseSetFridayWeekCanceledRequest, type FridayProgramModelInput } from "./model.ts";
 import type { FridaySpeaker } from "./types.ts";
 import { ALMAWORKS_SUPABASE_URL } from '../calendar/config.ts';
 import { dispatchFridaySpeakerAnnouncement, speakerAnnouncementChanged, type FridaySpeakerDeliverySummary } from '../notifications/friday-speaker-delivery.ts';
@@ -21,9 +21,10 @@ export interface FridayProgramStore {
   saveSpeaker(semesterId: string, meetingId: string, speaker: FridaySpeaker): Promise<void>;
   removeSpeaker(semesterId: string, meetingId: string): Promise<void>;
   setWeekCanceled(semesterId: string, meetingId: string, canceled: boolean): Promise<void>;
+  saveWeekLabel(semesterId: string, meetingId: string, label: string): Promise<void>;
 }
 
-type AuthorizeFridayProgram = (request: Request, semesterId: string, mode: "cancel" | "read" | "generate" | "speaker") => Promise<FridayProgramStore>;
+type AuthorizeFridayProgram = (request: Request, semesterId: string, mode: "cancel" | "label" | "read" | "generate" | "speaker") => Promise<FridayProgramStore>;
 type DatabaseError = { code?: string; message: string };
 type QueryResult<T> = { data: T | null; error: DatabaseError | null };
 
@@ -147,10 +148,16 @@ export function createFridayProgramStore(client: SupabaseClient<Database>): Frid
       if (result.error) databaseFailure(result.error);
       if (result.data !== true) throw new FridayProgramDataError("Friday week cancellation did not return a saved result.");
     },
+    async saveWeekLabel(semesterId, meetingId, label) {
+      const result = await client.from("meetings").update({ label }).eq("semester_id", semesterId).eq("id", meetingId).select("id,label").maybeSingle();
+      if (result.error) databaseFailure(result.error);
+      if (!result.data) throw new FridayProgramHttpError(404, "This meeting is not available in the selected semester.");
+      if (result.data.label !== label) throw new FridayProgramDataError("The Friday week label could not be verified.");
+    },
   };
 }
 
-async function authorizeFridayProgram(request: Request, semesterId: string, mode: "cancel" | "read" | "generate" | "speaker"): Promise<FridayProgramStore> {
+async function authorizeFridayProgram(request: Request, semesterId: string, mode: "cancel" | "label" | "read" | "generate" | "speaker"): Promise<FridayProgramStore> {
   const auth = await requireAuthenticatedUserWithRls(request);
   const management = await auth.userClient.rpc("can_manage_semester", { target_semester_id: semesterId, candidate_id: auth.user.id });
   if (management.error) databaseFailure(management.error);
@@ -281,6 +288,19 @@ export function createFridayWeekCancellationHandlers(authorize: AuthorizeFridayP
         if (!meeting) throw new FridayProgramHttpError(404, "This meeting is not available in the selected semester.");
         if ((meeting.status === "canceled") !== input.canceled) throw new FridayProgramDataError("The Friday week cancellation could not be verified.");
         return json({ meeting });
+      } catch (cause) { return failure(cause); }
+    },
+  };
+}
+
+export function createFridayWeekLabelHandlers(authorize: AuthorizeFridayProgram = authorizeFridayProgram) {
+  return {
+    async PUT(request: Request): Promise<Response> {
+      try {
+        const input = parseSaveFridayWeekLabelRequest(await request.json());
+        const store = await authorize(request, input.semesterId, "label");
+        await store.saveWeekLabel(input.semesterId, input.meetingId, input.label);
+        return json({ label: input.label, meetingId: input.meetingId });
       } catch (cause) { return failure(cause); }
     },
   };

@@ -162,6 +162,15 @@ export function parseSetFridayWeekCanceledRequest(value: unknown): { canceled: b
   };
 }
 
+export function parseSaveFridayWeekLabelRequest(value: unknown): { label: string; meetingId: string; semesterId: string } {
+  const body = asRecord(value);
+  return {
+    semesterId: requireUuid(body.semesterId, "semesterId"),
+    meetingId: requireUuid(body.meetingId, "meetingId"),
+    label: requiredText(body.label, "Week label", 160),
+  };
+}
+
 export function buildFridayAgenda(
   agendaVersion: number,
   groupAFacilitator: string,

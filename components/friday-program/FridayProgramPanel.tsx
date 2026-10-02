@@ -68,6 +68,10 @@ export function FridayProgramPanel({
   const [isNotifyingSpeaker, setIsNotifyingSpeaker] = useState(false);
   const [isRemovingSpeaker, setIsRemovingSpeaker] = useState(false);
   const [isSavingCancellation, setIsSavingCancellation] = useState(false);
+  const [isSavingLabel, setIsSavingLabel] = useState(false);
+  const [isLabelEditorOpen, setIsLabelEditorOpen] = useState(false);
+  const [labelDraft, setLabelDraft] = useState("");
+  const [labelMessage, setLabelMessage] = useState<string | null>(null);
   const [isSpeakerEditorOpen, setIsSpeakerEditorOpen] = useState(false);
   const [speakerDraft, setSpeakerDraft] = useState<FridaySpeaker>({ name: "", bio: "", expertise: "", topic: "", contactEmail: "", contactPhone: null, linkedinUrl: null, websiteUrl: null });
   const [speakerMessage, setSpeakerMessage] = useState<string | null>(null);
@@ -152,6 +156,9 @@ export function FridayProgramPanel({
     setSpeakerDraft(selectedMeeting?.speaker ?? { name: "", bio: "", expertise: "", topic: "", contactEmail: "", contactPhone: null, linkedinUrl: null, websiteUrl: null });
     setSpeakerMessage(null);
     setCancellationMessage(null);
+    setLabelDraft(selectedMeeting?.label ?? "");
+    setLabelMessage(null);
+    setIsLabelEditorOpen(false);
     setIsSpeakerEditorOpen(false);
   }, [selectedMeeting, semesterId]);
   const selectedWeekNumber = data && selectedMeeting ? data.meetings.findIndex((meeting) => meeting.meetingId === selectedMeeting.meetingId) + 1 : null;
@@ -159,6 +166,34 @@ export function FridayProgramPanel({
   const selectedTiming = defaultMeeting && defaultMeeting.meeting.meetingId === selectedMeeting?.meetingId ? defaultMeeting.timing : null;
   const selectedIsCanceled = selectedMeeting?.status === "canceled";
   const canManageWeek = canGenerate || canEditSpeaker;
+
+  async function saveWeekLabel(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!semesterId || !selectedMeeting || !canManageWeek || isSavingLabel || previewData) return;
+    const label = labelDraft.trim();
+    if (!label || label.length > 160) {
+      setLabelMessage("Enter a week label of 1–160 characters.");
+      return;
+    }
+    const meetingId = selectedMeeting.meetingId;
+    const scope = semesterId;
+    setIsSavingLabel(true);
+    setLabelMessage(null);
+    try {
+      const response = await authenticatedFetch("/api/admin/friday-program/label", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ semesterId, meetingId, label }),
+      });
+      const payload = await response.json() as { error?: string; label?: string; meetingId?: string };
+      if (!response.ok || payload.label !== label || payload.meetingId !== meetingId) throw new Error(payload.error ?? "The week label could not be saved.");
+      if (scopeRef.current !== scope) return;
+      setData((current) => current === null ? current : { ...current, meetings: current.meetings.map((meeting) => meeting.meetingId === meetingId ? { ...meeting, label } : meeting) });
+      setIsLabelEditorOpen(false);
+      setLabelMessage("Week label saved.");
+    } catch (cause) {
+      if (scopeRef.current === scope) setLabelMessage(cause instanceof Error ? cause.message : "The week label could not be saved.");
+    } finally { if (scopeRef.current === scope) setIsSavingLabel(false); }
+  }
 
   async function generateGroups(regenerate = false) {
     if (!semesterId || !selectedMeeting || !canGenerate || selectedMeeting.status === "canceled" || isGenerating) return;
@@ -338,6 +373,16 @@ export function FridayProgramPanel({
         {`Week ${index + 1} · ${meetingTitle(meeting)}`}
       </button>)}
     </div>
+
+    {selectedMeeting && canManageWeek && <div className="mt-4">
+      {!isLabelEditorOpen && <button type="button" onClick={() => { setLabelDraft(selectedMeeting.label ?? ""); setLabelMessage(null); setIsLabelEditorOpen(true); }} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-[#002147]">Edit week label</button>}
+      {isLabelEditorOpen && <form onSubmit={(event) => void saveWeekLabel(event)} className="flex flex-wrap items-end gap-2 rounded-xl border border-slate-200 p-3">
+        <label className="flex min-w-56 flex-1 flex-col gap-1 text-sm font-medium text-[#002147]">Week label<input value={labelDraft} onChange={(event) => setLabelDraft(event.target.value)} maxLength={160} required className="rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label>
+        <button type="submit" disabled={isSavingLabel || Boolean(previewData)} className="rounded-lg bg-[#002147] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">{isSavingLabel ? "Saving…" : "Save label"}</button>
+        <button type="button" onClick={() => setIsLabelEditorOpen(false)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-[#002147]">Cancel</button>
+      </form>}
+      {labelMessage && <p className="mt-2 text-sm text-slate-700" role="status">{labelMessage}</p>}
+    </div>}
 
     {selectedMeeting?.status === "canceled" && <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4" role="status">
       <p className="font-semibold text-rose-900">This Friday program week is canceled.</p>

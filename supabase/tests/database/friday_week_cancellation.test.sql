@@ -4,7 +4,7 @@ create extension if not exists pgtap with schema extensions;
 grant usage on schema extensions to authenticated;
 grant execute on all functions in schema extensions to authenticated;
 set local search_path = public, extensions;
-select plan(21);
+select plan(26);
 
 update public.semesters set is_active = false where is_active;
 insert into public.semesters (id, name, start_date, end_date, lifecycle_status, is_active, configuration)
@@ -53,11 +53,16 @@ select throws_ok($$delete from public.friday_speakers where meeting_id = 'c20000
 select is((select count(*) from public.friday_programs where meeting_id = 'c2000000-0000-4000-8000-000000000001'), 1::bigint, 'cancellation preserves the saved program');
 select is((select count(*) from public.friday_program_assignments assignment join public.friday_programs program on program.id = assignment.program_id where program.meeting_id = 'c2000000-0000-4000-8000-000000000001'), 1::bigint, 'cancellation preserves group history');
 select is((select name from public.friday_speakers where meeting_id = 'c2000000-0000-4000-8000-000000000001'), 'Saved speaker', 'cancellation preserves the saved speaker');
+select lives_ok($$update public.meetings set label = 'Thanksgiving break' where id = 'c2000000-0000-4000-8000-000000000001'$$, 'semester admin can rename a Friday week');
+select is((select label from public.meetings where id = 'c2000000-0000-4000-8000-000000000001'), 'Thanksgiving break', 'renamed week is persisted');
+select is((select label from public.meetings where id = 'c2000000-0000-4000-8000-000000000002'), 'Week B', 'other semester is unchanged');
 select throws_ok($$select public.set_friday_week_canceled('c1000000-0000-4000-8000-000000000002', 'c2000000-0000-4000-8000-000000000001', true)$$, 'P0002', 'Meeting does not belong to the selected semester', 'an administrator cannot cross semester boundaries');
 
 select set_config('request.jwt.claims', '{"sub":"c3000000-0000-4000-8000-000000000002","role":"authenticated"}', true);
 select is((select count(*) from public.meetings where id = 'c2000000-0000-4000-8000-000000000001' and friday_canceled_at is not null), 1::bigint, 'participants can read the canceled status');
 select throws_ok($$select public.set_friday_week_canceled('c1000000-0000-4000-8000-000000000001', 'c2000000-0000-4000-8000-000000000001', false)$$, '42501', 'Semester administrator access required', 'startup participants cannot restore weeks');
+select lives_ok($$update public.meetings set label = 'Unauthorized' where id = 'c2000000-0000-4000-8000-000000000001'$$, 'startup update is safely ignored by row policy');
+select is((select label from public.meetings where id = 'c2000000-0000-4000-8000-000000000001'), 'Thanksgiving break', 'startup participants cannot rename a Friday week');
 
 select set_config('request.jwt.claims', '{"sub":"c3000000-0000-4000-8000-000000000001","role":"authenticated"}', true);
 select is(public.set_friday_week_canceled('c1000000-0000-4000-8000-000000000001', 'c2000000-0000-4000-8000-000000000001', false), true, 'admin restores the canceled week');

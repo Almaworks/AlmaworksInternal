@@ -129,6 +129,8 @@ const reviewedPostCutoverMigrations = [
   "20261002041604_startup_logo_profile.sql",
   // Generated private-logo storage policies; no unrelated storage changes.
   "20261002041612_startup_logo_storage.sql",
+  // Generated column-scoped Friday week label grant; existing table SELECT remains intact.
+  "20261002052950_friday_week_label_edit.sql",
 ];
 const requiredOutreachArchiveMigrations = [
   "20260901215752_archive_outreach_contacts.sql",
