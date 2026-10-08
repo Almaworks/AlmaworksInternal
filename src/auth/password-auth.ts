@@ -15,6 +15,48 @@ type PasswordResetAuth = {
 
 const passwordResetDestination = '/account/password?reset=1'
 
+type SetupAuthError = { code?: string; status?: number; message?: string }
+type SetupCodeRequestAuth = {
+  signInWithOtp(input: { email: string; options: { shouldCreateUser: false } }): Promise<{ error: SetupAuthError | null }>
+}
+type SetupCodeVerifyAuth = {
+  verifyOtp(input: { email: string; token: string; type: 'invite' | 'email' }): Promise<{
+    data: { session: unknown | null }; error: SetupAuthError | null
+  }>
+}
+const setupEmailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u
+
+export async function requestAccountSetupCode(auth: SetupCodeRequestAuth, emailInput: string): Promise<AuthResult> {
+  const email = emailInput.trim().toLowerCase()
+  if (!setupEmailPattern.test(email)) return { ok: false, error: 'Enter your invited email address.' }
+  try {
+    const { error } = await auth.signInWithOtp({ email, options: { shouldCreateUser: false } })
+    // Keep missing-account responses indistinguishable from accepted requests.
+    if (error?.code === 'signup_disabled' || error?.code === 'user_not_found') return { ok: true }
+    if (error) return { ok: false, error: 'We could not send a code yet. Please wait a moment and try again.' }
+    return { ok: true }
+  } catch {
+    return { ok: false, error: 'Unable to connect. Please try again.' }
+  }
+}
+
+export async function verifyAccountSetupCode(
+  auth: SetupCodeVerifyAuth, emailInput: string, codeInput: string, type: string,
+): Promise<AuthResult> {
+  const email = emailInput.trim().toLowerCase()
+  const token = codeInput.trim()
+  if (!setupEmailPattern.test(email)) return { ok: false, error: 'Enter your invited email address.' }
+  if (!/^(?:\d{6}|\d{8})$/u.test(token)) return { ok: false, error: 'Enter the 6- or 8-digit code from your email.' }
+  if (type !== 'invite' && type !== 'email') return { ok: false, error: 'Request a new code and try again.' }
+  try {
+    const { data, error } = await auth.verifyOtp({ email, token, type })
+    if (error || !data.session) return { ok: false, error: 'That code is invalid or expired. Request a new code and try again.' }
+    return { ok: true }
+  } catch {
+    return { ok: false, error: 'Unable to connect. Please try again.' }
+  }
+}
+
 export function passwordResetCallbackPath(): string {
   return `/auth/callback?next=${encodeURIComponent(passwordResetDestination)}`
 }

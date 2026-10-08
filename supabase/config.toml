@@ -240,6 +240,10 @@ otp_expiry = 3600
 subject = "Verify your Almaworks email"
 content_path = "./supabase/templates/confirmation.html"
 
+[auth.email.template.magic_link]
+subject = "Your Almaworks verification code"
+content_path = "./supabase/templates/magic-link.html"
+
 # Use a production-ready SMTP server
 # [auth.email.smtp]
 # enabled = true

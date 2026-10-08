@@ -151,6 +151,10 @@ function SignInContent() {
           <p className="mt-3 text-center text-xs text-gray-500 leading-relaxed">
             <Link href="/forgot-password" className="text-[#002147] underline">Forgot your password?</Link>
           </p>
+          <p className="mt-3 text-center text-sm text-gray-600 leading-relaxed">
+            Invited but haven’t set a password?{' '}
+            <Link href="/activate" className="font-medium text-[#002147] underline">Set up your account</Link>.
+          </p>
 
           <div className="mt-6 pt-6 border-t border-gray-100">
             <p className="text-xs text-gray-400 text-center leading-relaxed">

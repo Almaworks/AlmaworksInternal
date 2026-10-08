@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { setAccountPassword } from '@/src/auth/password-auth'
@@ -11,6 +11,7 @@ export default function AccountPasswordPage() {
 }
 
 function AccountPasswordContent() {
+  const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
   const searchParams = useSearchParams()
   const isReset = searchParams.get('reset') === '1'
@@ -37,7 +38,10 @@ function AccountPasswordContent() {
     setError(null)
     setSaved(false)
     const result = await setAccountPassword(supabase.auth, password, confirmation)
-    if (result.ok) { setPassword(''); setConfirmation(''); setSaved(true) }
+    if (result.ok) {
+      setPassword(''); setConfirmation(''); setSaved(true)
+      if (isReset) { router.push('/dashboard'); return }
+    }
     else setError(result.error)
     setLoading(false)
   }
@@ -46,7 +50,7 @@ function AccountPasswordContent() {
     <section className="w-full max-w-sm rounded-2xl bg-white p-8 text-gray-800 shadow-xl">
       <h1 className="text-2xl font-semibold text-[#002147]">{isReset ? 'Create a new password' : 'Change password'}</h1>
       {!checked ? <p role="status" className="mt-4">Checking your session…</p> : !authenticated ? <p className="mt-4">
-        Your reset link is no longer active. <Link href="/forgot-password" className="underline">Request a new password reset link</Link>.
+        Your setup or reset session is no longer active. <Link href="/activate" className="underline">Request a new setup code</Link> or <Link href="/forgot-password" className="underline">reset your password</Link>.
       </p> : <>
         <p className="my-4 text-sm text-gray-600">{isReset ? 'Choose a new password for your Almaworks account.' : 'Update the password you use to sign in to Almaworks.'} Use at least 12 characters.</p>
         <form onSubmit={save} className="space-y-4">

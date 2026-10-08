@@ -4,7 +4,7 @@ import { submitSequenzyNotification } from '../../notifications/sequenzy.ts';
 import { ReconciliationRequiredError } from './user-access.ts';
 
 type GeneratedInvitation = {
-  data: { user?: { id: string } | null; properties?: { hashed_token?: string } | null } | null;
+  data: { user?: { id: string } | null; properties?: { hashed_token?: string; email_otp?: string } | null } | null;
   error: { message: string } | null;
 };
 
@@ -66,25 +66,24 @@ export async function createAndDeliverMemberInvitation(input: {
   }
   const userId = link.data.user.id;
   const tokenHash = link.data.properties?.hashed_token;
-  if (!tokenHash) {
+  const code = link.data.properties?.email_otp;
+  if (!tokenHash || !code || !/^(?:\d{6}|\d{8})$/u.test(code)) {
     throw new ReconciliationRequiredError(
-      'Auth created an invitation without a verifiable token. Check the account before retrying.',
+      'Auth created an invitation without a usable verification code. Check the account before retrying.',
     );
   }
 
   await input.provision(userId);
 
-  callback.searchParams.set('token_hash', tokenHash);
-  callback.searchParams.set('type', 'invite');
   const name = escapeHtml(input.fullName);
-  const invitationUrl = escapeHtml(callback.toString());
+  const invitationUrl = escapeHtml(new URL('/activate?invite=1', origin).toString());
   let delivery: Awaited<ReturnType<typeof submitSequenzyNotification>>;
   try {
     delivery = await (input.submit ?? submitSequenzyNotification)({
       apiKey,
       to: input.email,
       subject: 'You are invited to Almaworks',
-      html: `<p>Hello ${name},</p><p>You have been invited to Almaworks. <a href="${invitationUrl}">Accept your invitation and create a password</a>.</p><p>If you were not expecting this invitation, you can ignore this email.</p>`,
+      html: `<p>Hello ${name},</p><p>You have been invited to Almaworks. <a href="${invitationUrl}">Set up your account</a> using this email address and the verification code below.</p><p style="font-size:28px;font-weight:bold;letter-spacing:6px">${code}</p><p>After verifying, create your password and complete your profile. This code expires and can only be used once. If it expires, request a fresh code on the setup screen.</p><p>If you were not expecting this invitation, you can ignore this email.</p>`,
     });
   } catch {
     throw new MemberInvitationDeliveryError('unknown');

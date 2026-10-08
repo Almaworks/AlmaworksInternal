@@ -22,7 +22,7 @@ function invitation(overrides: Partial<Parameters<typeof createAndDeliverMemberI
     generateLink: async (redirectTo: string) => {
       events.push('generate');
       assert.equal(redirectTo, `${origin}/auth/callback?next=%2Faccount%2Fpassword%3Freset%3D1`);
-      return { data: { user: { id: 'auth-user-1' }, properties: { hashed_token: tokenHash } }, error: null };
+      return { data: { user: { id: 'auth-user-1' }, properties: { hashed_token: tokenHash, email_otp: '123456' } }, error: null };
     },
     provision: async (userId: string) => {
       events.push('provision');
@@ -38,7 +38,7 @@ function invitation(overrides: Partial<Parameters<typeof createAndDeliverMemberI
   return { input, events, sent };
 }
 
-test('invitation provisions access before mailing a public token-hash link to password setup', async () => {
+test('invitation provisions access before mailing a code and permanent setup URL', async () => {
   const { input, events, sent } = invitation();
   assert.deepEqual(await createAndDeliverMemberInvitation(input), { userId: 'auth-user-1', emailSendId: 'send-1' });
   assert.deepEqual(events, ['generate', 'provision', 'submit']);
@@ -50,10 +50,22 @@ test('invitation provisions access before mailing a public token-hash link to pa
   assert.ok(encodedLink);
   const link = new URL(encodedLink.replaceAll('&amp;', '&'));
   assert.equal(link.origin, origin);
-  assert.equal(link.pathname, '/auth/callback');
-  assert.equal(link.searchParams.get('token_hash'), tokenHash);
-  assert.equal(link.searchParams.get('type'), 'invite');
-  assert.equal(link.searchParams.get('next'), '/account/password?reset=1');
+  assert.equal(link.pathname, '/activate');
+  assert.equal(link.searchParams.get('invite'), '1');
+  assert.equal(link.searchParams.has('token_hash'), false);
+  assert.match(sent[0]?.html ?? '', /123456/u);
+  assert.doesNotMatch(sent[0]?.html ?? '', /private-invite-token/u);
+});
+
+test('missing or malformed invitation code fails before provisioning or sending', async () => {
+  for (const email_otp of [undefined, '', '<secret>', '12345']) {
+    const { input, events } = invitation({ generateLink: async () => {
+      events.push('generate');
+      return { data: { user: { id: 'auth-user-1' }, properties: { hashed_token: tokenHash, email_otp } }, error: null };
+    } });
+    await assert.rejects(createAndDeliverMemberInvitation(input), /Check the account before retrying/u);
+    assert.deepEqual(events, ['generate']);
+  }
 });
 
 test('missing mail configuration creates no account or access', async () => {
