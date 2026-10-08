@@ -978,11 +978,11 @@ function AdminDashboardContent() {
                       Registered {new Date(u.created_at).toLocaleDateString()}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
                     <select
                       value={roleSelections[u.id] ?? ''}
                       onChange={e => setRoleSelections(prev => ({ ...prev, [u.id]: e.target.value }))}
-                      disabled={cohort.scope === 'all'}
+                      disabled={cohort.scope === 'all' || deletionLockedIds.has(u.id)}
                       className="text-sm text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <option value="">Select role…</option>
@@ -992,18 +992,25 @@ function AdminDashboardContent() {
                     </select>
                     <button
                       onClick={() => approveUser(u.id)}
-                      disabled={approving === u.id || !roleSelections[u.id] || cohort.scope === 'all'}
+                      disabled={approving === u.id || !roleSelections[u.id] || cohort.scope === 'all' || deletionLockedIds.has(u.id)}
                       className="px-4 py-2 bg-[#002147] text-white text-sm font-medium rounded-lg hover:bg-[#002147]/90 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
                     >
                       {approving === u.id ? '…' : 'Approve'}
                     </button>
                     <button
                       onClick={() => rejectUser(u.id)}
-                      disabled={cohort.scope === 'all'}
+                      disabled={cohort.scope === 'all' || deletionLockedIds.has(u.id)}
                       className="px-4 py-2 text-sm font-medium text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Reject
                     </button>
+                    {isSuperAdmin && u.id !== currentAuthUserId && <MemberDeletionControl
+                      profileId={u.id}
+                      onLocked={() => { setCompletedDeletionId(null); setDeletionLockedIds(current => new Set(current).add(u.id)) }}
+                      onReady={() => setDeletionLockedIds(current => { const next = new Set(current); next.delete(u.id); return next })}
+                      onCompleted={() => { setCompletedDeletionId(u.id); setPendingUsers(current => current.filter(profile => profile.id !== u.id)) }}
+                      onChanged={refreshMemberLoginReadModels}
+                    />}
                   </div>
                 </div>
               ))}
