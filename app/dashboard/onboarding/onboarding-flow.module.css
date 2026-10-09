@@ -12,8 +12,9 @@
   --paper: #fffefa;
   display: grid;
   grid-template-columns: minmax(18rem, .72fr) minmax(32rem, 1.28fr);
-  min-height: calc(100vh - 4rem);
-  margin: -2rem 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0;
   color: var(--ink);
   background: #f7f6f2;
 }
@@ -131,7 +132,7 @@ label .hint { font-weight: 500; }
 }
 
 @media (max-width: 720px) {
-  .shell { display: block; min-height: calc(100vh - 6.2rem); margin: -1rem 0; }
+  .shell { display: flex; flex-direction: column; }
   .contextPanel { min-height: auto; padding: 1.2rem; }
   .contextCopy { margin: 1.5rem 0 1rem; }
   .contextCopy h1 { font-size: 1.7rem; }
@@ -141,7 +142,7 @@ label .hint { font-weight: 500; }
   .steps li > span { width: 1.65rem; height: 1.65rem; }
   .steps small { display: none; }
   .steps strong { font-size: .6rem; }
-  .formPanel { min-height: 68vh; }
+  .formPanel { flex: 1; min-height: 68vh; }
   .formBody { padding: 1.8rem 1.2rem; }
   .fieldGrid { grid-template-columns: 1fr; gap: 0; }
   .windowList > button { grid-template-columns: 1.4rem 4.5rem 1fr; }
