@@ -7,7 +7,7 @@ test("Semesters rejects ordinary admins and failed lookups, allowing only approv
   const base = { authenticated: true, profile: { role: "admin" as const, status: "approved", is_active: true }, authority: { isSuperAdmin: false, hasActiveSemesterAdminMembership: true, lookupFailed: false } };
   assert.equal(access.resolveSuperAdminRouteAccess(base), "/dashboard/admin");
   assert.equal(access.resolveSuperAdminRouteAccess({ ...base, authority: { ...base.authority, isSuperAdmin: true } }), null);
-  assert.equal(access.resolveSuperAdminRouteAccess({ ...base, authority: { ...base.authority, isSuperAdmin: true, lookupFailed: true } }), "/pending");
+  assert.equal(access.resolveSuperAdminRouteAccess({ ...base, authority: { ...base.authority, isSuperAdmin: true, lookupFailed: true } }), "/membership-unavailable");
   assert.equal(access.resolveSuperAdminRouteAccess({ ...base, authenticated: false }), "/");
   assert.equal(access.resolveSuperAdminRouteAccess({ ...base, profile: { role: "admin", status: "pending", is_active: true } }), "/pending");
 });

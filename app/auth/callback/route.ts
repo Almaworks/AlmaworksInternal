@@ -4,6 +4,7 @@ import { resolvePostLoginDestination } from '@/src/auth/profile-access'
 import { resolvePasswordResetDestination } from '@/src/auth/password-auth'
 import { callbackErrorDestination } from '@/src/auth/auth-errors'
 import { emailConfirmationHtml } from '@/src/auth/email-confirmation'
+import { needsFirstSignInPassword } from '@/src/auth/first-sign-in'
 
 export async function GET(request: NextRequest) {
   return handleCallback(request)
@@ -132,6 +133,7 @@ async function handleCallback(request: NextRequest, confirmation?: { type: 'invi
   let dest: string
 
   if (lookupFailed) dest = '/?error=identity_lookup_failed'
+  else if (profile?.status === 'approved' && role && needsFirstSignInPassword(session.user)) dest = '/account/password?setup=1'
   else dest = resolvePostLoginDestination(profile ? { ...profile, role } : null)
 
   const response = NextResponse.redirect(new URL(dest, origin))

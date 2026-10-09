@@ -531,7 +531,7 @@ ALTER FUNCTION "public"."create_semester_draft"("p_source_semester_id" "uuid", "
 CREATE OR REPLACE FUNCTION "public"."handle_new_user"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
-    AS $$ begin insert into public.profiles(id,auth_user_id,email,role,status,full_name) values(new.id,new.id,lower(new.email),'startup'::public.user_role,'pending',coalesce(new.raw_user_meta_data->>'full_name',new.raw_user_meta_data->>'name')) on conflict(id) do update set auth_user_id=excluded.auth_user_id,email=excluded.email,full_name=coalesce(public.profiles.full_name,excluded.full_name),updated_at=now(); return new; end; $$;
+    AS $$ begin insert into public.profiles(id,auth_user_id,email,role,status,full_name) values(new.id,new.id,lower(new.email),'startup'::public.user_role,case when new.raw_user_meta_data->>'access_request_submitted' = 'true' then 'pending' else 'unregistered' end,coalesce(new.raw_user_meta_data->>'full_name',new.raw_user_meta_data->>'name')) on conflict(id) do update set auth_user_id=excluded.auth_user_id,email=excluded.email,full_name=coalesce(public.profiles.full_name,excluded.full_name),updated_at=now(); return new; end; $$;
 
 
 ALTER FUNCTION "public"."handle_new_user"() OWNER TO "postgres";
@@ -1204,6 +1204,9 @@ declare
   v_existing_status text;
   v_membership_id uuid;
 begin
+  if auth.uid() is not null and p_actor_profile_id is distinct from private.current_profile_id() then
+    raise exception 'Authenticated actor does not match administrator' using errcode = '42501';
+  end if;
   if p_actor_profile_id is null or not private.actor_can_manage_semester(p_semester_id, p_actor_profile_id) then
     raise exception 'Semester administrator access required' using errcode = '42501';
   end if;
@@ -1225,7 +1228,7 @@ begin
   if not p_approve and v_membership_id is null then
     raise exception 'Semester member not found' using errcode = 'P0002';
   end if;
-  if v_membership_id is null and v_existing_status is distinct from 'pending' then
+  if v_membership_id is null and (not p_approve or v_existing_status not in ('unregistered', 'pending', 'approved', 'rejected')) then
     raise exception 'Pending Auth-triggered profile is required' using errcode = '23514';
   end if;
   if v_membership_id is null and (
@@ -1258,6 +1261,7 @@ begin
     update public.profiles
     set status = 'approved',
         is_active = true,
+        full_name = coalesce(nullif(trim(p_full_name), ''), full_name),
         updated_at = now()
     where id = p_profile_id;
   else
@@ -2282,7 +2286,7 @@ CREATE TABLE IF NOT EXISTS "public"."profiles" (
     "status" "text" DEFAULT 'pending'::"text" NOT NULL,
     "is_active" boolean DEFAULT true NOT NULL,
     CONSTRAINT "profiles_photo_path_check" CHECK (("photo_path" IS NULL) OR ("photo_path" ~ (('^'::"text" || ("id")::"text") || '/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png|webp)$'::"text"))),
-    CONSTRAINT "profiles_status_check" CHECK (("status" = ANY (ARRAY['pending'::"text", 'approved'::"text", 'rejected'::"text"])))
+    CONSTRAINT "profiles_status_check" CHECK (("status" = ANY (ARRAY['unregistered'::"text", 'pending'::"text", 'approved'::"text", 'rejected'::"text"])))
 );
 
 
@@ -3509,6 +3513,7 @@ REVOKE ALL ON FUNCTION "public"."set_platform_super_admin"("p_profile_id" "uuid"
 
 REVOKE ALL ON FUNCTION "public"."set_semester_member_access"("p_actor_profile_id" "uuid", "p_profile_id" "uuid", "p_semester_id" "uuid", "p_role" "public"."user_role", "p_approve" boolean, "p_full_name" "text", "p_email" "text") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."set_semester_member_access"("p_actor_profile_id" "uuid", "p_profile_id" "uuid", "p_semester_id" "uuid", "p_role" "public"."user_role", "p_approve" boolean, "p_full_name" "text", "p_email" "text") TO "service_role";
+GRANT EXECUTE ON FUNCTION "public"."set_semester_member_access"("p_actor_profile_id" "uuid", "p_profile_id" "uuid", "p_semester_id" "uuid", "p_role" "public"."user_role", "p_approve" boolean, "p_full_name" "text", "p_email" "text") TO "authenticated";
 
 
 

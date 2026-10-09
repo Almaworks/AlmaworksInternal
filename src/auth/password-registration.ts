@@ -8,7 +8,7 @@ type PasswordRegistrationAuth = {
   signUp(credentials: {
     email: string
     password: string
-    options: { data: { full_name: string; requested_role: RegistrationPreference } }
+    options: { data: { full_name: string; requested_role: RegistrationPreference; access_request_submitted: true } }
   }): Promise<{
     data: { user: { id: string } | null; session: unknown | null }
     error: AuthError | null
@@ -53,7 +53,7 @@ export async function requestPasswordRegistration(
     const { error } = await auth.signUp({
       email,
       password: input.password,
-      options: { data: { full_name: fullName, requested_role: input.requestedRole } },
+      options: { data: { full_name: fullName, requested_role: input.requestedRole, access_request_submitted: true } },
     })
     if (error && !isExistingAccountError(error)) {
       return { ok: false, error: 'Unable to submit your request. Check your details and try again.' }

@@ -151,6 +151,8 @@ function AdminDashboardContent() {
   const [addRole, setAddRole] = useState<'mentor' | 'startup' | 'admin' | ''>('')
   const [addLoading, setAddLoading] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
+  const [restoreRequired, setRestoreRequired] = useState(false)
+  const [restoreAccess, setRestoreAccess] = useState(false)
   const [addSuccess, setAddSuccess] = useState<string | null>(null)
 
   // Edit user form
@@ -432,14 +434,16 @@ function AdminDashboardContent() {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ email: addEmail, fullName: addName, role: addRole }),
+      body: JSON.stringify({ email: addEmail, fullName: addName, role: addRole, restoreAccess }),
     })
     const json = await res.json()
 
     if (!res.ok) {
       setAddError(json.error ?? 'Something went wrong.')
+      setRestoreRequired(json.restoreRequired === true)
     } else {
-      setAddSuccess(`Invite sent to ${addEmail}. They can sign in once they click the link.`)
+      setAddSuccess(json.alreadyAdded ? `${addEmail} already has access in this cohort.` : `Access added for ${addEmail}. They can begin setup from the sign-in page.${json.notification === 'accepted' ? ' Welcome email submitted.' : ' Welcome email was not confirmed; their access is saved.'}`)
+      setRestoreRequired(false); setRestoreAccess(false)
       setAddName('')
       setAddEmail('')
       setAddRole('')
@@ -1032,7 +1036,7 @@ function AdminDashboardContent() {
               Manage membership access for the selected cohort.
             </p>
             <button
-              onClick={() => { setShowAddUser(v => !v); setAddError(null); setAddSuccess(null) }}
+              onClick={() => { setShowAddUser(v => !v); setAddError(null); setAddSuccess(null); setRestoreRequired(false); setRestoreAccess(false) }}
               className="flex items-center gap-1.5 px-4 py-2 bg-[#002147] text-white text-sm font-medium rounded-xl hover:bg-[#002147]/90 transition-colors shrink-0"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1068,7 +1072,7 @@ function AdminDashboardContent() {
                     required
                     placeholder="jane@example.com"
                     value={addEmail}
-                    onChange={e => setAddEmail(e.target.value)}
+                    onChange={e => { setAddEmail(e.target.value); setRestoreRequired(false); setRestoreAccess(false); setAddError('') }}
                     className="w-full text-sm text-gray-800 placeholder:text-gray-400 border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
                   />
                 </div>
@@ -1089,6 +1093,7 @@ function AdminDashboardContent() {
               </div>
 
               {addError && <p className="text-xs text-red-500">{addError}</p>}
+              {restoreRequired && <label className="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={restoreAccess} onChange={event => setRestoreAccess(event.target.checked)} />Restore this account’s access and add the selected role</label>}
               {addSuccess && <p className="text-xs text-green-600">{addSuccess}</p>}
 
               <div className="flex items-center gap-2 pt-1">
@@ -1097,11 +1102,11 @@ function AdminDashboardContent() {
                   disabled={addLoading}
                   className="px-4 py-2 bg-[#002147] text-white text-sm font-medium rounded-lg hover:bg-[#002147]/90 disabled:opacity-60 transition-colors"
                 >
-                  {addLoading ? 'Sending invite…' : 'Send invite'}
+                  {addLoading ? 'Adding member…' : restoreRequired ? 'Restore and add member' : 'Add member'}
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setShowAddUser(false); setAddError(null); setAddSuccess(null) }}
+                  onClick={() => { setShowAddUser(false); setAddError(null); setAddSuccess(null); setRestoreRequired(false); setRestoreAccess(false) }}
                   className="px-4 py-2 text-sm font-medium text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
                 >
                   Cancel

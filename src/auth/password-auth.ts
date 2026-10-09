@@ -103,14 +103,14 @@ export async function passwordSignIn(auth: PasswordSignInAuth, email: string, pa
 }
 
 export async function setAccountPassword(
-  auth: { updateUser(attributes: { password: string }): Promise<{ error: { message: string } | null }> },
+  auth: { updateUser(attributes: { password: string; data: { almaworks_password_ready: true } }): Promise<{ error: { message: string } | null }> },
   password: string,
   confirmation: string,
 ): Promise<AuthResult> {
   if (password.length < 12) return { ok: false, error: 'Use at least 12 characters.' }
   if (password !== confirmation) return { ok: false, error: 'Passwords do not match.' }
   try {
-    const { error } = await auth.updateUser({ password })
+    const { error } = await auth.updateUser({ password, data: { almaworks_password_ready: true } })
     if (error) return { ok: false, error: error.message }
     return { ok: true }
   } catch {

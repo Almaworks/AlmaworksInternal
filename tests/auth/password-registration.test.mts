@@ -18,6 +18,7 @@ test('registration normalizes identity fields and sends only approved metadata',
         data: {
           full_name: 'Ada Founder',
           requested_role: 'startup',
+          access_request_submitted: true,
         },
       },
     })

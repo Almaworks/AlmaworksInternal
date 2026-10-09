@@ -270,6 +270,10 @@ export async function authorizeSemesterMemberIdentityUpdate(
   }, "Unable to authorize member identity update.");
 }
 
+export async function requestOwnAccess(client: AdminClient, fullName: string) {
+  return runUuidRpc(client, 'request_own_access', { p_full_name: fullName }, 'Unable to submit access request.');
+}
+
 export type UpdateStartupRecordsInput = {
   description: string | null;
   industry: string | null;

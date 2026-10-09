@@ -7,6 +7,7 @@ import { resolvePostLoginDestination, shouldRenderAuthError } from '@/src/auth/p
 import { needsParticipantOnboarding } from '@/src/auth/participant-onboarding-gate'
 import { isAuthServiceUnavailable } from '@/src/auth/auth-errors'
 import { loadCanonicalAccess } from '@/src/program/canonical-access'
+import { needsFirstSignInPassword } from '@/src/auth/first-sign-in'
 
 export async function proxy(req: NextRequest) {
   let res = NextResponse.next({ request: req })
@@ -47,6 +48,7 @@ export async function proxy(req: NextRequest) {
   // Membership and account-state reads below remain request-fresh and RLS-backed.
   const { data: verified, error: claimsError } = await supabase.auth.getClaims()
   const userId = !claimsError && typeof verified?.claims.sub === 'string' ? verified.claims.sub : null
+  const passwordSetupNeeded = userId && needsFirstSignInPassword({ app_metadata: verified?.claims.app_metadata, user_metadata: verified?.claims.user_metadata })
   if (isAuthServiceUnavailable(claimsError) && (pathname.startsWith('/dashboard') || pathname === '/pending' || pathname === '/')) {
     return redirect(new URL('/?error=auth_unavailable', req.url))
   }
@@ -121,7 +123,8 @@ export async function proxy(req: NextRequest) {
     if (userId) {
       try {
         const access = await getAccess()
-        return redirect(new URL(resolvePostLoginDestination(access), req.url))
+        const destination = resolvePostLoginDestination(access)
+        return redirect(new URL(access?.status === 'approved' && access.role && passwordSetupNeeded ? '/account/password?setup=1' : destination, req.url))
       } catch (error) {
         console.error('Unable to resolve authenticated profile access', error)
         return redirect(new URL('/?error=identity_lookup_failed', req.url))
@@ -131,13 +134,13 @@ export async function proxy(req: NextRequest) {
   }
 
   // Pending page — must be signed in; redirect away if already approved
-  if (pathname === '/pending') {
+  if (['/pending', '/access-rejected', '/membership-unavailable'].includes(pathname)) {
     if (!userId) return redirect(new URL('/', req.url))
 
     try {
       const access = await getAccess()
       const destination = resolvePostLoginDestination(access)
-      if (destination !== '/pending') return redirect(new URL(destination, req.url))
+      if (destination !== pathname) return redirect(new URL(destination, req.url))
     } catch (error) {
       console.error('Unable to resolve authenticated profile access', error)
       return redirect(new URL('/?error=identity_lookup_failed', req.url))
@@ -156,8 +159,12 @@ export async function proxy(req: NextRequest) {
       const { data: account, error } = await supabase.from('profiles')
         .select('status,is_active').eq('auth_user_id', userId).maybeSingle()
       if (error) return redirect(new URL('/?error=identity_lookup_failed', req.url))
-      if (!account || account.status !== 'approved') return redirect(new URL('/pending', req.url))
+      if (!account || account.status !== 'approved') {
+        const access = await getAccess()
+        return redirect(new URL(resolvePostLoginDestination(access), req.url))
+      }
       if (!account.is_active) return redirect(new URL('/?error=account_inactive', req.url))
+      if (passwordSetupNeeded) return redirect(new URL('/account/password?setup=1', req.url))
       return res
     }
 
@@ -174,7 +181,8 @@ export async function proxy(req: NextRequest) {
       return redirect(new URL(accessDestination, req.url))
     }
 
-    if (!profile.role) return redirect(new URL('/pending', req.url))
+    if (!profile.role) return redirect(new URL(accessDestination, req.url))
+    if (passwordSetupNeeded) return redirect(new URL('/account/password?setup=1', req.url))
 
     const onboardingState = await getOnboardingState(profile)
     if (pathname === '/dashboard/onboarding') {

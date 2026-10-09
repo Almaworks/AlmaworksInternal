@@ -3281,6 +3281,7 @@ export type Database = {
         Args: { p_semester_id: string; p_topic: string; p_window_id: string }
         Returns: string
       }
+      request_own_access: { Args: { p_full_name: string }; Returns: string }
       reserve_outreach_email_message: {
         Args: {
           p_body: string
@@ -3871,3 +3872,4 @@ export const Constants = {
     },
   },
 } as const
+

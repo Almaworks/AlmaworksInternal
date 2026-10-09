@@ -79,11 +79,12 @@ test("existing member updates cannot insert arbitrary targets or corrupt depende
   assert.match(body, /is_super_admin\(p_profile_id\)[\s\S]*is_super_admin\(p_actor_profile_id\)/u);
 });
 
-test("approval cannot provision an arbitrary existing profile through the direct RPC", () => {
+test("adding existing identities requires the authenticated administrator and matching email", () => {
   const body = functionBody("set_semester_member_access");
   assert.match(body, /select[\s\S]*profile\.email[\s\S]*profile\.status[\s\S]*from public\.profiles profile/u);
   assert.match(body, /not p_approve and v_membership_id is null[\s\S]*semester member not found/u);
-  assert.match(body, /v_membership_id is null[\s\S]*v_existing_status is distinct from 'pending'[\s\S]*pending auth-triggered profile is required/u);
+  assert.match(body, /auth\.uid\(\) is not null[\s\S]*p_actor_profile_id is distinct from private\.current_profile_id\(\)/u);
+  assert.match(body, /v_membership_id is null[\s\S]*not p_approve[\s\S]*v_existing_status not in \('unregistered', 'pending', 'approved', 'rejected'\)/u);
   assert.match(body, /lower\(v_existing_email\) is distinct from lower\(trim\(p_email\)\)[\s\S]*profile email does not match/u);
   assert.match(body, /if p_approve then[\s\S]*status = 'approved'[\s\S]*else[\s\S]*set email = coalesce\(nullif\(trim\(p_email\), ''\), email\)/u);
 });

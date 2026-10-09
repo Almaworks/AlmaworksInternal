@@ -5,6 +5,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const defaultMigrationDirectory = resolve(repositoryRoot, "supabase", "migrations");
 const reviewedPostCutoverMigrations = [
+  // Generated first-sign-in workflow; authenticated actor guards and owner-only requests reviewed.
+  "20261009025054_first_sign_in_member_access.sql",
   "20260901205013_allow_mentor_profile_self_service_updates.sql",
   "20260901215752_archive_outreach_contacts.sql",
   "20260901220211_exclude_archived_outreach_carry_forward.sql",

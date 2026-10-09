@@ -48,9 +48,9 @@ test('password setup rejects mismatch and short passwords before calling auth', 
   assert.equal((await setAccountPassword(auth, 'short', 'short')).ok, false)
 })
 
-test('password setup updates only password and handles provider rejection', async () => {
+test('password setup marks setup complete and handles provider rejection', async () => {
   const result = await setAccountPassword({ updateUser: async (attributes) => {
-    assert.deepEqual(attributes, { password: 'new-long-password' })
+    assert.deepEqual(attributes, { password: 'new-long-password', data: { almaworks_password_ready: true } })
     return { error: null }
   } }, 'new-long-password', 'new-long-password')
   assert.equal(result.ok, true)

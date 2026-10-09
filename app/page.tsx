@@ -5,8 +5,10 @@ import { AlmaworksBrand } from '@/components/AlmaworksBrand'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { Suspense, useMemo, useState } from 'react'
-import { passwordSignIn } from '@/src/auth/password-auth'
+import { passwordSignIn, verifyAccountSetupCode } from '@/src/auth/password-auth'
 import { rememberRegistrationEmail } from '@/src/auth/password-registration'
+import { loadCanonicalAccess } from '@/src/program/canonical-access'
+import { resolvePostLoginDestination } from '@/src/auth/profile-access'
 
 export default function SignInPage() {
   return (
@@ -42,6 +44,28 @@ function SignInContent() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(initialError)
   const [loading, setLoading] = useState(false)
+  const [step, setStep] = useState<'email' | 'password' | 'code'>('email')
+  const [code, setCode] = useState('')
+  const [resendAt, setResendAt] = useState(0)
+
+  async function beginSignIn() {
+    const response = await fetch('/api/auth/sign-in/start', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
+    })
+    const body = await response.json() as { mode?: 'password' | 'code'; error?: string }
+    if (!response.ok || !body.mode) throw new Error(body.error ?? 'Unable to start sign-in.')
+    setStep(body.mode)
+    setCode('')
+    if (body.mode === 'code') setResendAt(Date.now() + 60_000)
+  }
+
+  async function resendCode() {
+    if (loading) return
+    if (Date.now() < resendAt) { setError('Please wait a minute before requesting another code.'); return }
+    setLoading(true); setError(null)
+    try { await beginSignIn() } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to send code.') }
+    finally { setLoading(false) }
+  }
 
   async function signInWithGoogle() {
     if (loading) return
@@ -64,6 +88,24 @@ function SignInContent() {
     if (loading) return
     setError(null)
     setLoading(true)
+    if (step === 'email') {
+      try { await beginSignIn() } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to start sign-in.') }
+      finally { setLoading(false) }
+      return
+    }
+    if (step === 'code') {
+      const verified = await verifyAccountSetupCode(supabase.auth, email, code, 'email')
+      if (verified.ok) {
+        try {
+          const { data, error: identityError } = await supabase.auth.getUser()
+          if (identityError || !data.user) throw new Error('Your verification session could not be confirmed.')
+          const access = await loadCanonicalAccess(supabase, data.user.id)
+          window.location.assign(access?.status === 'approved' && access.role ? '/account/password?setup=1' : resolvePostLoginDestination(access))
+          return
+        } catch { setError('Your email is verified, but your account could not be loaded. Please try signing in again.'); setLoading(false); return }
+      }
+      setError(verified.error); setLoading(false); return
+    }
     const result = await passwordSignIn(supabase.auth, email, password)
     setPassword('')
     if (result.ok) {
@@ -128,15 +170,23 @@ function SignInContent() {
               type="email"
               placeholder="Email"
               value={email}
-              onChange={e => setEmail(e.target.value)}
+              onChange={e => { setEmail(e.target.value); setStep('email'); setPassword(''); setCode(''); setError(null) }}
+              disabled={loading}
               required
               className="w-full text-sm text-gray-800 placeholder:text-gray-500 border border-gray-300 rounded-xl px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40"
             />
 
-            <label htmlFor="sign-in-password" className="block text-sm text-gray-700">Password</label>
+            {step === 'password' && <><label htmlFor="sign-in-password" className="block text-sm text-gray-700">Password</label>
             <input id="sign-in-password" type="password" autoComplete="current-password"
               value={password} onChange={e => setPassword(e.target.value)} required
-              className="w-full text-sm text-gray-800 border border-gray-300 rounded-xl px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40" />
+              className="w-full text-sm text-gray-800 border border-gray-300 rounded-xl px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-[#75AADB]/40" /></>}
+            {step === 'code' && <>
+              <p role="status" className="text-sm text-gray-600">Enter the fresh code from your email to begin account setup.</p>
+              <label htmlFor="sign-in-code" className="block text-sm text-gray-700">Verification code</label>
+              <input id="sign-in-code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}|[0-9]{8}" maxLength={8} required value={code} disabled={loading}
+                onChange={event => setCode(event.target.value.replace(/\D/gu, '').slice(0, 8))}
+                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-center text-xl tracking-widest text-gray-900" />
+            </>}
 
             {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
 
@@ -145,15 +195,16 @@ function SignInContent() {
               disabled={loading}
               className="w-full py-3 bg-[#002147] text-white text-sm font-medium rounded-xl hover:bg-[#002147]/90 disabled:opacity-60 transition-colors"
             >
-              {loading ? 'Signing in…' : 'Sign in'}
+              {loading ? 'Please wait…' : step === 'email' ? 'Continue' : step === 'code' ? 'Verify and continue' : 'Sign in'}
             </button>
           </form>
+          {step === 'code' && <button type="button" onClick={() => void resendCode()} disabled={loading} className="mt-3 w-full text-sm text-[#002147] underline">Request a new code</button>}
           <p className="mt-3 text-center text-xs text-gray-500 leading-relaxed">
             <Link href="/forgot-password" className="text-[#002147] underline">Forgot your password?</Link>
           </p>
           <p className="mt-3 text-center text-sm text-gray-600 leading-relaxed">
             Invited but haven’t set a password?{' '}
-            <Link href="/activate" className="font-medium text-[#002147] underline">Set up your account</Link>.
+            Enter your email and choose Continue to begin setup.
           </p>
 
           <div className="mt-6 pt-6 border-t border-gray-100">

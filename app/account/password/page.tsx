@@ -15,6 +15,7 @@ function AccountPasswordContent() {
   const supabase = useMemo(() => createClient(), [])
   const searchParams = useSearchParams()
   const isReset = searchParams.get('reset') === '1'
+  const isSetup = searchParams.get('setup') === '1'
   const [authenticated, setAuthenticated] = useState(false)
   const [checked, setChecked] = useState(false)
   const [password, setPassword] = useState('')
@@ -40,7 +41,9 @@ function AccountPasswordContent() {
     const result = await setAccountPassword(supabase.auth, password, confirmation)
     if (result.ok) {
       setPassword(''); setConfirmation(''); setSaved(true)
-      if (isReset) { router.push('/dashboard'); return }
+      const refreshed = await supabase.auth.refreshSession()
+      if (refreshed.error) { setError('Your password was saved. Please sign in again to continue.'); setLoading(false); return }
+      if (isReset || isSetup) { router.push('/dashboard'); router.refresh(); return }
     }
     else setError(result.error)
     setLoading(false)
@@ -48,11 +51,11 @@ function AccountPasswordContent() {
 
   return <main className="min-h-screen bg-[#002147] flex items-center justify-center px-4 py-12">
     <section className="w-full max-w-sm rounded-2xl bg-white p-8 text-gray-800 shadow-xl">
-      <h1 className="text-2xl font-semibold text-[#002147]">{isReset ? 'Create a new password' : 'Change password'}</h1>
+      <h1 className="text-2xl font-semibold text-[#002147]">{isSetup ? 'Create your password' : isReset ? 'Create a new password' : 'Change password'}</h1>
       {!checked ? <p role="status" className="mt-4">Checking your session…</p> : !authenticated ? <p className="mt-4">
         Your setup or reset session is no longer active. <Link href="/activate" className="underline">Request a new setup code</Link> or <Link href="/forgot-password" className="underline">reset your password</Link>.
       </p> : <>
-        <p className="my-4 text-sm text-gray-600">{isReset ? 'Choose a new password for your Almaworks account.' : 'Update the password you use to sign in to Almaworks.'} Use at least 12 characters.</p>
+        <p className="my-4 text-sm text-gray-600">{isSetup ? 'Your email is verified. Create your password, then continue to onboarding.' : isReset ? 'Choose a new password for your Almaworks account.' : 'Update the password you use to sign in to Almaworks.'} Use at least 12 characters.</p>
         <form onSubmit={save} className="space-y-4">
           <label className="block text-sm">New password
             <input type="password" autoComplete="new-password" minLength={12} required value={password}
@@ -70,7 +73,7 @@ function AccountPasswordContent() {
             {loading ? 'Saving…' : 'Save password'}
           </button>
         </form>
-        <Link href="/dashboard" className="mt-6 block text-sm underline">Return to dashboard</Link>
+        {!isSetup && <Link href="/dashboard" className="mt-6 block text-sm underline">Return to dashboard</Link>}
       </>}
     </section>
   </main>

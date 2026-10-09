@@ -1,3 +1,4 @@
+import { resolvePostLoginDestination } from './profile-access.ts';
 export type ProfileRole = "admin" | "mentor" | "startup" | null;
 
 export type AdminRouteProfile = {
@@ -23,14 +24,15 @@ export function isAdminDashboardPath(pathname: string): boolean {
 export function resolveAdminRouteAccess(input: AdminRouteAccessInput): string | null {
   if (!input.authenticated) return "/";
   if (input.profile?.is_active === false) return '/?error=account_inactive';
-  if (!input.profile || input.profile.status !== "approved") return "/pending";
+  if (!input.profile) return '/?error=identity_link_missing';
+  if (input.profile.status !== "approved") return resolvePostLoginDestination({ ...input.profile, status: input.profile.status ?? '' });
   if (
     !input.authority.lookupFailed
     && (input.authority.isSuperAdmin || input.authority.hasActiveSemesterAdminMembership)
   ) return null;
   if (input.profile.role === "mentor") return "/dashboard/mentor";
   if (input.profile.role === "startup") return "/dashboard/startup";
-  return "/pending";
+  return "/membership-unavailable";
 }
 
 export function resolveSuperAdminRouteAccess(input: AdminRouteAccessInput): string | null {

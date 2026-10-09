@@ -60,7 +60,7 @@ test("an active semester-admin grant allows access even when the legacy profile 
   }), null);
 });
 
-test("an admin-looking legacy profile without an authoritative grant is denied", () => {
+test("an admin-looking legacy profile without an authoritative grant needs membership attention", () => {
   assert.equal(resolveAdminRouteAccess({
     authenticated: true,
     profile: { role: "admin", status: "approved", is_active: true },
@@ -69,7 +69,7 @@ test("an admin-looking legacy profile without an authoritative grant is denied",
       hasActiveSemesterAdminMembership: false,
       lookupFailed: false,
     },
-  }), "/pending");
+  }), "/membership-unavailable");
 });
 
 test("a failed authoritative lookup denies access and uses legacy role only for redirect", () => {
@@ -81,7 +81,7 @@ test("a failed authoritative lookup denies access and uses legacy role only for 
       hasActiveSemesterAdminMembership: false,
       lookupFailed: true,
     },
-  }), "/pending");
+  }), "/membership-unavailable");
 });
 
 test("denied mentor and startup profiles are redirected to their own dashboards", () => {
@@ -114,5 +114,5 @@ test("unauthenticated and unapproved users cannot render admin routes", () => {
     profile: { role: "admin", status: "pending", is_active: true },
     authority: { ...authority, isSuperAdmin: true },
   }), "/pending");
-  assert.equal(resolveAdminRouteAccess({ authenticated: true, profile: null, authority }), "/pending");
+  assert.equal(resolveAdminRouteAccess({ authenticated: true, profile: null, authority }), "/?error=identity_link_missing");
 });

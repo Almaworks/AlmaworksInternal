@@ -6,6 +6,7 @@ import * as adminRoute from "../../src/auth/admin-route.ts";
 import * as profileAccess from "../../src/auth/profile-access.ts";
 import * as authErrors from "../../src/auth/auth-errors.ts";
 import * as onboarding from "../../src/auth/participant-onboarding-gate.ts";
+import * as firstSignIn from "../../src/auth/first-sign-in.ts";
 
 type Result = { cookies: { getAll: () => { name: string; value: string }[]; set: (cookie: { name: string; value: string }) => void }; kind: "next" | "redirect"; url?: URL };
 type RequestStub = { cookies: { set: () => void }; url: string; nextUrl: URL };
@@ -50,6 +51,7 @@ function harness(options: { role?: "mentor" | "startup" | "admin"; invalidClaims
     "@/src/auth/auth-errors": authErrors,
     "@/src/auth/profile-access": profileAccess,
     "@/src/auth/participant-onboarding-gate": onboarding,
+    "@/src/auth/first-sign-in": firstSignIn,
     "@/src/program/canonical-access": { loadCanonicalAccess: async (_client: unknown, userId: string) => {
       assert.equal(userId, "verified-user");
       calls.push("access");

@@ -8,17 +8,17 @@ type ApprovePayload = { userId: string; role: 'mentor' | 'startup' | 'admin' }
 
 export async function POST(request: Request) {
   try {
-    const { user, profileId, userClient, adminClient } = await requireAuthenticatedUser(request)
+    const { user, profileId, userClient } = await requireAuthenticatedUser(request)
     const semesterId = await requireActiveSemesterAdmin(userClient, user.id)
     const { userId, role } = (await request.json()) as ApprovePayload
     if (!userId || !['mentor', 'startup', 'admin'].includes(role)) {
       return NextResponse.json({ error: 'userId and a valid role are required.' }, { status: 400 })
     }
-    const profileResult = await adminClient.from('profiles').select('email,full_name').eq('id', userId).single()
+    const profileResult = await userClient.from('profiles').select('email,full_name').eq('id', userId).eq('status', 'pending').single()
     if (profileResult.error || !profileResult.data) {
       return NextResponse.json({ error: 'Pending profile not found.' }, { status: 404 })
     }
-    await setSemesterMemberAccess(adminClient, {
+    await setSemesterMemberAccess(userClient, {
       actorProfileId: profileId,
       approve: true,
       email: profileResult.data.email,

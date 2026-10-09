@@ -8,7 +8,10 @@ import {
 } from '@/src/auth/password-registration'
 import { createClient } from '@/utils/supabase/client'
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { authenticatedFetch } from '@/src/auth/authenticated-fetch'
+import { loadCanonicalAccess } from '@/src/program/canonical-access'
+import { resolvePostLoginDestination } from '@/src/auth/profile-access'
 
 export default function RequestAccessPage() {
   const supabase = useMemo(() => createClient(), [])
@@ -18,6 +21,24 @@ export default function RequestAccessPage() {
   const [requestedRole, setRequestedRole] = useState<RegistrationPreference>('startup')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [signedIn, setSignedIn] = useState(false)
+  const [checking, setChecking] = useState(true)
+  useEffect(() => {
+    let active = true
+    async function check() {
+      try {
+        const { data, error: authError } = await supabase.auth.getUser()
+        if (!active || authError || !data.user) return
+        const access = await loadCanonicalAccess(supabase, data.user.id)
+        if (!active) return
+        if (access && access.status !== 'unregistered') { window.location.replace(resolvePostLoginDestination(access)); return }
+        setSignedIn(true); setEmail(data.user.email ?? ''); setFullName(access?.full_name ?? '')
+      } catch { if (active) setError('Unable to check your account. Please refresh before requesting access.') }
+      finally { if (active) setChecking(false) }
+    }
+    void check()
+    return () => { active = false }
+  }, [supabase])
 
   async function continueWithGoogle() {
     if (loading) return
@@ -26,7 +47,7 @@ export default function RequestAccessPage() {
     try {
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo: `${window.location.origin}/auth/callback` },
+        options: { redirectTo: `${window.location.origin}/auth/callback?next=/request-access` },
       })
       if (oauthError) {
         setError('Unable to continue with Google. Please try again.')
@@ -40,9 +61,23 @@ export default function RequestAccessPage() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
-    if (loading) return
+    if (loading || checking) return
     setError(null)
     setLoading(true)
+    if (signedIn) {
+      try {
+        const preference = await supabase.auth.updateUser({ data: { requested_role: requestedRole } })
+        if (preference.error) throw new Error('Unable to save your request preference.')
+        const response = await authenticatedFetch('/api/auth/request-access', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fullName }),
+        })
+        const body = await response.json() as { error?: string }
+        if (!response.ok) throw new Error(body.error ?? 'Unable to request access.')
+        window.location.assign('/pending'); return
+      } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to request access.') }
+      finally { setLoading(false) }
+      return
+    }
     const result = await requestPasswordRegistration(supabase.auth, { fullName, email, password, requestedRole })
     setPassword('')
     if (result.ok) {
@@ -68,7 +103,7 @@ export default function RequestAccessPage() {
           Create your sign-in, verify your email, and an Almaworks administrator will review your request.
         </p>
 
-        <button type="button" onClick={() => void continueWithGoogle()} disabled={loading}
+        {!signedIn && <><button type="button" onClick={() => void continueWithGoogle()} disabled={loading || checking}
           className="mt-7 flex w-full items-center justify-center gap-3 rounded-xl border border-gray-200 px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60">
           <GoogleIcon />
           Continue with Google
@@ -79,6 +114,7 @@ export default function RequestAccessPage() {
           <div className="h-px flex-1 bg-gray-100" />
         </div>
 
+        </>}
         <form onSubmit={submit} className="space-y-5">
           <label className="block text-sm font-medium text-gray-700" htmlFor="request-full-name">
             Full name
@@ -90,19 +126,20 @@ export default function RequestAccessPage() {
           <label className="block text-sm font-medium text-gray-700" htmlFor="request-email">
             Email
             <input id="request-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)}
-              autoComplete="email" required disabled={loading}
+              autoComplete="email" required disabled={loading || signedIn}
               className="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#75AADB]/50 disabled:opacity-60" />
           </label>
 
-          <label className="block text-sm font-medium text-gray-700" htmlFor="request-password">
+          {!signedIn && <label className="block text-sm font-medium text-gray-700" htmlFor="request-password">
             Password
             <input id="request-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)}
-              autoComplete="new-password" minLength={12} required disabled={loading}
+              autoComplete="new-password" minLength={12} required={!signedIn} disabled={loading || signedIn}
               aria-describedby="request-password-help"
               className="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#75AADB]/50 disabled:opacity-60" />
             <span id="request-password-help" className="mt-1.5 block text-xs font-normal text-gray-500">Use at least 12 characters.</span>
           </label>
 
+          }
           <fieldset>
             <legend className="text-sm font-medium text-gray-700">How do you expect to participate?</legend>
             <div className="mt-2 grid gap-3 sm:grid-cols-2">
@@ -119,9 +156,9 @@ export default function RequestAccessPage() {
 
           {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
 
-          <button type="submit" disabled={loading}
+          <button type="submit" disabled={loading || checking}
             className="w-full rounded-xl bg-[#002147] px-4 py-3 text-sm font-semibold text-white hover:bg-[#002147]/90 disabled:opacity-60">
-            {loading ? 'Submitting…' : 'Continue to email verification'}
+            {loading ? 'Submitting…' : signedIn ? 'Submit access request' : 'Continue to email verification'}
           </button>
         </form>
 

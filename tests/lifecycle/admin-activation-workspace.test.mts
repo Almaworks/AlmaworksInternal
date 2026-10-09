@@ -83,9 +83,9 @@ test("all-time activation workspace disables registration-request mutations", ()
     page.indexOf("{tab === 'members'"),
   );
 
-  assert.match(registrationRequests, /<select[\s\S]*?disabled=\{cohort\.scope === 'all'\}/);
-  assert.match(registrationRequests, /onClick=\{\(\) => approveUser\(u\.id\)\}[\s\S]*?disabled=\{approving === u\.id \|\| !roleSelections\[u\.id\] \|\| cohort\.scope === 'all'\}/);
-  assert.match(registrationRequests, /onClick=\{\(\) => rejectUser\(u\.id\)\}[\s\S]*?disabled=\{cohort\.scope === 'all'\}/);
+  assert.match(registrationRequests, /<select[\s\S]*?disabled=\{cohort\.scope === 'all' \|\| deletionLockedIds\.has\(u\.id\)\}/);
+  assert.match(registrationRequests, /onClick=\{\(\) => approveUser\(u\.id\)\}[\s\S]*?disabled=\{approving === u\.id \|\| !roleSelections\[u\.id\] \|\| cohort\.scope === 'all' \|\| deletionLockedIds\.has\(u\.id\)\}/);
+  assert.match(registrationRequests, /onClick=\{\(\) => rejectUser\(u\.id\)\}[\s\S]*?disabled=\{cohort\.scope === 'all' \|\| deletionLockedIds\.has\(u\.id\)\}/);
 });
 
 test("member account changes refresh current activation and directory read models", () => {
