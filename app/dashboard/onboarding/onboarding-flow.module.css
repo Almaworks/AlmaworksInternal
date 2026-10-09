@@ -1,8 +1,26 @@
-.preparation { display: grid; align-content: center; justify-items: start; gap: 1rem; min-height: 60vh; width: min(100%, 46rem); margin: 2rem auto; padding: clamp(1.25rem, 4vw, 2rem); color: #1d2a3b; background: #fffefa; border: 1px solid #deddd7; border-radius: 1rem; overflow-wrap: anywhere; }
+.preparationShell { min-height: 100vh; min-height: 100dvh; padding: clamp(1.25rem, 4vw, 3rem); background: #002147; color: #1d2a3b; display: flex; flex-direction: column; align-items: center; }
+.preparationBrand { width: min(100%, 42rem); margin-bottom: clamp(2rem, 6vh, 4rem); }
+.preparation { display: grid; align-content: start; justify-items: start; gap: 1.25rem; width: min(100%, 42rem); margin: auto 0; padding: clamp(1.5rem, 4vw, 3rem); background: #fffefa; border: 1px solid #deddd7; border-radius: 1.25rem; overflow-wrap: anywhere; box-shadow: 0 20px 60px rgba(0, 0, 0, .12); }
 .preparation > * { min-width: 0; max-width: 100%; }
-.preparation p { line-height: 1.6; }
-.preparation h1 { font: 500 clamp(1.8rem, 4vw, 2.8rem)/1.12 Georgia, serif; }
-.preparation button { padding: .75rem 1rem; border-radius: .5rem; background: #06264a; color: white; }
+.preparation p { margin: 0; line-height: 1.65; }
+.preparation h1 { margin: 0; color: #06264a; font: 500 clamp(1.8rem, 4vw, 2.6rem)/1.15 Georgia, serif; letter-spacing: -.035em; }
+.preparationEyebrow { color: #2f718f; font-size: .7rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+.preparationMessage { font-size: .95rem; }
+.preparationActions { display: flex; flex-wrap: wrap; gap: .75rem; width: 100%; }
+.preparationActions button { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; padding: .8rem 1.1rem; border: 1px solid #06264a; border-radius: .65rem; font-size: .875rem; font-weight: 600; cursor: pointer; }
+.preparationPrimary { background: #06264a; color: white; }
+.preparationSecondary { background: transparent; color: #06264a; }
+.preparationActions button:hover { box-shadow: 0 0 0 3px rgba(117,170,219,.2); }
+.preparationActions button:disabled { opacity: .6; cursor: wait; }
+.preparationActions button:focus-visible, .preparationHelp a:focus-visible { outline: 3px solid #75aadb; outline-offset: 4px; }
+.preparationHelp { display: flex; align-items: start; gap: .85rem; width: 100%; padding-top: 1.5rem; border-top: 1px solid #deddd7; }
+.preparationHelp > svg { flex-shrink: 0; margin-top: .15rem; color: #2f718f; }
+.preparationHelp h2 { margin: 0 0 .5rem; font-size: .9rem; font-weight: 650; color: #06264a; }
+.preparationHelp p { margin-bottom: .65rem; font-size: .85rem; color: #687381; }
+.preparationHelp a { color: #2f718f; font-size: .9rem; font-weight: 600; text-decoration: underline; text-underline-offset: .2rem; overflow-wrap: anywhere; }
+.preparation .preparationHint { font-size: .75rem; color: #687381; }
+.preparationActionError { color: #a12727; font-size: .85rem; }
+@media (max-width: 480px) { .preparationBrand { margin-bottom: 1.5rem; } .preparationActions button { width: 100%; } .preparation { margin: 0 0 auto; } }
 .shell {
   --navy: #06264a;
   --blue: #2f718f;

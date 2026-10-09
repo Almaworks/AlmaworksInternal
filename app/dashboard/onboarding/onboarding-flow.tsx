@@ -21,6 +21,8 @@ import { authenticatedFetch } from "@/src/auth/authenticated-fetch";
 import type { ProgramRole } from "@/src/lifecycle/types";
 import { restoreOnboardingDraft, type AvailabilitySetupChoice, type OnboardingDraft } from "@/src/lifecycle/onboarding-draft";
 import { createClient } from "@/utils/supabase/client";
+import { signOutParticipant } from "@/src/auth/participant-sign-out";
+import { OnboardingPreparation } from "./OnboardingPreparation";
 
 import styles from "./onboarding-flow.module.css";
 
@@ -45,6 +47,8 @@ export default function OnboardingFlow() {
   const [calendarConnecting, setCalendarConnecting] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [prepared, setPrepared] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
   const saveInFlight = useRef(false);
   const router = useRouter();
 
@@ -246,10 +250,22 @@ export default function OnboardingFlow() {
   const progress = calculateOnboardingProgress(role, completedKeys);
   const checklist = getOnboardingChecklist(role);
 
-  if (!prepared) return <main className={styles.preparation} aria-busy={!saveError}>
-    <h1>{saveError ? "We couldn’t load your onboarding" : "Loading your saved progress"}</h1>
-    {saveError ? <><p role="alert">{saveError}</p><button type="button" onClick={() => window.location.reload()}>Try again</button></> : <p>Your saved details will appear in a moment.</p>}
-  </main>;
+  async function returnToLogin() {
+    if (signingOut) return;
+    setSigningOut(true);
+    setSignOutError(null);
+    try {
+      await signOutParticipant(createClient(), (href) => {
+        router.replace(href);
+        router.refresh();
+      });
+    } catch {
+      setSignOutError("We couldn’t sign you out. Please try again, or contact Layth below for help.");
+      setSigningOut(false);
+    }
+  }
+
+  if (!prepared) return <OnboardingPreparation error={saveError} onRetry={() => window.location.reload()} onReturnToLogin={() => void returnToLogin()} signingOut={signingOut} signOutError={signOutError} />;
 
   return (
     <div className={styles.shell}>
