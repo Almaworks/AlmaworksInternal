@@ -56,8 +56,9 @@
 .formBody section { min-width: 0; width: min(100%, 38rem); }
 .formBody h2 { margin: .45rem 0 .6rem; color: var(--navy); font: 500 clamp(1.85rem, 4vw, 2.8rem)/1.08 Georgia, serif; letter-spacing: -.04em; }
 .lede { max-width: 33rem; margin: 0 0 1.7rem; color: var(--muted); font-size: .79rem; line-height: 1.6; }
-.rolePreview { display: flex; align-items: center; gap: .7rem; margin-bottom: 1.2rem; padding: .8rem; border: 1px solid #d8e3e8; border-radius: .75rem; background: #f0f6f8; }
-.rolePreview > span { display: grid; width: 2.35rem; height: 2.35rem; place-items: center; border-radius: .6rem; }
+.rolePreview { display: grid; grid-template-columns: 2.35rem minmax(0, 1fr) auto; align-items: center; gap: .7rem; margin-bottom: 1.2rem; padding: .8rem; border: 1px solid #d8e3e8; border-radius: .75rem; background: #f0f6f8; }
+.rolePreview > span:not(.hint) { display: grid; width: 2.35rem; height: 2.35rem; place-items: center; border-radius: .6rem; }
+.rolePreview .hint { margin: 0; }
 .roleIconStartup { color: #336a5a; background: #dfeee7; }
 .roleIconMentor { color: #6f5683; background: #ece4f1; }
 .rolePreview small, .rolePreview strong { display: block; }
@@ -145,6 +146,8 @@ label .hint { font-weight: 500; }
   .formPanel { flex: 1; min-height: 68vh; }
   .formBody { padding: 1.8rem 1.2rem; }
   .fieldGrid { grid-template-columns: 1fr; gap: 0; }
+  .rolePreview { grid-template-columns: 2.35rem minmax(0, 1fr); }
+  .rolePreview .hint { grid-column: 2; }
   .windowList > button { grid-template-columns: 1.4rem 4.5rem 1fr; }
   .recommended { display: none; }
   .footer { grid-template-columns: 1fr 1fr; }
