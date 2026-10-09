@@ -12,6 +12,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { authenticatedFetch } from '@/src/auth/authenticated-fetch'
 import { loadCanonicalAccess } from '@/src/program/canonical-access'
 import { resolvePostLoginDestination } from '@/src/auth/profile-access'
+import { signOutParticipant } from '@/src/auth/participant-sign-out'
 
 export default function RequestAccessPage() {
   const supabase = useMemo(() => createClient(), [])
@@ -23,6 +24,8 @@ export default function RequestAccessPage() {
   const [loading, setLoading] = useState(false)
   const [signedIn, setSignedIn] = useState(false)
   const [checking, setChecking] = useState(true)
+  const [signingOut, setSigningOut] = useState(false)
+  const busy = loading || signingOut
   useEffect(() => {
     let active = true
     async function check() {
@@ -40,8 +43,24 @@ export default function RequestAccessPage() {
     return () => { active = false }
   }, [supabase])
 
+  async function returnToLogin() {
+    if (busy || checking) return
+    setError(null)
+    setSigningOut(true)
+    try {
+      if (signedIn) {
+        await signOutParticipant(supabase, (href) => window.location.assign(href))
+      } else {
+        window.location.assign('/')
+      }
+    } catch {
+      setError('Unable to sign out. Please try again to return to the login page.')
+      setSigningOut(false)
+    }
+  }
+
   async function continueWithGoogle() {
-    if (loading) return
+    if (busy) return
     setError(null)
     setLoading(true)
     try {
@@ -61,7 +80,7 @@ export default function RequestAccessPage() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
-    if (loading || checking) return
+    if (busy || checking) return
     setError(null)
     setLoading(true)
     if (signedIn) {
@@ -93,7 +112,10 @@ export default function RequestAccessPage() {
     <main className="min-h-screen bg-[#002147] px-4 py-8 sm:py-12">
       <div className="mx-auto mb-6 flex w-full max-w-lg items-center justify-between">
         <AlmaworksBrand tone="white" iconSize={32} priority />
-        <Link href="/" className="text-sm font-medium text-[#75AADB] hover:text-white">Sign in</Link>
+        <button type="button" onClick={returnToLogin} disabled={busy || checking}
+          className="text-sm font-medium text-[#75AADB] hover:text-white disabled:opacity-60">
+          {signingOut ? 'Signing out…' : 'Sign in'}
+        </button>
       </div>
 
       <section className="mx-auto w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl sm:p-8" aria-labelledby="request-access-title">
@@ -103,7 +125,7 @@ export default function RequestAccessPage() {
           Create your sign-in, verify your email, and an Almaworks administrator will review your request.
         </p>
 
-        {!signedIn && <><button type="button" onClick={() => void continueWithGoogle()} disabled={loading || checking}
+        {!signedIn && <><button type="button" onClick={() => void continueWithGoogle()} disabled={busy || checking}
           className="mt-7 flex w-full items-center justify-center gap-3 rounded-xl border border-gray-200 px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60">
           <GoogleIcon />
           Continue with Google
@@ -119,21 +141,21 @@ export default function RequestAccessPage() {
           <label className="block text-sm font-medium text-gray-700" htmlFor="request-full-name">
             Full name
             <input id="request-full-name" value={fullName} onChange={(event) => setFullName(event.target.value)}
-              autoComplete="name" required disabled={loading}
+              autoComplete="name" required disabled={busy}
               className="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#75AADB]/50 disabled:opacity-60" />
           </label>
 
           <label className="block text-sm font-medium text-gray-700" htmlFor="request-email">
             Email
             <input id="request-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)}
-              autoComplete="email" required disabled={loading || signedIn}
+              autoComplete="email" required disabled={busy || signedIn}
               className="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#75AADB]/50 disabled:opacity-60" />
           </label>
 
           {!signedIn && <label className="block text-sm font-medium text-gray-700" htmlFor="request-password">
             Password
             <input id="request-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)}
-              autoComplete="new-password" minLength={12} required={!signedIn} disabled={loading || signedIn}
+              autoComplete="new-password" minLength={12} required={!signedIn} disabled={busy || signedIn}
               aria-describedby="request-password-help"
               className="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#75AADB]/50 disabled:opacity-60" />
             <span id="request-password-help" className="mt-1.5 block text-xs font-normal text-gray-500">Use at least 12 characters.</span>
@@ -146,7 +168,7 @@ export default function RequestAccessPage() {
               {(['startup', 'mentor'] as const).map((role) => (
                 <label key={role} className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-sm ${requestedRole === role ? 'border-[#002147] bg-[#002147]/5 text-[#002147]' : 'border-gray-200 text-gray-700'}`}>
                   <input type="radio" name="requested-role" value={role} checked={requestedRole === role}
-                    onChange={() => setRequestedRole(role)} disabled={loading} />
+                    onChange={() => setRequestedRole(role)} disabled={busy} />
                   {role === 'startup' ? 'Startup participant' : 'Mentor'}
                 </label>
               ))}
@@ -156,7 +178,7 @@ export default function RequestAccessPage() {
 
           {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
 
-          <button type="submit" disabled={loading || checking}
+          <button type="submit" disabled={busy || checking}
             className="w-full rounded-xl bg-[#002147] px-4 py-3 text-sm font-semibold text-white hover:bg-[#002147]/90 disabled:opacity-60">
             {loading ? 'Submitting…' : signedIn ? 'Submit access request' : 'Continue to email verification'}
           </button>
@@ -166,8 +188,10 @@ export default function RequestAccessPage() {
           Read our <Link href="/terms" className="underline">Terms of service</Link> and <Link href="/privacy" className="underline">Privacy policy</Link> before requesting access.
         </p>
         <div className="mt-6 border-t border-gray-100 pt-5 text-center text-sm text-gray-600">
-          Already have an account? <Link href="/" className="font-medium text-[#002147] underline">Sign in</Link>
+          Already have an account? <button type="button" onClick={returnToLogin} disabled={busy || checking}
+            className="font-medium text-[#002147] underline disabled:opacity-60">{signingOut ? 'Signing out…' : 'Sign in'}</button>
           {' '}or <Link href="/forgot-password" className="font-medium text-[#002147] underline">reset your password</Link>.
+          {signedIn && <p className="mt-2 text-xs leading-5 text-gray-500">Sign in signs you out of this account so you can use a different email.</p>}
         </div>
       </section>
     </main>
