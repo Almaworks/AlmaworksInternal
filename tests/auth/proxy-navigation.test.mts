@@ -11,7 +11,7 @@ import * as firstSignIn from "../../src/auth/first-sign-in.ts";
 type Result = { cookies: { getAll: () => { name: string; value: string }[]; set: (cookie: { name: string; value: string }) => void }; kind: "next" | "redirect"; url?: URL };
 type RequestStub = { cookies: { set: () => void }; url: string; nextUrl: URL };
 
-function harness(options: { role?: "mentor" | "startup" | "admin"; invalidClaims?: boolean; unavailable?: boolean; refresh?: boolean; inactive?: boolean } = {}) {
+function harness(options: { role?: "mentor" | "startup" | "admin"; invalidClaims?: boolean; unavailable?: boolean; refresh?: boolean; inactive?: boolean; membershipStatus?: "invited" | "onboarding"; onboardingCompletedAt?: string | null } = {}) {
   const calls: string[] = [];
   function cookies() {
     const values: { name: string; value: string }[] = [];
@@ -36,7 +36,11 @@ function harness(options: { role?: "mentor" | "startup" | "admin"; invalidClaims
             calls.push(table);
             const query = {
               select: () => query, eq: () => query, in: () => query, order: () => query,
-              maybeSingle: async () => ({ data: table === "profiles" ? { status: "approved", is_active: !options.inactive } : null, error: null }),
+              maybeSingle: async () => ({ data: table === "profiles" ? { status: "approved", is_active: !options.inactive }
+                : table === "semester_memberships" && options.membershipStatus ? { id: "membership", semester_id: "semester", status: options.membershipStatus, onboarding_completed_at: options.onboardingCompletedAt ?? null }
+                : table === "startup_team_memberships" ? { startup_semester_id: "shared-startup" }
+                : table === "startup_semesters" || table === "mentor_semesters" ? { readiness_status: "ready" }
+                : null, error: null }),
             };
             return query;
           },
@@ -134,4 +138,20 @@ test("refreshed session cookies survive an authenticated redirect", async () => 
   const result = await harness({ refresh: true }).run('/');
   assert.equal(result.kind, 'redirect');
   assert.deepEqual(result.cookies.getAll(), [{ name: 'refreshed-session', value: 'fixture' }]);
+});
+
+test("a ready startup cannot let a new member bypass individual onboarding", async () => {
+  const app = harness({ role: "startup", membershipStatus: "onboarding" });
+  for (const path of ["/dashboard/startup?tab=profile", "/dashboard/startup", "/dashboard/mentors"]) {
+    assert.equal((await app.run(path)).url?.pathname, "/dashboard/onboarding");
+  }
+  assert.equal((await app.run("/dashboard/onboarding")).kind, "next");
+});
+
+test("individually completed members leave onboarding without a redirect loop", async () => {
+  for (const role of ["startup", "mentor"] as const) {
+    const app = harness({ role, membershipStatus: "onboarding", onboardingCompletedAt: "2026-10-09T04:53:36Z" });
+    assert.equal((await app.run(`/dashboard/${role}`)).kind, "next");
+    assert.equal((await app.run("/dashboard/onboarding")).url?.pathname, `/dashboard/${role}`);
+  }
 });

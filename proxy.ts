@@ -62,7 +62,7 @@ export async function proxy(req: NextRequest) {
     if (profile.role !== 'mentor' && profile.role !== 'startup') return null
     const { data: membership, error: membershipError } = await supabase
       .from('semester_memberships')
-      .select('id, semester_id, status')
+      .select('id, semester_id, status, onboarding_completed_at')
       .eq('profile_id', profile.profileId)
       .in('status', ['invited', 'onboarding'])
       .order('created_at', { ascending: false })
@@ -73,47 +73,8 @@ export async function proxy(req: NextRequest) {
     }
     if (!membership) return null
 
-    let readinessStatus: string | null = null
-    if (profile.role === 'mentor') {
-      const { data, error } = await supabase
-        .from('mentor_semesters')
-        .select('readiness_status')
-        .eq('semester_id', membership.semester_id)
-        .eq('semester_membership_id', membership.id)
-        .maybeSingle()
-      if (error) {
-        console.error('Unable to load mentor onboarding readiness', error)
-        return { needsOnboarding: true, membershipStatus: membership.status }
-      }
-      readinessStatus = data?.readiness_status ?? null
-    } else {
-      const { data: team, error: teamError } = await supabase
-        .from('startup_team_memberships')
-        .select('startup_semester_id')
-        .eq('semester_id', membership.semester_id)
-        .eq('semester_membership_id', membership.id)
-        .maybeSingle()
-      if (teamError) {
-        console.error('Unable to load startup onboarding membership', teamError)
-        return { needsOnboarding: true, membershipStatus: membership.status }
-      }
-      if (team) {
-        const { data, error } = await supabase
-          .from('startup_semesters')
-          .select('readiness_status')
-          .eq('semester_id', membership.semester_id)
-          .eq('id', team.startup_semester_id)
-          .maybeSingle()
-        if (error) {
-          console.error('Unable to load startup onboarding readiness', error)
-          return { needsOnboarding: true, membershipStatus: membership.status }
-        }
-        readinessStatus = data?.readiness_status ?? null
-      }
-    }
-
     return {
-      needsOnboarding: needsParticipantOnboarding(membership.status, readinessStatus),
+      needsOnboarding: needsParticipantOnboarding(membership.status, membership.onboarding_completed_at),
       membershipStatus: membership.status,
     }
   }
