@@ -23,6 +23,11 @@ export function normalizeTagName(value: string): string {
     .trim()
 }
 
+/** Match expertise_tags_normalized_name_check; search normalization is broader. */
+export function expertiseTagStorageKey(value: string): string {
+  return value.trim().replace(/[-_]+/g, ' ').replace(/\\s+/g, ' ').toLowerCase()
+}
+
 export function tagSearchTerms(name: string): readonly string[] {
   const normalized = normalizeTagName(name)
   const words = normalized.split(' ').filter(Boolean)

@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "../db/types.ts";
-import { normalizeTagName, rankTagSuggestions, tagSearchTerms, type TagSuggestion } from "./domain.ts";
+import { expertiseTagStorageKey, normalizeTagName, rankTagSuggestions, tagSearchTerms, type TagSuggestion } from "./domain.ts";
 
 export class ExpertiseTagRepositoryError extends Error {
   constructor(message: string) {
@@ -49,7 +49,7 @@ export async function createOrFindExpertiseTag(
   rawName: string,
 ): Promise<ExpertiseTag> {
   const name = rawName.trim();
-  const normalizedName = normalizeTagName(name);
+  const normalizedName = expertiseTagStorageKey(name);
   if (normalizedName.length === 0) throw new ExpertiseTagRepositoryError("An expertise tag name is required.");
 
   const existing = await client
