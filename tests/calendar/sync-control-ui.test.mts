@@ -42,7 +42,7 @@ test("shared mentor schedule queues one Google refresh and keeps its availabilit
   const require=createRequire(import.meta.url);
   const output=ts.transpileModule(readFileSync("components/calendar/MentorCalendarSettings.tsx","utf8"),{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
   const exports:Record<string,unknown>={};
-  new Function("require","exports",output)((name:string)=>name==="react"?hooks:name==="@/src/auth/authenticated-fetch"?{authenticatedFetch:fetcher}:name==="@/src/calendar/background-refresh"?background:name==="@/src/calendar/sync-status"?syncStatus:name==="./IntegratedAvailabilityCalendar"?{IntegratedAvailabilityCalendar:()=>null}:require(name),exports);
+  new Function("require","exports",output)((name:string)=>name==="react"?hooks:name==="@/src/auth/authenticated-fetch"?{authenticatedFetch:fetcher}:name==="@/src/calendar/background-refresh"?background:name==="@/src/calendar/sync-status"?syncStatus:name==="./DatedAvailabilityCalendar"?{DatedAvailabilityCalendar:()=>null}:require(name),exports);
   const Component=exports.MentorCalendarSettings as (props:Record<string,unknown>)=>Element;
   const render=()=>{si=0;ri=0;ei=0;const tree=Component({semesterId:"semester",connectionId:"connection",canSync:true,onSaved:()=>assert.fail("quiet sync must not trigger a full-page reload")});pendingEffects.splice(0).forEach(run=>run());return tree;};
   const settle=()=>new Promise<void>(resolve=>setImmediate(resolve));
@@ -50,11 +50,11 @@ test("shared mentor schedule queues one Google refresh and keeps its availabilit
   try{
     render();await settle();let tree=render();
     const button=elements(tree).find(item=>item.type==="button"&&text(item)==="Refresh Google Calendar");assert.ok(button);
-    const calendar=elements(tree).find(item=>typeof item.props.onWorkingHoursChange==="function");
+    const calendar=elements(tree).find(item=>item.props.semesterId==="semester" && item.props.refreshKey!==undefined);
     assert.ok(calendar,"the shared availability editor remains mounted");
     click(button);click(button);await settle();tree=render();
     assert.equal(requests,1);assert.match(text(tree),/refresh queued/i);
-    assert.ok(elements(tree).some(item=>typeof item.props.onWorkingHoursChange==="function"));
+    assert.ok(elements(tree).some(item=>item.props.semesterId==="semester" && item.props.refreshKey!==undefined));
     assert.doesNotMatch(text(tree),/Add slot|Edit hours/);
   }finally{
     effects.forEach(effect=>effect.cleanup?.());

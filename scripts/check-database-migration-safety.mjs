@@ -133,6 +133,9 @@ const reviewedPostCutoverMigrations = [
   "20261002041612_startup_logo_storage.sql",
   // Generated column-scoped Friday week label grant; existing table SELECT remains intact.
   "20261002052950_friday_week_label_edit.sql",
+  // Generated owner preparation and dated calendar functions; clean replay and restricted-owner/RLS checks passed.
+  "20261015041147_dated_calendar_owner_prepare.sql",
+  "20261015041313_dated_calendar_availability.sql",
 ];
 const requiredOutreachArchiveMigrations = [
   "20260901215752_archive_outreach_contacts.sql",
