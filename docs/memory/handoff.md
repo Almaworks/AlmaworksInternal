@@ -6,6 +6,17 @@ updated: 2026-09-06
 
 # Handoff
 
+
+## 2026-11-02 ALMA-9 — Implemented; draft PR open, authenticated QA pending
+
+- Source: [Notion ALMA-9](https://app.notion.com/p/3e81d955825b805f81f0c7027465cca5), fetched once. Observed checklist: remove internal availability/booking lines; display contiguous time as one segment. User-required checks: preserve individual slot actions, separate gaps/days/booking identities, pure helper with tests. Inferred presentation choice: preserve boundaries when the available mentor set changes.
+- Added pure display-run/edge helper; dated mentor editor joins availability and each original booking interval (API supplies no booking ID); shared startup/admin browser joins matching mentor sets. Original 15-minute buttons, keyboard targets, requests, and mentor copy/remove gestures remain intact. Labels appear once per run.
+- Calendar inventory: dated editor (mentor settings), startup browser (startup/admin bookings), dashboard MentorAvailabilityOverview (already merges ranges), legacy IntegratedAvailabilityCalendar (already merges availability and renders whole booking intervals), SessionCalendar (whole sessions/month view, no quarter-hour cells). No DB/API/migration edits or remote operations.
+- Local checks: helper 5/5 PASS; mentor interaction 3/3 PASS; startup request/second-slot click PASS. npm run lint PASS; npx tsc --noEmit PASS; npm test 222/224 test files PASS, with only the baseline 3 failing cases in dated-http (2) and admin booking workspace (1). git diff --check PASS.
+- Build PASS: `npm run build` with placeholder Supabase env (`NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co`, anon key `placeholder`) outside the Codex sandbox; the sandbox failure was a port-binding restriction.
+- Browser scenarios BLOCKED: mentor display/copy/remove, startup individual-slot booking/reload/error, admin read-only display, desktop/mobile and authorization boundaries; no browser tool or authenticated role fixtures available. No live writes attempted. Owner must provide an authorized QA environment and real role sessions before authenticated validation resumes.
+- Route: routing skill unavailable after local search; implementation stayed in current coordinator, no model switch/delegation. Committed and opened as a draft PR; no merge/deployment. Next: authenticated per-role QA on the Vercel preview.
+
 ## 2026-09-15-availability-release-latency - Release build verified; hosted QA pending
 
 - User confirms local freeze resolved. Confirmed cause: release reran an unused semester-wide preview; seven-day 9-10 AM September-December fixture took 14,943.5862 ms / 56,623 formatters. Removed dead preview/publisher/planner/state; weekly save, pointer behavior, reservations, and accepted overlays preserved.
