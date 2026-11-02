@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import { authenticatedFetch } from '@/src/auth/authenticated-fetch';
 import { calendarWeek, calendarWeekStart } from '@/src/calendar/calendar-view-model';
 import { copyDateState, localParts, localSlot, offeredSlots, parseEditorSnapshot, shiftDate, slotBlock, stageAvailability, type EditorSnapshot } from '@/src/calendar/availability-editor';
+import { displaySlotEdges, type DisplaySlot } from '@/src/calendar/display-slot-runs';
 import styles from './schedule-editor.module.css';
 
 type Props={semesterId:string;refreshKey:string|number;onSaved?:()=>void;disabled?:boolean;previewData?:EditorSnapshot};
@@ -43,6 +44,15 @@ export function DatedAvailabilityCalendar({semesterId,refreshKey,onSaved,disable
  const horizonDate=data?localParts(Date.parse(data.until)-1,data.timeZone).date:null;
  const lastDate=data&&horizonDate?(horizonDate<data.semesterEnd?horizonDate:data.semesterEnd):null,lastWeek=lastDate?calendarWeekStart(lastDate):null;
  const cells=useMemo(()=>!data?[]:Array.from({length:96},(_,row)=>dates.map((date,day)=>{const minute=row*15,slot=localSlot(date,minute,data.timeZone);return{date,day,minute,slot,reason:slot?slotBlock(data,slot):'Clock change: choose another time'};})).flat(),[data,dates]);
+ // Booking responses expose intervals, not booking IDs. Keep each source interval distinct.
+ const displaySlots=new Map<string,DisplaySlot>();
+ for(const cell of cells){
+  if(!cell.slot||!data)continue;
+  const booking=cell.reason==='Confirmed meeting'?data.bookings.findIndex(interval=>Date.parse(interval.startsAt)<Date.parse(cell.slot!.endsAt)&&Date.parse(interval.endsAt)>Date.parse(cell.slot!.startsAt)):-1;
+  if(booking<0&&(cell.reason||!effective(cell.slot.startsAt)))continue;
+  displaySlots.set(`${cell.date}|${cell.minute}`,{day:cell.date,start:Date.parse(cell.slot.startsAt),end:Date.parse(cell.slot.endsAt),kind:booking>=0?'booking':'available',identity:booking>=0?`booking:${booking}`:'available'});
+ }
+ const displayEdges=displaySlotEdges([...displaySlots.values()]);
  function blockAt(date:string,minute:number):Block{
   let start=minute,end=minute+15;const enabled=(m:number)=>{const slot=data&&localSlot(date,m,data.timeZone);return!!slot&&!slotBlock(data!,slot)&&effective(slot.startsAt);};
   while(start>0&&enabled(start-15))start-=15;while(end<1440&&enabled(end))end+=15;return{date,start,end};
@@ -97,8 +107,9 @@ export function DatedAvailabilityCalendar({semesterId,refreshKey,onSaved,disable
     <div className={styles.day}>Time</div>{dates.map(date=><div className={styles.day} key={date}><span>{weekdays[new Date(date+'T12:00:00Z').getUTCDay()]!.slice(0,3)}</span><strong>{Number(date.slice(-2))}</strong></div>)}
     {Array.from({length:96},(_,row)=><div key={row} style={{display:'contents'}}><div className={styles.time}>{row%4===0?clock(row*15):''}</div>{cells.slice(row*7,row*7+7).map(cell=>{
      const offered=cell.slot&&effective(cell.slot.startsAt),changed=cell.slot&&draft.has(cell.slot.startsAt),active=stroke&&stroke.day===cell.day&&cell.minute>=Math.min(stroke.start,stroke.last)&&cell.minute<=Math.max(stroke.start,stroke.last),prior=cell.minute?localSlot(cell.date,cell.minute-15,data.timeZone):null,first=offered&&(!prior||!effective(prior.startsAt));
-     const classes=[styles.cell,row%4===0?styles.hour:'',offered?styles.offered:'',changed?styles.changed:'',cell.reason?.includes('Friday')?styles.reserved:cell.reason==='Confirmed meeting'?styles.booked:cell.reason==='Google Calendar busy'?styles.busy:'',active?styles.stroke:''].join(' ');
-     return <button key={`${cell.date}|${cell.minute}`} type="button" className={classes} data-day={cell.day} data-minute={cell.minute} data-date={cell.date} disabled={blocked||!!cell.reason} aria-pressed={!!offered} aria-label={`${label(cell.date)} ${clock(cell.minute)}: ${cell.reason??(offered?'Already set. Click for details and copying.':'Not offered')}`} title={cell.reason??(offered?'Click to copy or remove this block':'Click or drag to add this time')} onPointerDown={event=>begin(event,cell.day,cell.minute)} onClick={event=>{if(event.detail===0)edit(cell.day,cell.minute);}}>{cell.reason&&cell.minute%60===0?cell.reason:first?'Offered · click':changed&&cell.minute%60===0&&!offered?'Removing':''}</button>;
+     const displaySlot=displaySlots.get(`${cell.date}|${cell.minute}`),edges=displaySlot&&displayEdges.get(displaySlot);
+     const classes=[edges?styles.run:'',edges&&!edges.first?styles.continued:'',edges&&!edges.last?styles.continues:'',styles.cell,row%4===0?styles.hour:'',offered?styles.offered:'',changed?styles.changed:'',cell.reason?.includes('Friday')?styles.reserved:cell.reason==='Confirmed meeting'?styles.booked:cell.reason==='Google Calendar busy'?styles.busy:'',active?styles.stroke:''].join(' ');
+     return <button key={`${cell.date}|${cell.minute}`} type="button" className={classes} data-day={cell.day} data-minute={cell.minute} data-date={cell.date} disabled={blocked||!!cell.reason} aria-pressed={!!offered} aria-label={`${label(cell.date)} ${clock(cell.minute)}: ${cell.reason??(offered?'Already set. Click for details and copying.':'Not offered')}`} title={cell.reason??(offered?'Click to copy or remove this block':'Click or drag to add this time')} onPointerDown={event=>begin(event,cell.day,cell.minute)} onClick={event=>{if(event.detail===0)edit(cell.day,cell.minute);}}>{cell.reason&&(edges?edges.first:cell.minute%60===0)?cell.reason:(edges?edges.first:first)?'Offered · click':changed&&cell.minute%60===0&&!offered?'Removing':''}</button>;
     })}</div>)}
    </div></div>
    <div className={styles.legend}><span>🟩 Offered times (includes saved weekly hours)</span><span>🟪 Confirmed meeting</span><span>◻ Google busy</span><span>Friday Program reserved time · {data.programTimeZone}</span></div>

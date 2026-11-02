@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import type { ReactElement, ReactNode } from "react";
 import ts from "typescript";
+import type { EditorSnapshot } from "../../src/calendar/availability-editor.ts";
 
 type Props = Record<string, unknown> & { children?: ReactNode };
 function elements(node: ReactNode): ReactElement<Props>[] {
@@ -16,8 +17,8 @@ function elements(node: ReactNode): ReactElement<Props>[] {
 
 // Execute the shared mentoring-hours editor and replace only React's lifecycle,
 // so completed calendar gestures can be replayed without a browser.
-const fixture = { timeZone: "America/New_York", programTimeZone: "America/New_York", semesterStart: "2026-09-01", semesterEnd: "2026-12-20", from: "2026-10-14T00:00:00Z", until: "2026-12-21T00:00:00Z", offered: [], busy: [], bookings: [], mode: "weekly", syncUnavailable: false, lastSuccessAt: null };
-function scheduleHarness(saveFailure = false) {
+const fixture: EditorSnapshot = { timeZone: "America/New_York", programTimeZone: "America/New_York", semesterStart: "2026-09-01", semesterEnd: "2026-12-20", from: "2026-10-14T00:00:00Z", until: "2026-12-21T00:00:00Z", offered: [], busy: [], bookings: [], mode: "weekly", syncUnavailable: false, lastSuccessAt: null };
+function scheduleHarness(saveFailure = false, snapshot: EditorSnapshot = fixture) {
   const states: unknown[] = [];
   const refs: { current: unknown }[] = [];
   const effects: { deps: unknown[]; cleanup?: () => void }[] = [];
@@ -50,9 +51,9 @@ function scheduleHarness(saveFailure = false) {
           pendingEffects.push(() => { prior?.cleanup?.(); effects[index] = { deps, cleanup: run() ?? undefined }; });
         },
       };
-      if (name === "@/src/auth/authenticated-fetch") return { authenticatedFetch: async (_url: string, init?: RequestInit) => { if (init?.method === "POST") { posts += 1; return Response.json({ error: "The calendar changed. Your draft was not saved." }, { status: 409 }); } settingsReads += 1; return Response.json(fixture); } };
+      if (name === "@/src/auth/authenticated-fetch") return { authenticatedFetch: async (_url: string, init?: RequestInit) => { if (init?.method === "POST") { posts += 1; return Response.json({ error: "The calendar changed. Your draft was not saved." }, { status: 409 }); } settingsReads += 1; return Response.json(snapshot); } };
       if (name === "@/src/calendar/sync-status") return { requestCalendarSync: () => assert.fail("Editing availability must not request a calendar sync") };
-      if (name.endsWith(".module.css")) return new Proxy({}, { get: (_target, key) => String(key) });
+      if (name.endsWith(".module.css")) return { __esModule: true, default: new Proxy({}, { get: (_target, key) => String(key) }) };
       if (!name.startsWith(".") && !name.startsWith("@/")) return nativeRequire(name);
       const base = name.startsWith("@/") ? path.resolve(name.slice(2)) : path.resolve(path.dirname(filename), name);
       const resolved = [base, `${base}.ts`, `${base}.tsx`].find(existsSync);
@@ -67,7 +68,7 @@ function scheduleHarness(saveFailure = false) {
   }
   const Settings = load(path.resolve("components/calendar/DatedAvailabilityCalendar.tsx")).DatedAvailabilityCalendar as (props: Props) => ReactElement<Props>;
   return {
-    render() { stateIndex = 0; refIndex = 0; effectIndex = 0; return Settings({ semesterId: "test-semester", refreshKey: 0, previewData: saveFailure ? undefined : fixture }); },
+    render() { stateIndex = 0; refIndex = 0; effectIndex = 0; return Settings({ semesterId: "test-semester", refreshKey: 0, previewData: saveFailure ? undefined : snapshot }); },
     flushEffects() { pendingEffects.splice(0).forEach((run) => run()); },
     settingsReads: () => settingsReads, posts: () => posts,
   };
@@ -122,4 +123,33 @@ test("failed atomic save retains the draft and prevents duplicate concurrent sub
  assert.match(text(tree), /1 time slots changed/);
  assert.match(text(tree), /Your draft was not saved/);
  assert.doesNotMatch(text(tree), /Availability saved for the dates/);
+});
+
+test("mentor runs hide internal edges and labels while retaining individual keyboard targets and booking boundaries", () => {
+  const harness = scheduleHarness(false, { ...fixture,
+    offered: [{ startsAt: "2026-10-15T13:00:00Z", endsAt: "2026-10-15T14:00:00Z" }],
+    bookings: [
+      { startsAt: "2026-10-15T14:00:00Z", endsAt: "2026-10-15T14:30:00Z" },
+      { startsAt: "2026-10-15T14:30:00Z", endsAt: "2026-10-15T15:00:00Z" },
+    ],
+  });
+  let tree = harness.render();
+  const cell = (minute: number) => {
+    const found = elements(tree).find(item => item.props["data-date"] === "2026-10-15" && item.props["data-minute"] === minute);
+    assert.ok(found);
+    return found;
+  };
+  assert.match(String(cell(555).props.className), /continued/);
+  assert.match(String(cell(555).props.className), /continues/);
+  assert.equal(cell(555).props.children, "");
+  assert.equal(cell(540).props.children, "Offered · click");
+  assert.equal(cell(600).props.children, "Confirmed meeting");
+  assert.equal(cell(615).props.children, "");
+  assert.equal(cell(630).props.children, "Confirmed meeting");
+  assert.doesNotMatch(String(cell(615).props.className), /continues/);
+  assert.doesNotMatch(String(cell(630).props.className), /continued/);
+  assert.equal(cell(615).props.disabled, true);
+  (cell(555).props.onClick as (event: { detail: number }) => void)({ detail: 0 });
+  tree = harness.render();
+  assert.ok(elements(tree).some(item => item.props.children === "Copy to other dates…"));
 });

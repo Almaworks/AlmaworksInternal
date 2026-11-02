@@ -6,6 +6,7 @@ import test from "node:test";
 import ts from "typescript";
 import * as startupCalendar from "../../src/mentor-booking/startup-calendar.ts";
 import * as weeklyParticipation from "../../src/mentor-booking/weekly-participation.ts";
+import * as displaySlotRuns from "../../src/calendar/display-slot-runs.ts";
 import * as holdPresentation from "../../src/calendar/hold-presentation.ts";
 
 type Element = { type: unknown; props: Record<string, unknown> };
@@ -66,6 +67,7 @@ test("admin booking workspace shows both participants, accepted history, and rea
   const harness = hooksHarness();
   const Workspace = compile(path.resolve("components/mentor-booking/MentorBookingWorkspace.tsx"), (name) => {
     if (name === "react") return harness.hooks;
+    if (name === "@/src/calendar/display-slot-runs") return displaySlotRuns;
     if (name === "./BookingDetailsPanel") return { BookingDetailsPanel: () => null };
     if (name === "@/src/mentor-booking/weekly-participation") return weeklyParticipation;
     if (name === "@/src/calendar/hold-presentation") return holdPresentation;
@@ -113,9 +115,11 @@ test("admin booking workspace shows both participants, accepted history, and rea
 test("a successful startup request closes only its active dialog, while a failed request stays open with its topic and error", async () => {
   const harness = hooksHarness();
   const slot = { mentorSemesterId: "mentor-1", mentor: { profileId: "mentor-profile", name: "Ada Mentor" }, startsAt: "2026-09-20T14:00:00.000Z", endsAt: "2026-09-20T14:30:00.000Z" };
-  let liveSlots = [slot];
+  const nextSlot = { ...slot, startsAt: "2026-09-20T14:15:00.000Z", endsAt: "2026-09-20T14:45:00.000Z" };
+  let liveSlots = [slot, nextSlot];
   const Browser = compile(path.resolve("components/mentor-booking/StartupAvailabilityBrowser.tsx"), (name) => {
     if (name === "react") return harness.hooks;
+    if (name === "@/src/calendar/display-slot-runs") return displaySlotRuns;
     if (name === "./BookingDetailsPanel") return { BookingDetailsPanel: () => null };
     if (name === "@/src/mentor-booking/weekly-participation") return weeklyParticipation;
     if (name === "lucide-react") return { ChevronLeft: "left", ChevronRight: "right" };
@@ -130,6 +134,16 @@ test("a successful startup request closes only its active dialog, while a failed
   const data = { semesterId: "fall-2026", semesterStartDate: "2026-09-01", semesterEndDate: "2026-12-20", timeZone: "America/New_York", acceptedOccupancy: [], availability: [], windows: [], history: [], viewer: { role: "startup", profileId: "startup-profile", mentorSemesterId: null, startupSemesterId: "startup-1", startupNeeds: [] } };
   const render = (onRequest: () => Promise<boolean>, requestError?: string) => { harness.renderStart(); return Browser({ data, acting: false, onRequest, requestError, weekOffset: 0, onWeekChange: () => undefined }); };
   let tree = render(async () => true);
+  const joinedCells = elements(tree).filter(element => String(element.props["aria-label"]).includes("mentor available"));
+  assert.equal(joinedCells.length, 2);
+  assert.equal((joinedCells[1]!.props.style as { borderTop: string }).borderTop, "1px solid transparent");
+  assert.equal(text(joinedCells[1]), "");
+  (joinedCells[1]!.props.onClick as (event: { currentTarget: HTMLButtonElement }) => void)({ currentTarget: { focus() {} } as HTMLButtonElement });
+  tree = render(async () => true);
+  assert.equal((harness.states[2] as { startsAt: string }).startsAt, nextSlot.startsAt);
+  const closeJoined = elements(tree).find(element => element.props["aria-label"] === "Close mentor picker");
+  (closeJoined!.props.onClick as () => void)();
+  tree = render(async () => true);
   const availableCell = elements(tree).find((element) => typeof element.props.onClick === "function" && String(element.props["aria-label"]).includes("mentor available"));
   assert.ok(availableCell);
   (availableCell.props.onClick as (event: { currentTarget: HTMLButtonElement }) => void)({ currentTarget: { focus() {} } as HTMLButtonElement });
