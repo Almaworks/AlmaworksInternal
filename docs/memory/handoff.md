@@ -1,10 +1,19 @@
 ---
 title: Project Handoff
 status: active
-updated: 2026-09-06
+updated: 2026-11-02
 ---
 
 # Handoff
+
+## 2026-11-02-progress-goal-refresh - Docs refreshed; draft PR opened
+
+- Refreshed `PROGRESS.md` and `GOAL.md` against dated Git history through `0dd958f` (2026-10-15), application code, and release runbooks. Separated implemented workflows, historical backend release evidence, pending authenticated QA, superseded June plans, and future AI scope. No deployment status inferred from commits.
+- Scope: only the two status documents and this handoff. No database/remote Supabase operations, secrets access, merge, or deployment. Cost-aware router skill unavailable; current coordinator used without delegation/model switch.
+- Local checks after dependency installation: lint PASS (0 errors, 11 warnings); `npx tsc --noEmit` PASS; `npm test` FAIL (221/223 test files pass). `tests/calendar/dated-http.test.mts` and `tests/mentor-booking-ui/booking-workspace-admin-and-request.test.mts` fail again in one focused rerun; stopped retrying. Application/test files unchanged; these tests do not reference the edited documents. No clean-suite claim.
+- `npm run build` interrupted (exit 130) after remaining at “Creating an optimized production build” without further output; build verification pending. `git diff --check` PASS. Initial missing-dependency failures were resolved with `npm ci --ignore-scripts --no-audit --no-fund`; no tracked dependency files changed.
+- Committed and opened as a draft PR (docs-only). The 3 failing tests (2 in `tests/calendar/dated-http.test.mts`, 1 in `tests/mentor-booking-ui/booking-workspace-admin-and-request.test.mts`) fail identically on `main` (baseline 1126/1129).
+- Next: maintainer investigates the two existing test-file failures and runs a production build in a suitable environment; feature owners perform target-environment authenticated QA before claiming release readiness. This task does not expand into application repair.
 
 ## 2026-09-15-availability-release-latency - Release build verified; hosted QA pending
 
